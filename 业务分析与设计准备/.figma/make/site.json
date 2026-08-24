@@ -1,0 +1,10 @@
+{
+  "description": "Analyzes business data to classify fields, map pages, define statuses, and identify conflicts ensuring accurate, compliant UI design for complex systems.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

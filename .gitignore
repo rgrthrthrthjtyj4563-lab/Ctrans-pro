@@ -1,0 +1,28 @@
+# Dependencies and build
+node_modules/
+dist/
+build/
+.cache/
+.vite/
+*.tsbuildinfo
+vite.config.*.timestamp-*
+
+# Env and logs
+.env*
+*.log
+*-debug.log*
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local agent / IDE skill copies
+.codex/
+.trae/
+
+# Temp
+.tmp-*
+.claude-replay.*
