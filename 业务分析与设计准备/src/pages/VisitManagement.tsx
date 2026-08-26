@@ -480,7 +480,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
             <FieldGroup title="金额">
               <FieldItem
                 label="本次金额"
-                value={<span style={{ fontSize: 16, fontWeight: 700, color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>¥{drawerRecord.amount.toLocaleString()}</span>}
+                value={<span style={{ fontSize: 16, fontWeight: 700, color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>￥{drawerRecord.amount.toLocaleString()}</span>}
               />
               <FieldItem label="结算状态" value={<StatusTag status={drawerRecord.auditStatus} />} />
             </FieldGroup>

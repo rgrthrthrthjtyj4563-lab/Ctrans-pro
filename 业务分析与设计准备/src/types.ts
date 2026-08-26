@@ -1,3 +1,19 @@
+/**
+ * 类型定义 — 贝医药合作系统
+ *
+ * 铁律（全站统一，违反即返工）：
+ *   1. 货币：人民币、单位元；符号一律全角 ￥（U+FFE5）；
+ *      显示统一走 constants.ts 的 formatCNY / cny。
+ *   2. 弹框：确认 / 调整 / 详情 / 创建一律居中 Modal。
+ *   3. 区域：落库值 = 省级行政区或「全国」。
+ *   4. 角色两套：登录切换器仅三项（Role）；业务链四类（BizRole）只出现在数据与权限矩阵。
+ *   5. 状态只用手册 7 词（数据层）：任务=待确认/执行中/已结算/已撤销；对账=未发起/对账中/已结算；报告=待审核/通过/驳回。
+ *      展示层可映射为主状态（待服务商确认/执行中/待药厂处理/已结算/已撤销）+辅助状态（对账中/报告待审核）。
+ *   6. 金额字段：链路只用手册词——服务总金额（=计划总金额）、已结算金额、剩余可结算金额、发包金额、工作量；
+ *      预算计划/预算执行分析两页专属：年度预算/月度预算/已结算实际/偏离额/偏离率/未结算任务计划金额。
+ */
+
+// ===== 审核状态（拜访绩效 / 结算统计共用；与任务状态分离） =====
 export type AuditStatus =
   | '草稿'
   | '待审核'
@@ -9,32 +25,37 @@ export type AuditStatus =
 
 export type RiskLevel = 'normal' | 'attention' | 'risk' | 'overdue';
 
-// 任务七态状态机（设计文档条25）：待分解 → 待下发 → 待执行 → 执行中 → 已完成；
-// 执行中/待执行可经审批进入 任务取消（额度自动释放回溯）或 任务终止（已发生部分冻结待结算）
-export type TaskExecStatus =
-  | '待分解'
-  | '待下发'
-  | '待执行'
-  | '执行中'
-  | '已完成'
-  | '任务取消'
-  | '任务终止';
+// ===== 手册状态（全文只这些，一个不加） =====
 
-// 任务包状态机（设计文档 2.3）：发包 → 承接 → 执行 → 证据上交 → 初审 → 打绩效 → 结算确认；已取消为终态
-export type TaskPackageStatus =
-  | '待承接'
-  | '已承接'
-  | '执行中'
-  | '证据上交'
-  | '已初审'
-  | '已打绩效'
-  | '结算确认'
-  | '已取消';
+/** 任务状态 */
+export type TaskStatus = '待确认' | '执行中' | '已结算' | '已撤销';
 
+/** 对账状态（与任务状态两列并行） */
+export type ReconStatus = '未发起' | '对账中' | '已结算';
+
+/** 报告状态（仅报告类） */
+export type ReportStatus = '待审核' | '通过' | '驳回';
+
+/** 工作量进度（专员侧，手册原词） */
+export type WorkloadProgress = '已完成' | '待审核' | '未完成';
+
+/** 工作量分配情况（列表列） */
+export type WorkloadStage = '未拆解' | '已拆解到工作组' | '已分配到专员';
+
+// ===== 登录角色 / 业务角色（两套，禁止混用） =====
+
+/** 登录切换角色（部门视角），仅三项。业务链仍是 药厂 → 服务提供商 → 工作组 → 服务专员 */
 export type Role =
-  | '药厂管理员'
-  | '药厂合规管理员'
+  | '药厂销售部门'
+  | '药厂合规部门'
   | '服务提供商';
+
+/** 业务角色（mock 数据，不出现在登录切换器） */
+export type BizRole =
+  | '药厂'
+  | '服务提供商'
+  | '工作组'
+  | '服务专员';
 
 export type VisitType = '医院拜访' | '商业拜访' | '药房拜访';
 
@@ -63,60 +84,227 @@ export interface VisitRecord {
   visitCategory: string;
 }
 
-export interface PromotionTask {
-  id: string;
-  taskNo: string;
-  doctor: string;
-  hospital: string;
-  taskType: string;
-  assignee: string;
-  deadline: string;
-  status: TaskExecStatus; // 条25 七态
-  lastAction: string;
-  riskLevel: RiskLevel;
-  amount: number;
-  progress: number;
-}
+// ===== 预算计划（只表达企业计划，不阻断任务创建/执行/结算） =====
 
-// 月度预算（额度账本 + 实绩账本双账本分列，设计文档 2.2/2.3）
-// 口径公式：可用余额 = 预算额 − 已分配 + 已释放；已分配 = Σ 非取消任务包占用额
-export interface MonthlyBudget {
-  id: string;                  // 'BUD-2026-08'
+/**
+ * 预算行：年度 + 服务商 + 品种集合 + 地区集合，含 12 个月度预算。
+ * 唯一键 = 年度 + 服务商。实际结算金额（actualAmount）由已确认结算单派生，不落库。
+ */
+export interface BudgetPlan {
+  id: string;
   year: number;
-  month: number;
-  monthLabel: string;          // '2026-08'
-  // 额度账本
-  budgetAmount: number;        // 预算额
-  allocatedAmount: number;     // 已分配 = Σ 活跃任务包 budgetOccupied
-  releasedAmount: number;      // 已释放（条18 取消/终止回溯）
-  availableAmount: number;     // 可用余额 = budgetAmount - allocatedAmount + releasedAmount
-  // 实绩账本（只读汇总）
-  executingAmount: number;     // 执行中（待审）
-  executedAmount: number;      // 已执行（已审）
-  settledAmount: number;       // 已结算（结算单已确认）
-  status: '未分解' | '已分解' | '执行中' | '已关账';
-  timeProgress: number;        // 时间进度 0-100
+  /** 服务提供商（单值） */
+  provider: string;
+  /** 覆盖品种（多选） */
+  varieties: string[];
+  /** 覆盖地区（多选，省级或全国） */
+  regions: string[];
+  yearAmount: number;
+  /** 1-12 月预算，长度 12 */
+  months: number[];
+  updatedAt: string;
 }
 
-// 月度任务包（条21 全字段；占用额属额度账本，实绩三口径属实绩账本，永不混用）
-export interface TaskPackage {
+// ===== 品种 / 授权 / 价目 =====
+
+export interface Variety {
   id: string;
-  packageNo: string;           // '#PK-031' 风格
-  monthBudgetId: string;       // 关联月度预算（条15 关联关系）
-  annualTaskName: string;      // 关联年度任务（条20/21）
-  provider: string;            // '自营·业务一组' 或 providers 之一（双队伍）
+  genericName: string;
+  tradeName: string;
+  approvalNo: string;
+  dosageForm: string;
+  spec: string;
+  package: string;
+  unit: string;
+  holder: string;
+  manufacturer: string;
+  validUntil: string;
+}
+
+/** 服务提供商品种授权：同一品种同一区域仅一家服务商 */
+export interface VarietyProviderAuth {
+  id: string;
+  provider: string;
+  varietyId: string;
+  varietyName: string;
+  holder: string;
+  regions: string[];
+}
+
+export interface PriceItem {
+  id: string;
+  varietyId: string;
+  category: string;
+  name: string;
+  amount: number;
+  unit: string;
+  isContractAmount: boolean;
+  isPreset: boolean;
+}
+
+export interface PriceRatio {
+  id: string;
+  varietyId: string;
+  name: string;
+  ratio: number;
+}
+
+export interface ReportPrice {
+  id: string;
+  varietyId: string;
+  /** 价目类别：分析报告服务 / 问卷调研与分析服务 */
+  reportType: string;
+  /** 服务项目名，如 临床应用研究报告、问卷样本量 */
+  name: string;
+  amount: number;
+  unit: string;
+  ratio: number;
+}
+
+// ===== 任务执行一条链 =====
+
+/** 价目类别 = 服务类型：市场推广服务（推广组）；分析报告服务、问卷调研与分析服务（报告组） */
+export type ServiceCategory = '市场推广服务' | '分析报告服务' | '问卷调研与分析服务';
+
+export interface ServiceItem {
+  id: string;
+  /** 归属品种（任务可含多品种，服务表按品种拆开） */
+  variety: string;
+  category: ServiceCategory;
+  name: string;
+  unitPrice: number;
+  unit: string;
+  qty: number;
+  amount: number;
+}
+
+/** 拆解粒度 = 单品种 + 单地区 + 工作组 */
+export interface WorkgroupSplit {
+  id: string;
+  workGroup: string;
   variety: string;
   region: string;
-  budgetOccupied: number;      // 占用额（额度账本）
-  executingAmount: number;     // 执行中（待审）
-  executedAmount: number;      // 已执行（已审）
-  settledAmount: number;       // 已结算（结算单已确认）
-  progress: number;            // 执行进度 0-100（工作量口径，条26）
-  deadline: string;
-  status: TaskPackageStatus;
-  riskLevel: RiskLevel;
-  taskIds: string[];           // 关联 promotionTasks.id（穿透第 2 跳）
+  amount: number;
+  startDate: string;
+  endDate: string;
 }
+
+/** 任务量：专员执行记录；「已完成」=已审核，可选入结算。粒度 = 单品种 + 单地区 */
+export interface WorkloadAssign {
+  id: string;
+  workGroup: string;
+  specialist: string;
+  variety: string;
+  region: string;
+  category: ServiceCategory;
+  itemName: string;
+  workload: number;
+  amount: number;
+  progress: WorkloadProgress;
+  /** 执行归属月份，格式 YYYY-MM */
+  serviceMonth: string;
+  /** 已选入的结算单号；未选入为空 */
+  settledBillNo?: string;
+}
+
+export interface ReportFile {
+  id: string;
+  name: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  status: ReportStatus;
+  comment: string;
+}
+
+export interface SettlementLine {
+  id: string;
+  variety: string;
+  region: string;
+  serviceType: string;
+  serviceItem: string;
+  serviceAmount: number;
+  actualAmount: number;
+  remark: string;
+}
+
+export interface SettlementBill {
+  id: string;
+  billNo: string;
+  contractNo: string;
+  /** 一张结算单对应一个工作组 */
+  workGroup: string;
+  servicePeriod: string;
+  /** 执行归属月份：一张结算单只对应一个月份，格式 YYYY-MM */
+  serviceMonth: string;
+  madeAt: string;
+  provider: string;
+  lines: SettlementLine[];
+  finalAmount: number;
+  confirmed: boolean;
+  confirmedAt?: string;
+  confirmedBy?: string;
+  paymentVoucher?: string;
+}
+
+export interface Task {
+  id: string;
+  taskNo: string;
+  /** 自动生成：商品名_规格_持有人（多品种用顿号连接） */
+  taskName: string;
+  varieties: string[];
+  provider: string;
+  /** 服务地区：多选省级行政区 */
+  regions: string[];
+  /** 推广时间（起止日期） */
+  startDate: string;
+  endDate: string;
+  /** 三张服务表合计：服务总金额（=计划总金额）= Σ serviceItems.amount */
+  planAmount: number;
+  /** Σ 历次结算单最终结算金额 */
+  settledAmount: number;
+  /** 结算完结后剩余作废、不计统计 */
+  remainingVoided: boolean;
+  taskStatus: TaskStatus;
+  reconStatus: ReconStatus;
+  createdAt: string;
+  createdBy: string;
+  serviceItems: ServiceItem[];
+  workgroupSplits: WorkgroupSplit[];
+  workloadAssigns: WorkloadAssign[];
+  reports: ReportFile[];
+  settlements: SettlementBill[];
+}
+
+export interface CreateTaskInput {
+  varieties: string[];
+  provider: string;
+  regions: string[];
+  startDate: string;
+  endDate: string;
+  serviceItems: ServiceItem[];
+}
+
+export interface CreateBudgetPlanInput {
+  year: number;
+  provider: string;
+  varieties: string[];
+  regions: string[];
+  yearAmount: number;
+  months?: number[];
+}
+
+export interface CreateAuthInput {
+  provider: string;
+  varietyId: string;
+  regions: string[];
+}
+
+export interface NavFocus {
+  taskId?: string;
+  budgetAnalysis?: { budgetPlanId: string; year: number; provider: string };
+}
+
+export type NavigateFn = (page: PageId, focus?: NavFocus) => void;
 
 export interface Doctor {
   id: string;
@@ -130,21 +318,6 @@ export interface Doctor {
   phone?: string;
   lastVisit: string;
   visitCount: number;
-}
-
-export interface SettlementRecord {
-  id: string;
-  statementNo: string;
-  specialist: string;
-  provider: string;
-  workGroup: string;
-  period: string;
-  variety: string;
-  amount: number;
-  status: AuditStatus;
-  auditComment: string;
-  createdAt: string;
-  settledAt?: string;
 }
 
 export interface AuditLogEntry {
@@ -168,10 +341,12 @@ export type PageId =
   | 'pharmacy-visits'
   | 'meetings'
   | 'surveys'
-  | 'promotion-tasks'
+  | 'budget-plan'
+  | 'analytics'
   | 'task-dispatch'
   | 'doctors'
   | 'varieties'
+  | 'variety-auth'
   | 'enterprise-users'
   | 'settlement'
   | 'inspection'
@@ -180,12 +355,11 @@ export type PageId =
   | 'price-config'
   | 'roles'
   | 'departments'
-  | 'audit-log'
-  | 'analytics';
+  | 'audit-log';
 
 export type DashboardSeverity = 'risk' | 'attention' | 'info';
 export type DashboardConfidence = '高' | '中' | '低';
-export type MessageType = '任务提醒' | '预算预警' | '随检通知' | '审批待办' | '转办通知';
+export type MessageType = '任务提醒' | '随检通知' | '审批待办' | '转办通知';
 export type ReminderLevel = '3天提醒' | '1天提醒' | '1小时提醒' | '已超期';
 export type AlertLayer = '监管政策' | '风控提示';
 export type DashboardMetricIcon =

@@ -130,7 +130,7 @@ export function MetricCard({
             color: isPositive ? '#C73A3A' : isNegative ? '#248A5A' : '#667085',
           }}>
             {isPositive ? <TrendingUp size={13} /> : isNegative ? <TrendingDown size={13} /> : <Minus size={13} />}
-            {delta > 0 ? '+' : ''}{typeof delta === 'number' && Math.abs(delta) > 1000 ? `¥${Math.abs(delta).toLocaleString()}` : Math.abs(delta)}
+            {delta > 0 ? '+' : ''}{typeof delta === 'number' && Math.abs(delta) > 1000 ? `￥${Math.abs(delta).toLocaleString()}` : Math.abs(delta)}
           </span>
         )}
         {deltaLabel && <span style={{ fontSize: metaSize, color: '#9CA3AF' }}>{deltaLabel}</span>}

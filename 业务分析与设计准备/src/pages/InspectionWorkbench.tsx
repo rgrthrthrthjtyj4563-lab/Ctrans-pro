@@ -41,7 +41,7 @@ function PanelHeader({ icon, title, subtitle }: { icon: React.ReactNode; title: 
 }
 
 export function InspectionWorkbench({ addToast }: { addToast: (msg: Omit<ToastMessage, 'id'>) => void }) {
-  const data = getRoleDashboardData('药厂合规管理员').inspectionWorkbench;
+  const data = getRoleDashboardData('药厂合规部门').inspectionWorkbench;
   if (!data) return null;
   const { recommended, active, pending } = data;
 

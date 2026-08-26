@@ -1,31 +1,35 @@
-import type { AuditStatus, RiskLevel, TaskExecStatus, TaskPackageStatus } from '../types';
+import type {
+  AuditStatus,
+  ReconStatus,
+  ReportStatus,
+  RiskLevel,
+  TaskStatus,
+} from '../types';
 
-export type StatusTagStatus = AuditStatus | TaskExecStatus | TaskPackageStatus;
+export type StatusTagStatus =
+  | AuditStatus
+  | TaskStatus
+  | ReconStatus
+  | ReportStatus;
 
-// 统一状态配置表：审核态 + 任务七态（条25）+ 任务包 8 态（设计文档 2.3）
-const statusConfig: Record<StatusTagStatus, { label: string; fg: string; bg: string; dot: string }> = {
-  // 审核态
+const statusConfig: Record<string, { label: string; fg: string; bg: string; dot: string }> = {
+  // 审核态（拜访绩效 / 结算统计）
   '草稿':   { label: '草稿',   fg: '#374151', bg: '#F3F4F6', dot: '#9CA3AF' },
   '待审核': { label: '待审核', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '已通过': { label: '已通过', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
   '已驳回': { label: '已驳回', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
-  '已撤销': { label: '已撤销', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
-  // 任务七态（条25）
-  '待分解': { label: '待分解', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
-  '待下发': { label: '待下发', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
-  '待执行': { label: '待执行', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
-  '执行中': { label: '执行中', fg: '#176B5B', bg: '#E8F4F1', dot: '#176B5B' },
-  '已完成': { label: '已完成', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
-  '任务取消': { label: '任务取消', fg: '#9CA3AF', bg: '#F3F4F6', dot: '#9CA3AF' },
-  '任务终止': { label: '任务终止', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
-  // 任务包 8 态（设计文档 2.3）；已打绩效 / 已结算 与审核态同名复用
-  '待承接': { label: '待承接', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
-  '已承接': { label: '已承接', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
-  '证据上交': { label: '证据上交', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
-  '已初审': { label: '已初审', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
   '已打绩效': { label: '已打绩效', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
-  '结算确认': { label: '结算确认', fg: '#176B5B', bg: '#E8F4F1', dot: '#176B5B' },
-  '已取消': { label: '已取消', fg: '#9CA3AF', bg: '#F3F4F6', dot: '#9CA3AF' },
+  '已撤销': { label: '已撤销', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
+  // 任务状态（手册）
+  '待确认': { label: '待确认', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
+  '执行中': { label: '执行中', fg: '#176B5B', bg: '#E8F4F1', dot: '#176B5B' },
+  '已结算': { label: '已结算', fg: '#176B5B', bg: '#E8F4F1', dot: '#176B5B' },
+  // 对账状态
+  '未发起': { label: '未发起', fg: '#667085', bg: '#F3F4F6', dot: '#98A2B3' },
+  '对账中': { label: '对账中', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
+  // 报告状态
+  '通过': { label: '通过', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
+  '驳回': { label: '驳回', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
 };
 
 const riskConfig: Record<RiskLevel, { label: string; fg: string; bg: string; dot: string }> = {
@@ -41,7 +45,7 @@ interface StatusTagProps {
 }
 
 export function StatusTag({ status, size = 'md' }: StatusTagProps) {
-  const cfg = statusConfig[status];
+  const cfg = statusConfig[status] ?? { label: status, fg: '#374151', bg: '#F3F4F6', dot: '#9CA3AF' };
   const px = size === 'sm' ? '6px' : '8px';
   const py = size === 'sm' ? '2px' : '3px';
   const fs = size === 'sm' ? '11px' : '12px';

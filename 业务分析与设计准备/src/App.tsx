@@ -1,15 +1,19 @@
 import { useState, useCallback } from 'react';
 import {
-  LayoutDashboard, ClipboardList, FileText, Wallet,
-  Link, Database, Settings, BarChart2, Shield,
+  LayoutDashboard, ClipboardList,
+  Database, Settings, Shield,
   ChevronDown, ChevronRight, Bell, Search, LogOut,
-  User, Building2, Stethoscope, FlaskConical, Archive,
-  ChevronLeft, Activity, Users, Camera,
+  Building2, Archive,
+  ChevronLeft, Activity, Users, CircleDollarSign,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { VisitManagement } from './pages/VisitManagement';
-import { PromotionTasks } from './pages/PromotionTasks';
-import { TaskDispatch } from './pages/TaskDispatch';
+import { TaskExecution } from './pages/TaskExecution';
+import { BudgetPlanPage } from './pages/BudgetPlan';
+import { BudgetAnalysis } from './pages/BudgetAnalysis';
+import { VarietyManage } from './pages/VarietyManage';
+import { VarietyAuth } from './pages/VarietyAuth';
+import { PriceConfig } from './pages/PriceConfig';
 import { DoctorMaster } from './pages/DoctorMaster';
 import { Settlement } from './pages/Settlement';
 import { AuditLog } from './pages/AuditLog';
@@ -18,7 +22,8 @@ import { EvidenceChainReview } from './pages/EvidenceChainReview';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { getRoleDashboardData } from './data/mockData';
-import type { PageId, Role } from './types';
+import { TaskDataProvider } from './context/TaskDataContext';
+import type { NavFocus, NavigateFn, PageId, Role } from './types';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
 interface NavItem {
@@ -39,36 +44,8 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
   {
     label: '业务管理',
     items: [
-      {
-        id: 'tasks-group', label: '任务管理', icon: ClipboardList,
-        children: [
-          { id: 'promotion-tasks', label: '推广任务', badge: 3 },
-          { id: 'task-dispatch', label: '任务下发' },
-        ],
-      },
-      {
-        id: 'visits-group', label: '业务填报', icon: FileText,
-        children: [
-          { id: 'hospital-visits', label: '医院拜访' },
-          { id: 'commercial-visits', label: '商业拜访' },
-          { id: 'pharmacy-visits', label: '药房拜访' },
-          { id: 'meetings', label: '会议活动', disabled: true },
-          { id: 'surveys', label: '调研管理', disabled: true },
-        ],
-      },
-      {
-        id: 'settlement-group', label: '绩效结算', icon: Wallet,
-        children: [
-          { id: 'settlement', label: '服务专员结算' },
-        ],
-      },
-      {
-        id: 'compliance-group', label: '合规管理', icon: Camera,
-        children: [
-          { id: 'inspection', label: '随检工作台' },
-          { id: 'evidence-chain', label: '证据链复审' },
-        ],
-      },
+      { id: 'budget-plan', label: '预算计划', icon: CircleDollarSign },
+      { id: 'task-dispatch', label: '任务执行', icon: ClipboardList },
     ],
   },
   {
@@ -78,7 +55,8 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
         id: 'master-group', label: '主数据管理', icon: Database,
         children: [
           { id: 'doctors', label: '医生主数据' },
-          { id: 'varieties', label: '品种管理', disabled: true },
+          { id: 'varieties', label: '品种管理' },
+          { id: 'variety-auth', label: '品种授权' },
           { id: 'enterprise-users', label: '企业用户', disabled: true },
         ],
       },
@@ -91,10 +69,9 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
         id: 'config-group', label: '规则配置', icon: Settings,
         children: [
           { id: 'business-switch', label: '药厂业务开关', disabled: true },
-          { id: 'price-config', label: '价目配置', disabled: true },
+          { id: 'price-config', label: '价目配置' },
         ],
       },
-      { id: 'analytics', label: '统计分析', icon: BarChart2, disabled: true },
       {
         id: 'admin-group', label: '系统管理', icon: Shield,
         children: [
@@ -114,17 +91,18 @@ const pageLabels: Record<string, string> = {
   'pharmacy-visits': '药房拜访管理',
   meetings: '会议活动',
   surveys: '调研管理',
-  'promotion-tasks': '推广任务',
-  'task-dispatch': '任务下发',
+  'budget-plan': '预算计划',
+  analytics: '预算执行分析',
+  'task-dispatch': '任务执行',
   doctors: '医生主数据',
   varieties: '品种管理',
+  'variety-auth': '品种授权',
   'enterprise-users': '企业用户',
-  settlement: '结算与对账',
+  settlement: '结算明细',
   inspection: '随检工作台',
   'evidence-chain': '证据链复审',
   'business-switch': '药厂业务开关',
   'price-config': '价目配置',
-  analytics: '统计分析',
   roles: '角色管理',
   departments: '机构部门',
   'audit-log': '操作日志',
@@ -136,20 +114,21 @@ const pageSections: Record<string, string> = {
   'pharmacy-visits': '业务填报',
   meetings: '业务填报',
   surveys: '业务填报',
-  'promotion-tasks': '任务管理',
-  'task-dispatch': '任务管理',
+  'budget-plan': '业务管理',
+  analytics: '业务管理',
+  'task-dispatch': '业务管理',
   settlement: '绩效结算',
   inspection: '合规管理',
   'evidence-chain': '合规管理',
   doctors: '主数据管理',
   varieties: '主数据管理',
+  'variety-auth': '主数据管理',
   'enterprise-users': '主数据管理',
   'business-switch': '规则配置',
   'price-config': '规则配置',
   roles: '系统管理',
   departments: '系统管理',
   'audit-log': '系统管理',
-  analytics: '统计分析',
 };
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
@@ -356,11 +335,12 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['tasks-group', 'visits-group', 'compliance-group'])
+    new Set(['master-group', 'config-group'])
   );
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [currentRole, setCurrentRole] = useState<Role>('药厂管理员');
+  const [currentRole, setCurrentRole] = useState<Role>('药厂销售部门');
+  const [navFocus, setNavFocus] = useState<NavFocus>({});
 
   const addToast = useCallback((msg: Omit<ToastMessage, 'id'>) => {
     const id = `toast-${Date.now()}`;
@@ -371,16 +351,16 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  function navigate(page: PageId) {
-    // auto-expand the parent group
+  const navigate: NavigateFn = (page, focus) => {
     const group = navGroups
       .flatMap(g => g.items)
-      .find(item => item.children?.some(c => c.id === page));
-    if (group) {
+      .find(item => item.children?.some(c => c.id === page) || item.id === page);
+    if (group && group.children) {
       setExpandedGroups(prev => new Set([...prev, group.id]));
     }
+    setNavFocus(focus ?? {});
     setCurrentPage(page);
-  }
+  };
 
   function toggleGroup(id: string) {
     setExpandedGroups(prev => {
@@ -397,10 +377,14 @@ export default function App() {
       case 'hospital-visits':  return <VisitManagement addToast={addToast} />;
       case 'commercial-visits': return <VisitManagement addToast={addToast} />;
       case 'pharmacy-visits':  return <VisitManagement addToast={addToast} />;
-      case 'promotion-tasks':  return <PromotionTasks addToast={addToast} navigate={navigate} />;
-      case 'task-dispatch':    return <TaskDispatch addToast={addToast} navigate={navigate} currentRole={currentRole} />;
+      case 'budget-plan':       return <BudgetPlanPage addToast={addToast} currentRole={currentRole} navigate={navigate} />;
+      case 'analytics':         return <BudgetAnalysis currentRole={currentRole} navigate={navigate} focus={navFocus} />;
+      case 'task-dispatch':    return <TaskExecution addToast={addToast} navigate={navigate} currentRole={currentRole} navFocus={navFocus} />;
       case 'doctors':          return <DoctorMaster />;
-      case 'settlement':       return <Settlement addToast={addToast} />;
+      case 'varieties':        return <VarietyManage addToast={addToast} currentRole={currentRole} />;
+      case 'variety-auth':     return <VarietyAuth addToast={addToast} currentRole={currentRole} />;
+      case 'price-config':     return <PriceConfig addToast={addToast} currentRole={currentRole} />;
+      case 'settlement':       return <Settlement addToast={addToast} currentRole={currentRole} navigate={navigate} />;
       case 'inspection':       return <InspectionWorkbench addToast={addToast} />;
       case 'evidence-chain':   return <EvidenceChainReview addToast={addToast} />;
       case 'audit-log':        return <AuditLog />;
@@ -416,20 +400,38 @@ export default function App() {
     pageLabels[currentPage],
   ].filter(Boolean);
 
-  const roles: Role[] = ['药厂管理员', '药厂合规管理员', '服务提供商'];
+  const roles: Role[] = ['药厂合规部门', '药厂销售部门', '服务提供商'];
 
-  // 角色可见性：任务下发仅药厂管理员与服务提供商可见（临时方案，待权限模块 permissions.ts 落地后迁移）
+  // 预算计划/价目/授权/创建任务 = 药厂销售专属（服务商不可见预算）；任务执行两角色都见，合规只读
   const visibleNavGroups = navGroups.map(group => ({
     ...group,
-    items: group.items.map(item => {
-      if (item.id === 'tasks-group' && currentRole === '药厂合规管理员') {
-        return { ...item, children: (item.children ?? []).filter(c => c.id !== 'task-dispatch') };
-      }
-      return item;
-    }),
+    items: group.items
+      .filter(item => {
+        if (item.id === 'budget-plan' && currentRole !== '药厂销售部门') return false;
+        return true;
+      })
+      .map(item => {
+        if (item.id === 'master-group') {
+          const children = (item.children ?? []).filter(c => {
+            if (c.id === 'variety-auth' && currentRole !== '药厂销售部门') return false;
+            if (c.id === 'varieties' && currentRole === '服务提供商') return false;
+            return true;
+          });
+          return { ...item, children };
+        }
+        if (item.id === 'config-group') {
+          const children = (item.children ?? []).filter(c => {
+            if (c.id === 'price-config' && currentRole !== '药厂销售部门') return false;
+            return true;
+          });
+          return { ...item, children };
+        }
+        return item;
+      }),
   }));
 
   return (
+    <TaskDataProvider>
     <div style={{ display: 'flex', height: '100%', background: '#F5F7F8', overflow: 'hidden' }}>
 
       {/* ── Sidebar ─────────────────────────────────────────────────────── */}
@@ -819,5 +821,6 @@ export default function App() {
         />
       )}
     </div>
+    </TaskDataProvider>
   );
 }

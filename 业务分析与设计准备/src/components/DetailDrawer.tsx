@@ -5,42 +5,55 @@ interface DetailDrawerProps {
   open: boolean;
   title: string;
   subtitle?: string;
+  /** 语义为居中卡片 maxWidth（历史 props 名 width 保留，调用点零改动） */
   width?: number;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
 }
 
+/** 居中 Modal（保留 DetailDrawer 名称，全站调用点零改动即可从右侧抽屉变为居中） */
 export function DetailDrawer({ open, title, subtitle, width = 560, onClose, children, footer }: DetailDrawerProps) {
+  if (!open) return null;
+
+  const maxWidth = Math.min(Math.max(width, 480), 720);
+
   return (
-    <>
-      {open && (
-        <div
-          onClick={onClose}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 200,
-            background: 'rgba(17,24,39,0.30)',
-            animation: 'fadeIn 150ms ease',
-          }}
-        />
-      )}
-      <div style={{
+    <div
+      style={{
         position: 'fixed',
-        top: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 201,
-        width,
-        background: '#FFFFFF',
-        boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+        inset: 0,
+        zIndex: 200,
         display: 'flex',
-        flexDirection: 'column',
-        transform: open ? 'translateX(0)' : `translateX(${width}px)`,
-        transition: 'transform 220ms cubic-bezier(0.25,0.46,0.45,0.94)',
-      }}>
-        {/* Header */}
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'rgba(17,24,39,0.35)',
+          animation: 'fadeIn 150ms ease',
+        }}
+      />
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 201,
+          width: '100%',
+          maxWidth,
+          maxHeight: '90vh',
+          background: '#FFFFFF',
+          borderRadius: 12,
+          boxShadow: '0 16px 40px rgba(0,0,0,0.16)',
+          display: 'flex',
+          flexDirection: 'column',
+          animation: 'dialogIn 150ms ease',
+        }}
+      >
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -75,16 +88,14 @@ export function DetailDrawer({ open, title, subtitle, width = 560, onClose, chil
           </button>
         </div>
 
-        {/* Body */}
         <div style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px',
+          padding: 20,
         }}>
           {children}
         </div>
 
-        {/* Footer */}
         {footer && (
           <div style={{
             padding: '14px 20px',
@@ -101,8 +112,12 @@ export function DetailDrawer({ open, title, subtitle, width = 560, onClose, chil
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes dialogIn {
+          from { opacity: 0; transform: scale(0.96) translateY(-8px); }
+          to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
       `}</style>
-    </>
+    </div>
   );
 }
 

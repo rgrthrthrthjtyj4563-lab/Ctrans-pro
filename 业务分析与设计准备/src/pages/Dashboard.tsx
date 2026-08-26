@@ -285,7 +285,7 @@ function QueueTable({
   const sorted = [...items].sort((a, b) => riskOrder[a.risk] - riskOrder[b.risk]);
 
   return (
-    <SectionCard title="优先处理队列" subtitle="排序保持：逾期 > 风险 > 关注 > 正常" actionLabel="查看全部" onAction={() => navigate('promotion-tasks')}>
+    <SectionCard title="优先处理队列" subtitle="排序保持：逾期 > 风险 > 关注 > 正常" actionLabel="查看全部" onAction={() => navigate('task-dispatch')}>
       <div style={{ overflowX: 'auto' }}>
         <div style={{ minWidth: 760 }}>
           <div
@@ -482,30 +482,16 @@ function TaskListPanel({
 
 type SalesAdminAnalysisView = 'comparison' | 'ranking' | null;
 
-function getNumericValue(value?: string | number) {
-  if (typeof value === 'number') {
-    return value;
-  }
-  if (!value) {
-    return null;
-  }
-  const match = value.match(/-?\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : null;
-}
-
 function buildSalesAdminStatusSummary(data: DashboardRoleData) {
   const taskRiskInsight = data.insights.find(item => item.severity === 'risk');
-  const taskCountMatch = taskRiskInsight?.conclusion.match(/(\d+) 个任务包/);
+  const taskCountMatch = taskRiskInsight?.conclusion.match(/(\d+) 个任务/);
   const overdueMetric = data.metrics.find(item => item.title === '超期未填报');
-  const budgetMetric = data.metrics.find(item => item.title === '预算执行率');
-  const budgetExecution = getNumericValue(budgetMetric?.value);
-  const budgetTimeline = getNumericValue(budgetMetric?.subtitle);
-  const budgetLead = budgetExecution !== null && budgetTimeline !== null ? budgetExecution - budgetTimeline : null;
+  const quotaMetric = data.metrics.find(item => item.title === '费用额度剩余');
   const overdueValue = overdueMetric ? `${overdueMetric.value}${overdueMetric.unit ?? ''}` : null;
   const summaryParts = [
-    taskCountMatch ? `${taskCountMatch[1]} 个任务包落后时间进度` : null,
+    taskCountMatch ? `${taskCountMatch[1]} 个任务落后时间进度` : null,
     overdueValue ? `超期未填报 ${overdueValue}` : null,
-    budgetLead !== null ? `预算执行快于时间进度 ${budgetLead} 点` : null,
+    quotaMetric ? `费用额度剩余 ${quotaMetric.value}` : null,
   ].filter(Boolean);
 
   return summaryParts.join(' · ');
@@ -535,7 +521,7 @@ function SalesAdminQueuePanel({
           <p style={{ margin: '4px 0 0', fontSize: 12, color: '#667085' }}>排序保持：逾期 &gt; 风险 &gt; 关注 &gt; 正常</p>
         </div>
         <button
-          onClick={() => navigate('promotion-tasks')}
+          onClick={() => navigate('task-dispatch')}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -771,7 +757,7 @@ function SalesAdminMoreAnalysisSimplified({
   );
 }
 
-// ─── 药厂合规管理员：整页骨架对齐药厂管理员 ────────────────────
+// ─── 药厂合规部门：整页骨架对齐药厂销售部门 ────────────────────
 type ComplianceLayer = 'orange' | 'blue';
 
 const complianceLayerMeta: Record<ComplianceLayer, { bar: string; bg: string; tag: 'warning' | 'info'; label: string }> = {
@@ -1149,8 +1135,8 @@ export function Dashboard({
   const data = useMemo(() => getRoleDashboardData(role), [role]);
   const [dismissedInsights, setDismissedInsights] = useState<string[]>([]);
   const [feedbacks, setFeedbacks] = useState<Record<string, 'valid' | 'false-positive'>>({});
-  const isSalesAdmin = role === '药厂管理员';
-  const isComplianceAdmin = role === '药厂合规管理员';
+  const isSalesAdmin = role === '药厂销售部门';
+  const isComplianceAdmin = role === '药厂合规部门';
   const visibleInsights = data.insights
     .filter(item => !dismissedInsights.includes(item.id))
     .sort((a, b) => insightOrder[a.severity] - insightOrder[b.severity]);
@@ -1295,7 +1281,7 @@ export function Dashboard({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>{data.comparisonTable.title}</h2>
                 <button
-                  onClick={() => navigate('analytics')}
+                  onClick={() => navigate('budget-plan')}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1348,7 +1334,7 @@ export function Dashboard({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>{data.ranking.title}</h2>
                 <button
-                  onClick={() => navigate('analytics')}
+                  onClick={() => navigate('budget-plan')}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
