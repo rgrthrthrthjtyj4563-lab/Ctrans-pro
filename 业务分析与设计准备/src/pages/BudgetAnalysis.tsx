@@ -134,7 +134,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
   const [billDrill, setBillDrill] = useState<{ provider: string; variety: string; region: string; month: number } | null>(null);
   const [billDetail, setBillDetail] = useState<BillDetail | null>(null);
   const [taskDetail, setTaskDetail] = useState<Task | null>(null);
-  const [taskTab, setTaskTab] = useState<DetailTab>('basic');
+  const [taskTab, setTaskTab] = useState<DetailTab>('plan');
 
   const year = boundPlan ? boundPlan.year : Number(applied.year) || 2026;
   const monthFilter = applied.month ? Number(applied.month) : 0;
@@ -162,7 +162,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
     tasks.forEach((task) => {
       if (task.taskStatus === '已撤销') return;
       task.settlements.forEach((bill) => {
-        if (!bill.confirmed) return;
+        if (!bill.confirmed || bill.voided) return;
         if (!boundPlan && Number(bill.serviceMonth.slice(0, 4)) !== year) return;
         bill.lines.forEach((l) => {
           if (boundPlan) {
@@ -472,7 +472,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
                   </td>
                   <td style={tdText}>
                     <button
-                      onClick={() => { setTaskTab('basic'); setTaskDetail(r.task); }}
+                      onClick={() => { setTaskTab('plan'); setTaskDetail(r.task); }}
                       style={{ color: '#2F6BCE', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: 0, textDecoration: 'underline' }}
                     >
                       {r.task.taskNo}

@@ -1,10 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   LayoutDashboard, ClipboardList,
   Database, Settings, Shield,
   ChevronDown, ChevronRight, Bell, Search, LogOut,
   Building2, Archive,
-  ChevronLeft, Activity, Users, CircleDollarSign,
+  ChevronLeft, Users, CircleDollarSign, UserCheck,
+  ShieldCheck, FileSearch,
+  Sparkles,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { VisitManagement } from './pages/VisitManagement';
@@ -19,10 +21,21 @@ import { Settlement } from './pages/Settlement';
 import { AuditLog } from './pages/AuditLog';
 import { InspectionWorkbench } from './pages/InspectionWorkbench';
 import { EvidenceChainReview } from './pages/EvidenceChainReview';
+import { RepFilingManage } from './pages/RepFilingManage';
+import { VendorAccessManage } from './pages/VendorAccessManage';
+import { RoleManage } from './pages/RoleManage';
+import { UserGrantManage } from './pages/UserGrantManage';
+import { PermissionAudit } from './pages/PermissionAudit';
+import { RolePreview } from './pages/RolePreview';
+import { PreviewBanner } from './pages/permUi';
+import { BaiyeeAI } from './pages/BaiyeeAI';
+import { BrandLogo } from './components/Brand';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { getRoleDashboardData } from './data/mockData';
 import { TaskDataProvider } from './context/TaskDataContext';
+import { PermissionProvider, usePermission } from './context/PermissionContext';
+import { RESOURCE_PAGES } from './data/permissions';
 import type { NavFocus, NavigateFn, PageId, Role } from './types';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
@@ -39,6 +52,7 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
   {
     items: [
       { id: 'dashboard', label: '工作台', icon: LayoutDashboard, badge: 8 },
+      { id: 'baiyee-ai', label: 'baiyee-AI', icon: Sparkles },
     ],
   },
   {
@@ -46,6 +60,24 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
     items: [
       { id: 'budget-plan', label: '预算计划', icon: CircleDollarSign },
       { id: 'task-dispatch', label: '任务执行', icon: ClipboardList },
+    ],
+  },
+  {
+    label: '合规管理',
+    items: [
+      { id: 'inspection', label: '随检工作台', icon: ShieldCheck },
+      { id: 'evidence-chain', label: '证据链复审', icon: FileSearch },
+    ],
+  },
+  {
+    items: [
+      {
+        id: 'enterprise-user-group', label: '企业用户管理', icon: UserCheck,
+        children: [
+          { id: 'rep-filing', label: '医药代表备案管理' },
+          { id: 'vendor-access', label: '服务商准入管理' },
+        ],
+      },
     ],
   },
   {
@@ -75,7 +107,10 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
       {
         id: 'admin-group', label: '系统管理', icon: Shield,
         children: [
-          { id: 'roles', label: '角色管理', disabled: true },
+          { id: 'roles', label: '角色管理' },
+          { id: 'user-grants', label: '用户授权' },
+          { id: 'perm-audit', label: '权限审计' },
+          { id: 'role-preview', label: '角色预览' },
           { id: 'departments', label: '机构部门', disabled: true },
           { id: 'audit-log', label: '操作日志' },
         ],
@@ -98,14 +133,20 @@ const pageLabels: Record<string, string> = {
   varieties: '品种管理',
   'variety-auth': '品种授权',
   'enterprise-users': '企业用户',
+  'rep-filing': '医药代表备案管理',
+  'vendor-access': '服务商准入管理',
   settlement: '结算明细',
   inspection: '随检工作台',
   'evidence-chain': '证据链复审',
   'business-switch': '药厂业务开关',
   'price-config': '价目配置',
   roles: '角色管理',
+  'user-grants': '用户授权',
+  'perm-audit': '权限审计',
+  'role-preview': '角色预览',
   departments: '机构部门',
   'audit-log': '操作日志',
+  'baiyee-ai': 'baiyee-AI',
 };
 
 const pageSections: Record<string, string> = {
@@ -124,19 +165,25 @@ const pageSections: Record<string, string> = {
   varieties: '主数据管理',
   'variety-auth': '主数据管理',
   'enterprise-users': '主数据管理',
+  'rep-filing': '企业用户管理',
+  'vendor-access': '企业用户管理',
   'business-switch': '规则配置',
   'price-config': '规则配置',
   roles: '系统管理',
+  'user-grants': '系统管理',
+  'perm-audit': '系统管理',
+  'role-preview': '系统管理',
   departments: '系统管理',
   'audit-log': '系统管理',
 };
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
 function NavLeaf({
-  id, label, active, badge, disabled, collapsed, onClick,
+  id, label, active, badge, disabled, collapsed, onClick, icon: Icon,
 }: {
   id: string; label: string; active: boolean; badge?: number;
   disabled?: boolean; collapsed: boolean; onClick: () => void;
+  icon?: typeof LayoutDashboard;
 }) {
   return (
     <button
@@ -177,8 +224,9 @@ function NavLeaf({
           borderRadius: '0 2px 2px 0',
         }} />
       )}
+      {Icon && <Icon size={16} style={{ color: disabled ? '#374151' : active ? '#4ADE80' : '#6B7280', flexShrink: 0 }} />}
       {!collapsed && <span style={{ marginLeft: active ? 4 : 0 }}>{label}</span>}
-      {collapsed && <span style={{ fontSize: 11, color: active ? '#4ADE80' : '#9CA3AF' }}>{label.slice(0, 2)}</span>}
+      {collapsed && !Icon && <span style={{ fontSize: 11, color: active ? '#4ADE80' : '#9CA3AF' }}>{label.slice(0, 2)}</span>}
       {badge !== undefined && !collapsed && (
         <span style={{
           marginLeft: 'auto',
@@ -220,6 +268,7 @@ function NavGroup({
         badge={item.badge}
         disabled={item.disabled}
         collapsed={collapsed}
+        icon={item.icon}
         onClick={() => onNavigate(item.id as PageId)}
       />
     );
@@ -332,14 +381,31 @@ function StubPage({ title, description }: { title: string; description?: string 
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const [currentRole, setCurrentRole] = useState<Role>('药厂销售部门');
+  return (
+    <TaskDataProvider>
+      <PermissionProvider loginRole={currentRole}>
+        <AppShell currentRole={currentRole} setCurrentRole={setCurrentRole} />
+      </PermissionProvider>
+    </TaskDataProvider>
+  );
+}
+
+function AppShell({
+  currentRole,
+  setCurrentRole,
+}: {
+  currentRole: Role;
+  setCurrentRole: (role: Role) => void;
+}) {
+  const { visiblePages, preview, effectiveRole, exitPreview, orgs, users, logAudit } = usePermission();
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['master-group', 'config-group'])
+    new Set(['master-group', 'config-group', 'enterprise-user-group', 'admin-group'])
   );
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [currentRole, setCurrentRole] = useState<Role>('药厂销售部门');
   const [navFocus, setNavFocus] = useState<NavFocus>({});
 
   const addToast = useCallback((msg: Omit<ToastMessage, 'id'>) => {
@@ -352,6 +418,20 @@ export default function App() {
   }, []);
 
   const navigate: NavigateFn = (page, focus) => {
+    const controlled = RESOURCE_PAGES.some(p => p.id === page);
+    if (controlled && page !== 'dashboard' && !visiblePages.has(page)) {
+      logAudit({
+        module: pageLabels[page] || page,
+        action: '越权访问',
+        target: pageLabels[page] || page,
+        resource: `${page}.view`,
+        decision: '拒绝',
+        reason: '当前角色无页面查看权限',
+        result: '失败',
+      });
+      addToast({ type: 'error', title: '无权访问该页面', description: '已写入权限审计，无法通过菜单或快捷入口绕过。' });
+      return;
+    }
     const group = navGroups
       .flatMap(g => g.items)
       .find(item => item.children?.some(c => c.id === page) || item.id === page);
@@ -388,6 +468,13 @@ export default function App() {
       case 'inspection':       return <InspectionWorkbench addToast={addToast} />;
       case 'evidence-chain':   return <EvidenceChainReview addToast={addToast} />;
       case 'audit-log':        return <AuditLog />;
+      case 'rep-filing':       return <RepFilingManage addToast={addToast} currentRole={currentRole} />;
+      case 'vendor-access':    return <VendorAccessManage addToast={addToast} currentRole={currentRole} />;
+      case 'roles':            return <RoleManage addToast={addToast} />;
+      case 'user-grants':      return <UserGrantManage addToast={addToast} />;
+      case 'perm-audit':       return <PermissionAudit />;
+      case 'role-preview':     return <RolePreview addToast={addToast} navigate={navigate} />;
+      case 'baiyee-ai':        return <BaiyeeAI navigate={navigate} />;
       default:                 return <StubPage title={pageLabels[currentPage] || currentPage} />;
     }
   }
@@ -402,44 +489,44 @@ export default function App() {
 
   const roles: Role[] = ['药厂合规部门', '药厂销售部门', '服务提供商'];
 
-  // 预算计划/价目/授权/创建任务 = 药厂销售专属（服务商不可见预算）；任务执行两角色都见，合规只读
-  const visibleNavGroups = navGroups.map(group => ({
-    ...group,
-    items: group.items
-      .filter(item => {
-        if (item.id === 'budget-plan' && currentRole !== '药厂销售部门') return false;
-        return true;
-      })
-      .map(item => {
-        if (item.id === 'master-group') {
-          const children = (item.children ?? []).filter(c => {
-            if (c.id === 'variety-auth' && currentRole !== '药厂销售部门') return false;
-            if (c.id === 'varieties' && currentRole === '服务提供商') return false;
-            return true;
-          });
+  const visibleNavGroups = navGroups
+    .map(group => ({
+      ...group,
+      items: group.items
+        .map(item => {
+          if (!item.children) {
+            if (item.disabled) return item;
+            return visiblePages.has(item.id) ? item : null;
+          }
+          const children = item.children.filter(c => c.disabled || visiblePages.has(c.id));
+          if (!children.some(c => !c.disabled && visiblePages.has(c.id))) return null;
           return { ...item, children };
-        }
-        if (item.id === 'config-group') {
-          const children = (item.children ?? []).filter(c => {
-            if (c.id === 'price-config' && currentRole !== '药厂销售部门') return false;
-            return true;
-          });
-          return { ...item, children };
-        }
-        return item;
-      }),
-  }));
+        })
+        .filter((item): item is NavItem => item !== null),
+    }))
+    .filter(group => group.items.length > 0);
+
+  useEffect(() => {
+    const controlled = RESOURCE_PAGES.some(p => p.id === currentPage);
+    if (controlled && currentPage !== 'dashboard' && !visiblePages.has(currentPage)) {
+      setCurrentPage('dashboard');
+    }
+  }, [visiblePages, currentPage]);
+
+  const previewOrgName = preview ? (orgs.find(o => o.id === preview.orgId)?.name ?? '') : '';
+  const previewUserName = preview?.userId ? users.find(u => u.id === preview.userId)?.name : undefined;
+  const isBaiyeeAI = currentPage === 'baiyee-ai';
 
   return (
-    <TaskDataProvider>
-    <div style={{ display: 'flex', height: '100%', background: '#F5F7F8', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100%', background: isBaiyeeAI ? '#F7F7F5' : '#F5F7F8', overflow: 'hidden' }}>
 
-      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+      {/* Unmount original chrome on baiyee-AI. Do not hide with CSS: a later `display:'flex'` in this object previously overrode `none`. */}
+      {!isBaiyeeAI && (
       <aside style={{
+        display: 'flex',
         width: SIDEBAR_W,
         flexShrink: 0,
         background: '#111827',
-        display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
         transition: 'width 200ms cubic-bezier(0.25,0.46,0.45,0.94)',
@@ -455,28 +542,7 @@ export default function App() {
           gap: 10,
           flexShrink: 0,
         }}>
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: '8px',
-            background: 'linear-gradient(135deg, #176B5B, #248A5A)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <Activity size={18} style={{ color: '#fff' }} />
-          </div>
-          {!sidebarCollapsed && (
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#F9FAFB', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                药合作系统
-              </div>
-              <div style={{ fontSize: 10, color: '#4ADE80', letterSpacing: '0.05em', marginTop: 1 }}>
-                AI 运营控制台 V3
-              </div>
-            </div>
-          )}
+          <BrandLogo collapsed={sidebarCollapsed} />
         </div>
 
         {/* Nav */}
@@ -628,7 +694,13 @@ export default function App() {
                 {roles.map(role => (
                   <button
                     key={role}
-                    onClick={() => { setCurrentRole(role); setShowUserMenu(false); setCurrentPage('dashboard'); addToast({ type: 'info', title: `已切换角色：${role}`, description: '首页内容已按当前角色刷新。' }); }}
+                    onClick={() => {
+                      if (preview) exitPreview();
+                      setCurrentRole(role);
+                      setShowUserMenu(false);
+                      setCurrentPage('dashboard');
+                      addToast({ type: 'info', title: `已切换角色：${role}`, description: '菜单与首页已按当前角色权限刷新。' });
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -675,12 +747,22 @@ export default function App() {
           </div>
         </div>
       </aside>
+      )}
 
       {/* ── Main content ──────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
+        {preview && !isBaiyeeAI && (
+          <PreviewBanner
+            roleName={effectiveRole.name}
+            orgName={previewOrgName}
+            userName={previewUserName}
+            onExit={() => { exitPreview(); setCurrentPage('role-preview'); addToast({ type: 'info', title: '已退出预览模式' }); }}
+          />
+        )}
+
         {/* Top bar */}
-        <header style={{
+        {!isBaiyeeAI && <header style={{
           height: 52,
           background: '#FFFFFF',
           borderBottom: '1px solid #E5E7EB',
@@ -802,10 +884,10 @@ export default function App() {
               {currentRole}
             </span>
           </div>
-        </header>
+        </header>}
 
         {/* Page content */}
-        <main style={{ flex: 1, overflow: 'auto' }}>
+        <main style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: isBaiyeeAI ? 'hidden' : 'auto' }}>
           {renderPage()}
         </main>
       </div>
@@ -821,6 +903,5 @@ export default function App() {
         />
       )}
     </div>
-    </TaskDataProvider>
   );
 }

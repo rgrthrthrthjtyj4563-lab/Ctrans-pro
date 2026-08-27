@@ -4,7 +4,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { formatCNY, useTaskData } from '../context/TaskDataContext';
-import type { PriceItem, PriceRatio, ReportPrice, Role, Variety } from '../types';
+import type { PriceItem, PriceRatio, ReportPrice, Role, UnitPriceAdjustRule, Variety } from '../types';
 import type { ToastMessage } from '../components/Toast';
 
 interface Props {
@@ -33,8 +33,9 @@ const td: React.CSSProperties = {
 
 export function PriceConfig({ addToast, currentRole }: Props) {
   const {
-    varieties, priceItems, priceRatios, reportPrices,
+    varieties, priceBooks, priceItems, priceRatios, reportPrices, unitPriceAdjustRule,
     savePriceItems, savePriceRatios, saveReportPrices, copyPriceList,
+    bindVarietyPriceBook, saveUnitPriceAdjustRule,
   } = useTaskData();
   const canWrite = currentRole === '药厂销售部门';
 
@@ -47,25 +48,36 @@ export function PriceConfig({ addToast, currentRole }: Props) {
   const [draftReports, setDraftReports] = useState<ReportPrice[]>([]);
   const [copyTo, setCopyTo] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [ruleDraft, setRuleDraft] = useState<UnitPriceAdjustRule>(unitPriceAdjustRule);
 
   const ratioSum = draftRatios.reduce((s, r) => s + Number(r.ratio || 0), 0);
   const reportSum = draftReports.reduce((s, r) => s + Number(r.ratio || 0), 0);
 
+  function itemsOfBook(bookId: string) {
+    return priceItems.filter((p) => p.priceBookId === bookId);
+  }
+  function ratiosOfBook(bookId: string) {
+    return priceRatios.filter((p) => p.priceBookId === bookId);
+  }
+  function reportsOfBook(bookId: string) {
+    return reportPrices.filter((p) => p.priceBookId === bookId);
+  }
+
   function openPrice(v: Variety) {
     setPriceTarget(v);
-    setDraftItems(priceItems.filter((p) => p.varietyId === v.id).map((p) => ({ ...p })));
+    setDraftItems(itemsOfBook(v.activePriceBookId).map((p) => ({ ...p })));
     setError('');
   }
 
   function openRatio(v: Variety) {
     setRatioTarget(v);
-    setDraftRatios(priceRatios.filter((p) => p.varietyId === v.id).map((p) => ({ ...p })));
+    setDraftRatios(ratiosOfBook(v.activePriceBookId).map((p) => ({ ...p })));
     setError('');
   }
 
   function openReport(v: Variety) {
     setReportTarget(v);
-    setDraftReports(reportPrices.filter((p) => p.varietyId === v.id).map((p) => ({ ...p })));
+    setDraftReports(reportsOfBook(v.activePriceBookId).map((p) => ({ ...p })));
     setError('');
   }
 
@@ -113,24 +125,47 @@ export function PriceConfig({ addToast, currentRole }: Props) {
   const billingOf = useMemo(() => {
     const map: Record<string, string> = {};
     varieties.forEach((v) => {
-      const items = priceItems.filter((p) => p.varietyId === v.id);
-      map[v.id] = items.length ? '工作量价目 + 比例' : '未配置';
+      const book = priceBooks.find((b) => b.id === v.activePriceBookId);
+      map[v.id] = book ? `${book.name} ${book.version}（${book.status}）` : '未绑定价目表';
     });
     return map;
-  }, [varieties, priceItems]);
+  }, [varieties, priceBooks]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="价目配置"
-        description="品种价目表及比例配置。比例合计必须 100% 才能保存。本期全国统一单价，城市级别预留。"
+        description="标准价目表通过 ID 绑定到品种。同一价目表的品种可同单发包；后续改价不影响既有任务快照。比例合计必须 100%。"
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 10 }}>全局单价调整规则</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 120px 120px 140px 1fr auto', gap: 8, alignItems: 'center' }}>
+            <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={ruleDraft.enabled} onChange={(e) => setRuleDraft({ ...ruleDraft, enabled: e.target.checked })} disabled={!canWrite} />
+              启用
+            </label>
+            <input type="number" step="0.05" value={ruleDraft.minAdjustRatio} onChange={(e) => setRuleDraft({ ...ruleDraft, minAdjustRatio: Number(e.target.value) })} style={inputStyle} disabled={!canWrite} />
+            <input type="number" step="0.05" value={ruleDraft.maxAdjustRatio} onChange={(e) => setRuleDraft({ ...ruleDraft, maxAdjustRatio: Number(e.target.value) })} style={inputStyle} disabled={!canWrite} />
+            <select value={ruleDraft.roundingMode} onChange={(e) => setRuleDraft({ ...ruleDraft, roundingMode: e.target.value as UnitPriceAdjustRule['roundingMode'] })} style={inputStyle} disabled={!canWrite}>
+              <option value="nearest">最近可选档位</option>
+            </select>
+            <input value={ruleDraft.hint} onChange={(e) => setRuleDraft({ ...ruleDraft, hint: e.target.value })} style={inputStyle} disabled={!canWrite} />
+            {canWrite && (
+              <Button variant="primary" size="sm" onClick={() => {
+                const r = saveUnitPriceAdjustRule(ruleDraft);
+                if (!r.ok) addToast({ type: 'error', title: '保存失败', description: r.error });
+                else addToast({ type: 'success', title: '单价调整规则已保存', description: `默认范围 ${(ruleDraft.minAdjustRatio * 100).toFixed(0)}% ~ ${(ruleDraft.maxAdjustRatio * 100).toFixed(0)}%` });
+              }}>保存规则</Button>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: '#98A2B3', marginTop: 8 }}>最小/最大调整比例相对建议单价，默认 ±30%。取整后须 Toast 告知调整前后金额、数量与原因。</div>
+        </div>
         <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['序号', '通用名', '商品名', '批准文号', '包装', '规格', '单位', '持有人', '算费方式', '操作'].map((h) => (
+                {['序号', '通用名', '商品名', '批准文号', '包装', '规格', '单位', '持有人', '标准价目表', '操作'].map((h) => (
                   <th key={h} style={th}>{h}</th>
                 ))}
               </tr>
@@ -148,8 +183,23 @@ export function PriceConfig({ addToast, currentRole }: Props) {
                   <td style={td}>{v.holder}</td>
                   <td style={td}>{billingOf[v.id]}</td>
                   <td style={td}>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      <Button variant="ghost" size="sm" icon={<Table2 size={13} />} onClick={() => openPrice(v)} disabled={!canWrite}>设置工作量价目表</Button>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <select
+                        value={v.activePriceBookId}
+                        disabled={!canWrite}
+                        onChange={(e) => {
+                          const r = bindVarietyPriceBook(v.id, e.target.value);
+                          if (!r.ok) addToast({ type: 'error', title: '绑定失败', description: r.error });
+                          else addToast({ type: 'success', title: '已绑定价目表', description: v.tradeName });
+                        }}
+                        style={{ ...inputStyle, width: 180, height: 28 }}
+                      >
+                        <option value="">未绑定</option>
+                        {priceBooks.map((b) => (
+                          <option key={b.id} value={b.id}>{b.name} {b.version}（{b.status}）</option>
+                        ))}
+                      </select>
+                      <Button variant="ghost" size="sm" icon={<Table2 size={13} />} onClick={() => openPrice(v)} disabled={!canWrite || !v.activePriceBookId}>设置工作量价目表</Button>
                       <Button variant="ghost" size="sm" icon={<Percent size={13} />} onClick={() => openRatio(v)} disabled={!canWrite}>设置工作量比例表</Button>
                       <Button variant="ghost" size="sm" onClick={() => openReport(v)} disabled={!canWrite}>报告价目表</Button>
                       <Button variant="ghost" size="sm" icon={<Copy size={13} />} onClick={() => { setCopyTarget(v); setCopyTo([]); setError(''); }} disabled={!canWrite}>批量复制价目表</Button>
@@ -284,7 +334,7 @@ export function PriceConfig({ addToast, currentRole }: Props) {
         }
       >
         {error && <div style={{ color: '#C73A3A', fontSize: 13, marginBottom: 10 }}>{error}</div>}
-        <div style={{ fontSize: 13, color: '#667085', marginBottom: 10 }}>选择目标品种（将覆盖其价目、比例与报告价目）</div>
+        <div style={{ fontSize: 13, color: '#667085', marginBottom: 10 }}>选择目标品种（将绑定到与源品种相同的标准价目表 ID，而不是复制明细来“看起来一样”）</div>
         {varieties.filter((v) => v.id !== copyTarget?.id).map((v) => (
           <label key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 13 }}>
             <input

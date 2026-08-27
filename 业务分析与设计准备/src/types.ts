@@ -105,6 +105,9 @@ export interface BudgetPlan {
   updatedAt: string;
 }
 
+/** 价目类别 = 服务类型：市场推广服务（推广组）；分析报告服务、问卷调研与分析服务（报告组） */
+export type ServiceCategory = '市场推广服务' | '分析报告服务' | '问卷调研与分析服务';
+
 // ===== 品种 / 授权 / 价目 =====
 
 export interface Variety {
@@ -119,6 +122,8 @@ export interface Variety {
   holder: string;
   manufacturer: string;
   validUntil: string;
+  /** 当前生效标准价目表；空字符串表示未绑定。不得用价目明细比对推断。 */
+  activePriceBookId: string;
 }
 
 /** 服务提供商品种授权：同一品种同一区域仅一家服务商 */
@@ -134,6 +139,8 @@ export interface VarietyProviderAuth {
 export interface PriceItem {
   id: string;
   varietyId: string;
+  /** 归属的标准价目表 */
+  priceBookId: string;
   category: string;
   name: string;
   amount: number;
@@ -145,6 +152,7 @@ export interface PriceItem {
 export interface PriceRatio {
   id: string;
   varietyId: string;
+  priceBookId: string;
   name: string;
   ratio: number;
 }
@@ -152,6 +160,7 @@ export interface PriceRatio {
 export interface ReportPrice {
   id: string;
   varietyId: string;
+  priceBookId: string;
   /** 价目类别：分析报告服务 / 问卷调研与分析服务 */
   reportType: string;
   /** 服务项目名，如 临床应用研究报告、问卷样本量 */
@@ -161,21 +170,124 @@ export interface ReportPrice {
   ratio: number;
 }
 
-// ===== 任务执行一条链 =====
+export type PriceBookStatus = '生效' | '草稿' | '已失效';
 
-/** 价目类别 = 服务类型：市场推广服务（推广组）；分析报告服务、问卷调研与分析服务（报告组） */
-export type ServiceCategory = '市场推广服务' | '分析报告服务' | '问卷调研与分析服务';
+/** 价目表服务规则（推广 + 报告） */
+export interface PriceBookRule {
+  id: string;
+  category: ServiceCategory;
+  name: string;
+  amount: number;
+  unit: string;
+  isContractAmount: boolean;
+  isPreset: boolean;
+  ratio: number;
+}
+
+/**
+ * 标准价目表。品种通过 activePriceBookId 显式绑定，禁止用明细比对推断同一性。
+ */
+export interface PriceBook {
+  id: string;
+  name: string;
+  version: string;
+  status: PriceBookStatus;
+  effectiveFrom: string;
+  rules: PriceBookRule[];
+}
+
+export type RoundingMode = 'nearest';
+
+/** 全局单价/数量/金额联动与取整规则 */
+export interface UnitPriceAdjustRule {
+  enabled: boolean;
+  /** 相对建议单价的最小调整比例，默认 -0.3 */
+  minAdjustRatio: number;
+  /** 相对建议单价的最大调整比例，默认 +0.3 */
+  maxAdjustRatio: number;
+  roundingMode: RoundingMode;
+  hint: string;
+}
+
+export interface SettlementPeriod {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface RoundingLog {
+  id: string;
+  time: string;
+  variety: string;
+  region: string;
+  itemName: string;
+  beforeAmount: number;
+  beforeQty: number;
+  unitPrice: number;
+  afterAmount: number;
+  afterQty: number;
+  reason: string;
+}
+
+export interface PriceAdjustLog {
+  id: string;
+  time: string;
+  variety: string;
+  region: string;
+  itemName: string;
+  suggestedUnitPrice: number;
+  actualUnitPrice: number;
+  suggestedAmount: number;
+  actualAmount: number;
+  reason: string;
+}
+
+export interface TaskOpsLog {
+  id: string;
+  time: string;
+  operator: string;
+  role: string;
+  action: string;
+  detail: string;
+  beforeState?: string;
+  afterState?: string;
+}
+
+export interface SettlementBillVersion {
+  version: number;
+  time: string;
+  operator: string;
+  action: string;
+  snapshot: {
+    confirmed: boolean;
+    voided: boolean;
+    finalAmount: number;
+    lines: SettlementLine[];
+  };
+}
+
+export const SETTLEMENT_DECLARATION_VERSION = 'DECL-2026-V1';
+export const SETTLEMENT_DECLARATION_TEXT =
+  '本人确认已核对本期结算明细：逐服务项目实际结算金额均在计划金额的 50%—150% 范围内；如有调整，调整原因已与服务商达成一致。确认后立即生效，不可直接修改，仅可通过受控回退处理。';
+
+// ===== 任务执行一条链 =====
 
 export interface ServiceItem {
   id: string;
   /** 归属品种（任务可含多品种，服务表按品种拆开） */
   variety: string;
+  /** 归属地区；服务项目必须落到具体品种 × 地区 */
+  region: string;
   category: ServiceCategory;
   name: string;
   unitPrice: number;
   unit: string;
   qty: number;
   amount: number;
+  suggestedUnitPrice: number;
+  suggestedAmount: number;
+  adjustReason?: string;
 }
 
 /** 拆解粒度 = 单品种 + 单地区 + 工作组 */
@@ -231,8 +343,10 @@ export interface SettlementBill {
   id: string;
   billNo: string;
   contractNo: string;
-  /** 一张结算单对应一个工作组 */
+  /** 兼容服务商发起页：可含多个工作组，不再作为结算单唯一边界 */
   workGroup: string;
+  /** 药厂预设结算周期 */
+  settlementPeriodId: string;
   servicePeriod: string;
   /** 执行归属月份：一张结算单只对应一个月份，格式 YYYY-MM */
   serviceMonth: string;
@@ -244,6 +358,19 @@ export interface SettlementBill {
   confirmedAt?: string;
   confirmedBy?: string;
   paymentVoucher?: string;
+  /** 逻辑失效，禁止物理删除 */
+  voided: boolean;
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
+  financeLocked: boolean;
+  declarationAccepted?: boolean;
+  declarationVersion?: string;
+  /** 服务商申请金额（确认前明细合计） */
+  appliedAmount: number;
+  /** 确认后实际 − 申请 */
+  adjustAmount: number;
+  versions: SettlementBillVersion[];
 }
 
 export interface Task {
@@ -258,9 +385,18 @@ export interface Task {
   /** 推广时间（起止日期） */
   startDate: string;
   endDate: string;
+  /** 创建时锁定的标准价目表（显式 ID，不用明细比对） */
+  priceBookId: string;
+  /** 完整价目表快照；后续修改价目表不得影响既有任务 */
+  priceBookSnapshot: PriceBook;
+  /** 预算推荐总金额（仅提示） */
+  recommendedAmount: number;
+  recommendedConfigured: boolean;
+  /** 服务商确认后锁定任务计划、单价和价目表快照 */
+  planLocked: boolean;
   /** 三张服务表合计：服务总金额（=计划总金额）= Σ serviceItems.amount */
   planAmount: number;
-  /** Σ 历次结算单最终结算金额 */
+  /** Σ 已确认且未作废结算单最终结算金额 */
   settledAmount: number;
   /** 结算完结后剩余作废、不计统计 */
   remainingVoided: boolean;
@@ -273,6 +409,10 @@ export interface Task {
   workloadAssigns: WorkloadAssign[];
   reports: ReportFile[];
   settlements: SettlementBill[];
+  settlementPeriods: SettlementPeriod[];
+  roundingLogs: RoundingLog[];
+  priceAdjustLogs: PriceAdjustLog[];
+  opsLogs: TaskOpsLog[];
 }
 
 export interface CreateTaskInput {
@@ -282,6 +422,14 @@ export interface CreateTaskInput {
   startDate: string;
   endDate: string;
   serviceItems: ServiceItem[];
+  settlementPeriods: Omit<SettlementPeriod, 'id'>[];
+  roundingLogs?: RoundingLog[];
+  priceAdjustLogs?: PriceAdjustLog[];
+}
+
+export interface ConfirmSettlementInput {
+  declarationAccepted: boolean;
+  declarationVersion: string;
 }
 
 export interface CreateBudgetPlanInput {
@@ -348,14 +496,20 @@ export type PageId =
   | 'varieties'
   | 'variety-auth'
   | 'enterprise-users'
+  | 'rep-filing'
+  | 'vendor-access'
   | 'settlement'
   | 'inspection'
   | 'evidence-chain'
   | 'business-switch'
   | 'price-config'
   | 'roles'
+  | 'user-grants'
+  | 'perm-audit'
+  | 'role-preview'
   | 'departments'
-  | 'audit-log';
+  | 'audit-log'
+  | 'baiyee-ai';
 
 export type DashboardSeverity = 'risk' | 'attention' | 'info';
 export type DashboardConfidence = '高' | '中' | '低';
@@ -474,12 +628,121 @@ export interface DashboardInspectionWorkbench {
   pending: DashboardStatItem[];
 }
 
+// ===== 药厂销售部门 · 销售运营工作台（P1 首页重组） =====
+// 依据《药厂销售部门首页优化文档 V1.0》：待办/关注分离、任务交付概览、
+// 指标口径修正（执行中≠完成进度、金额分阶段、里程碑判延误）。
+
+/** 全局筛选周期；日期按租户业务时区（Asia/Shanghai）解释 */
+export type WorkbenchPeriod = '本周' | '本月' | '本季度';
+
+/** 我的待办：事项未完成 + 当前用户是处理人 + 具备动作权限 */
+export interface WorkbenchTodo {
+  id: string;
+  taskId: string;
+  /** 业务对象：任务名（完整名称详情查看） */
+  taskName: string;
+  /** 单据类型：结算单 / 报告 / 任务 等 */
+  docType: string;
+  /** 待办原因：直接描述，不用「单据语义」 */
+  reason: string;
+  /** 期限状态：已逾期 X 天 / 今天到期 / 剩余 X 天 */
+  dueState: string;
+  overdue: boolean;
+  dueToday?: boolean;
+  /** 当前处理人；不用「各服务商」这类模糊指代 */
+  owner: string;
+  primaryAction: string;
+  target: PageId;
+}
+
+/** 重点关注事件等级：紧急=经确认的重大交付影响；普通逾期不自动升级 */
+export type FocusSeverity = '紧急' | '需关注' | '信息';
+export type FocusState = '待处理' | '处理中' | '待复核';
+
+export interface WorkbenchFocusEvent {
+  id: string;
+  severity: FocusSeverity;
+  title: string;
+  taskId?: string;
+  provider?: string;
+  /** 数据依据：命中的规则与样本 */
+  basis: string;
+  /** 影响范围 */
+  impact: string;
+  state: FocusState;
+  occurredAt: string;
+  actionLabel: string;
+  target: PageId;
+}
+
+/** 交付项：任务按服务类型约定的交付目标；判延误只看里程碑，不看日历进度 */
+export interface WorkbenchDeliverable {
+  id: string;
+  name: string;
+  unit: string;
+  target: number;
+  accepted: number;
+  /** 交付/验收期限（YYYY-MM-DD） */
+  dueDate: string;
+}
+
+/** 首页任务概览行；跨月任务不按月份复制，按任务唯一 ID 统计 */
+export interface WorkbenchTask {
+  id: string;
+  taskNo: string;
+  name: string;
+  varieties: string[];
+  regions: string[];
+  provider: string;
+  startDate: string;
+  endDate: string;
+  status: TaskStatus;
+  deliverables: WorkbenchDeliverable[];
+  /** 当前有效异常类型标签；空 = 无异常 */
+  anomalies: string[];
+  /** 下一到期事项文案；空 = 未设置阶段计划 */
+  nextDueLabel: string;
+}
+
+/** AI 分析五段式：发现 / 证据 / 原因 / 建议 / 操作；仅提示不裁决 */
+export interface WorkbenchAIAnalysis {
+  id: string;
+  /** 紧凑摘要（一行） */
+  summary: string;
+  finding: string;
+  evidence: string;
+  /** 已验证事实与待核实假设分开 */
+  cause: string;
+  suggestion: string;
+  actions: { label: string; target: PageId }[];
+  /** AI 生成时间；与业务数据截至时间分开 */
+  generatedAt: string;
+}
+
+export interface SalesWorkbenchData {
+  headline: string;
+  /** 业务数据截至时间 */
+  dataAsOf: string;
+  filterOptions: {
+    varieties: string[];
+    regions: string[];
+    providers: string[];
+  };
+  todos: WorkbenchTodo[];
+  focusEvents: WorkbenchFocusEvent[];
+  tasks: WorkbenchTask[];
+  ai: WorkbenchAIAnalysis;
+  quickActions: DashboardQuickAction[];
+}
+
 export interface DashboardRoleData {
   role: Role;
   headline: string;
   subtitle: string;
   unreadCount: number;
   metrics: DashboardMetric[];
+  /** 药厂销售部门 P1 工作台数据；存在时首页按工作台布局渲染 */
+  salesWorkbench?: SalesWorkbenchData;
   insights: DashboardInsight[];
   queue: DashboardQueueItem[];
   messages?: DashboardMessage[];
@@ -535,4 +798,415 @@ export interface RepFilingAnalysis {
     unfiled: number;
   };
   top: RepFilingItem[];
+}
+
+// ===== 医药代表备案 / 服务商准入 =====
+
+export type RepresentativeStatus =
+  | '草稿'
+  | '待合规确认'
+  | '待提交'
+  | '审核中'
+  | '补件中'
+  | '合格'
+  | '待备案提交'
+  | '已备案'
+  | '提交失败'
+  | '变更待提交'
+  | '删除待提交'
+  | '已删除'
+  | '启用'
+  | '冻结'
+  | '整改中'
+  | '复核中'
+  | '失效'
+  | '退出'
+  | '驳回';
+
+export type EmploymentType = 'MAH直聘' | '服务商派遣' | '授权推广';
+
+export type FilingVerifyResult = '有效' | '无结果' | '失效' | '异常待人工确认' | '待核验';
+export type FilingVerifyMethod = '人工核验' | '接口核验' | '批量复核';
+export type NmpaFilingStatus = '待提交' | '已备案' | '提交失败' | '变更待提交' | '删除待提交' | '已删除';
+
+export type AuthApprovalStatus = '待审' | '通过' | '驳回' | '撤销' | '过期';
+
+export type VendorStatus =
+  | '草稿'
+  | '待提交'
+  | '尽调中'
+  | '审批中'
+  | '补件中'
+  | '驳回'
+  | '准入通过'
+  | '可合作'
+  | '复审中'
+  | '限制合作'
+  | '冻结'
+  | '退出';
+
+export type VendorRiskGrade = '低风险' | '中风险' | '高风险';
+
+export type EligibilityVerdict = 'PASS' | 'BLOCK' | 'MANUAL_REVIEW';
+
+export type IncidentSource = '内审' | '投诉' | '监管' | '业务发现' | '系统预警';
+export type IncidentRisk = '高' | '中' | '低';
+export type IncidentStatus = '调查中' | '整改中' | '已结案';
+
+export type ApprovalBizType =
+  | '代表准入'
+  | '代表授权'
+  | '代表解冻'
+  | '服务商准入'
+  | '服务商复审'
+  | '服务商解冻'
+  | '高风险例外'
+  | '项目验收'
+  | '结算例外';
+
+export type ApprovalStepDecision = '待审' | '通过' | '驳回' | '转办';
+
+export interface ApprovalStep {
+  seq: number;
+  role: string;
+  assigneeId: string;
+  assigneeName: string;
+  decision: ApprovalStepDecision;
+  comment?: string;
+  decidedAt?: string;
+}
+
+export interface ApprovalInstance {
+  id: string;
+  bizType: ApprovalBizType;
+  bizId: string;
+  initiatorId: string;
+  initiatorName: string;
+  steps: ApprovalStep[];
+  currentSeq: number;
+  status: '审批中' | '已通过' | '已驳回' | '已撤回';
+  createdAt: string;
+}
+
+export type SelectionMethod = '邀标' | '比价' | '评审' | '例外';
+
+export interface SelectionRecord {
+  id: string;
+  vendorId: string;
+  demandNo: string;
+  method: SelectionMethod;
+  processNote: string;
+  awardReason: string;
+  exceptionReason?: string;
+  evidenceFiles: string[];
+  createdAt: string;
+}
+
+export interface AcceptanceRecord {
+  id: string;
+  projectId: string;
+  vendorId: string;
+  serviceContent: string;
+  serviceDateStart: string;
+  serviceDateEnd: string;
+  location: string;
+  participantRepIds: string[];
+  deliverables: string[];
+  expenseVouchers: string[];
+  businessOpinion: '通过' | '不通过' | '待审';
+  complianceSample?: '命中抽检-通过' | '命中抽检-不通过' | '未抽检';
+  performanceScore?: number;
+  conclusion: '通过' | '不通过' | '待审';
+  createdAt: string;
+}
+
+export interface VendorDueDiligence {
+  id: string;
+  vendorId: string;
+  scoreSubject: number;
+  scoreRelated: number;
+  scoreNature: number;
+  scoreTax: number;
+  scoreHistory: number;
+  totalScore: number;
+  suggestedGrade: VendorRiskGrade;
+  confirmedGrade: VendorRiskGrade;
+  confirmedById: string;
+  confirmedByName: string;
+  confirmedAt: string;
+}
+
+export interface VendorCreditCompliance {
+  antiBriberyPledgeFile: string;
+  antiBriberyPledgeDate: string;
+  illegalCheck: '通过' | '未通过' | '待核验';
+  dishonestCheck: '通过' | '未通过' | '待核验';
+  lawsuitRisk: '无' | '有-已披露' | '有-未披露';
+  evidenceFiles: string[];
+  checkedAt: string;
+}
+
+export interface RepTraining {
+  id: string;
+  repId: string;
+  planName: string;
+  completedAt: string;
+  examScore: number;
+  validUntil: string;
+  certFile: string;
+}
+
+/** 前端演示用活动记录；后续可由活动模块替代。 */
+export interface DemoActivity {
+  id: string;
+  repId: string;
+  name: string;
+  startDate: string;
+  status: '未开始' | '进行中' | '已结束' | '不可执行';
+}
+
+export interface FilingBatchTask {
+  id: string;
+  createdAt: string;
+  creatorId: string;
+  repIds: string[];
+  items: { repId: string; result: FilingVerifyResult; evidence?: string }[];
+}
+
+export interface Actor {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export interface ComplianceAuditEvent {
+  id: string;
+  time: string;
+  operator: string;
+  operatorId?: string;
+  role: string;
+  action: string;
+  comment?: string;
+  before?: string;
+  after?: string;
+  approvalId?: string;
+  evidenceHash?: string;
+}
+
+export interface RepAuthorization {
+  id: string;
+  authNo: string;
+  version: number;
+  mahId: string;
+  productIds: string[];
+  products: string[];
+  therapyAreas: string[];
+  regions: string[];
+  startDate: string;
+  endDate: string;
+  approvalStatus: AuthApprovalStatus;
+  fileName: string;
+  superseded?: boolean;
+  supersededById?: string;
+}
+
+export interface RepFilingVerification {
+  id: string;
+  taskNo: string;
+  queryKey: string;
+  result: FilingVerifyResult;
+  method: FilingVerifyMethod;
+  verifier: string;
+  verifiedAt: string;
+  nextDate: string;
+  evidence: string;
+  summary: string;
+}
+
+export interface ComplianceIncident {
+  id: string;
+  incidentNo: string;
+  source: IncidentSource;
+  type: string;
+  risk: IncidentRisk;
+  status: IncidentStatus;
+  occurredAt: string;
+  foundAt: string;
+  fact: string;
+  relatedRep?: string;
+  relatedVendor?: string;
+  relatedRepId?: string;
+  relatedVendorId?: string;
+  relatedMahId?: string;
+  relatedProjectId?: string;
+  relatedContractId?: string;
+  evidenceFiles: string[];
+  initialMeasure: string;
+  investigationConclusion: string;
+  rectification: string;
+  ownerId: string;
+  ownerName: string;
+  dueDate: string;
+  reviewConclusion: string;
+}
+
+export interface Representative {
+  id: string;
+  name: string;
+  gender?: '男' | '女';
+  photoFile?: string;
+  idType: string;
+  idNo: string;
+  mobile: string;
+  email: string;
+  employmentType: EmploymentType;
+  mah: string;
+  mahId: string;
+  provider: string;
+  providerId: string | null;
+  initiatorId: string;
+  initiatorName: string;
+  employStart: string;
+  employEnd: string;
+  contractOrAuthNo?: string;
+  agreementFile?: string;
+  education: string;
+  major: string;
+  school: string;
+  eduProof: string;
+  /** 兼容当前备案页表单；培训历史仍以 trainings 为准。 */
+  trainingPlan?: string;
+  trainingDate?: string;
+  examScore?: number;
+  trainingValidUntil?: string;
+  trainingCert?: string;
+  trainings: RepTraining[]; // 导入数据，页面内不手填；有效期与成绩以最新一条为准
+  pledgeVersion: string; // 以下三项由承诺库同步，页面内不手填
+  pledgeDate: string;
+  pledgeFile: string;
+  filingNo: string;
+  filingStatus: FilingVerifyResult | NmpaFilingStatus | '未核验';
+  filingVerifiedAt: string;
+  filingSubmittedAt?: string;
+  filingSubmittedBy?: string;
+  filingReceipt?: string;
+  riskCheckResult: '通过' | '未通过' | '待核验';
+  riskCheckDate: string;
+  riskCheckEvidence: string;
+  riskCheckOperator: string;
+  status: RepresentativeStatus;
+  nextVerifyDate: string;
+  blockedActivityIds?: string[];
+  freezeReason?: string;
+  freezeEvidence?: string;
+  rectification?: string;
+  rectificationOwner?: string;
+  rectificationDue?: string;
+  investigationConclusion?: string;
+  unfreezeReviewerId?: string;
+  currentApprovalId?: string;
+  authorizations: RepAuthorization[];
+  verifications: RepFilingVerification[];
+  incidents: ComplianceIncident[];
+  timeline: ComplianceAuditEvent[];
+}
+
+export interface VendorDocument {
+  id: string;
+  category: string;
+  name: string;
+  validUntil: string;
+  status: '有效' | '即将到期' | '已过期' | '缺失';
+}
+
+export interface VendorContract {
+  id: string;
+  contractNo: string;
+  serviceScope: string;
+  serviceTypes: string[];
+  regions: string[];
+  startDate: string;
+  endDate: string;
+  amountCap: number;
+  status: '草案' | '已生效' | '已超期' | '已终止';
+  antiBriberyClause: boolean;
+  auditClause?: boolean;
+}
+
+export interface VendorProject {
+  id: string;
+  projectNo: string;
+  name: string;
+  region: string;
+  serviceType: string;
+  status: '执行中' | '待验收' | '已验收' | '已关闭';
+  acceptance: '未验收' | '通过' | '不通过';
+  amount: number;
+  assignedRepIds: string[];
+  payeeAccountName: string;
+  payeeAccountNo: string;
+  unitPrice?: number;
+  marketBenchmark?: number;
+  deliverables: string[];
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  creditCode: string;
+  legalRep: string;
+  address: string;
+  establishedAt: string;
+  businessScope: string;
+  actualController: string;
+  shareholding: string;
+  invoiceAbility: string;
+  siteDesc: string;
+  principalName: string;
+  principalMobile: string;
+  relatedPartyDeclared: boolean;
+  relatedPartyHit: boolean;
+  staffSize: number;
+  bankName: string;
+  bankAccount: string;
+  taxType: string;
+  serviceTypes: string[];
+  regions: string[];
+  riskGrade: VendorRiskGrade;
+  riskScore: number;
+  status: VendorStatus;
+  accessNo: string;
+  accessValidUntil: string;
+  reviewDue: string;
+  contact: string;
+  contactMobile: string;
+  initiatorId: string;
+  initiatorName: string;
+  documents: VendorDocument[];
+  contracts: VendorContract[];
+  projects: VendorProject[];
+  repIds: string[];
+  creditCompliance: VendorCreditCompliance | null;
+  selectionRecords: SelectionRecord[];
+  dueDiligence: VendorDueDiligence | null;
+  acceptances: AcceptanceRecord[];
+  exceptionReason?: string;
+  exceptionUntil?: string;
+  enhancedSupervision?: string;
+  currentApprovalId?: string;
+  incidents: ComplianceIncident[];
+  timeline: ComplianceAuditEvent[];
+  missingDocs: string[];
+}
+
+export interface EligibilityHit {
+  code: string;
+  rule: string;
+  result: EligibilityVerdict | 'OK';
+  detail: string;
+}
+
+export interface EligibilityResult {
+  verdict: EligibilityVerdict;
+  hits: EligibilityHit[];
 }

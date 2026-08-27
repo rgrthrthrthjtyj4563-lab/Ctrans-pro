@@ -30,6 +30,17 @@
   --color-border-strong:#D1D5DB;
   --color-table-stripe: #F9FAFB;
 
+  /* AI workbench — same family, no purple/neon */
+  --color-ai-rail:       #F3F6F4;
+  --color-ai-stream:     #FFFFFF;
+  --color-ai-inspector:  #FAFBFA;
+  --color-ai-ink:        #1B322D;
+  --color-ai-muted:      #6D7972;
+  --color-ai-line:       #E4E9E2;
+  --color-ai-chip:       #E8F4F1;
+  --color-ai-warning:    #C77A16;
+  --color-ai-warning-bg: #FEF3E2;
+
   /* Sidebar */
   --color-sidebar:          #111827;
   --color-sidebar-hover:    #1c2b3a;

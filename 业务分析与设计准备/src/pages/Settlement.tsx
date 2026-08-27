@@ -41,7 +41,10 @@ export function Settlement({ currentRole, navigate }: Props) {
     const rows: BillRow[] = [];
     tasks.forEach((task) => {
       if (isProvider && task.provider !== DEMO_PROVIDER) return;
-      task.settlements.forEach((bill) => rows.push({ task, bill }));
+      task.settlements.forEach((bill) => {
+        if (bill.voided) return;
+        rows.push({ task, bill });
+      });
     });
     return rows.sort((a, b) => (a.bill.madeAt < b.bill.madeAt ? 1 : -1));
   }, [tasks, isProvider]);

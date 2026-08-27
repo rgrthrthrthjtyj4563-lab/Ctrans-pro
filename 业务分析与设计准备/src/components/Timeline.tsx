@@ -1,6 +1,22 @@
 import { CheckCircle, XCircle, Clock, Edit, FileText, AlertCircle } from 'lucide-react';
 
-type EventType = '提交' | '审核通过' | '审核驳回' | '修改' | '创建' | '绩效' | '结算' | '撤销';
+type EventType =
+  | '提交'
+  | '审核通过'
+  | '审核驳回'
+  | '修改'
+  | '创建'
+  | '绩效'
+  | '结算'
+  | '撤销'
+  | '冻结'
+  | '解冻'
+  | '补件'
+  | '核验'
+  | '准入'
+  | '尽调'
+  | '复审'
+  | '退出';
 
 interface TimelineEvent {
   id: string;
@@ -25,6 +41,14 @@ const eventConfig: Record<EventType, { icon: typeof CheckCircle; color: string; 
   '绩效':   { icon: CheckCircle, color: '#176B5B', bg: '#E8F4F1', label: '打绩效' },
   '结算':   { icon: CheckCircle, color: '#176B5B', bg: '#E8F4F1', label: '结算完结' },
   '撤销':   { icon: AlertCircle, color: '#374151', bg: '#F3F4F6', label: '撤销操作' },
+  '冻结':   { icon: AlertCircle, color: '#C73A3A', bg: '#FEECEC', label: '冻结' },
+  '解冻':   { icon: CheckCircle, color: '#248A5A', bg: '#E6F5ED', label: '解冻复核' },
+  '补件':   { icon: Edit,        color: '#C77A16', bg: '#FEF3E2', label: '要求补件' },
+  '核验':   { icon: FileText,    color: '#2F6BCE', bg: '#EBF2FE', label: '备案核验' },
+  '准入':   { icon: CheckCircle, color: '#176B5B', bg: '#E8F4F1', label: '准入通过' },
+  '尽调':   { icon: Clock,       color: '#2F6BCE', bg: '#EBF2FE', label: '尽职调查' },
+  '复审':   { icon: Clock,       color: '#C77A16', bg: '#FEF3E2', label: '复审' },
+  '退出':   { icon: XCircle,     color: '#374151', bg: '#F3F4F6', label: '退出合作' },
 };
 
 export function Timeline({ events }: TimelineProps) {

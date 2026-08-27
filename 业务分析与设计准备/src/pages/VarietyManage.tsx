@@ -35,6 +35,7 @@ const emptyForm: Omit<Variety, 'id'> = {
   holder: DEMO_HOLDER,
   manufacturer: '',
   validUntil: '',
+  activePriceBookId: '',
 };
 
 export function VarietyManage({ addToast, currentRole }: Props) {
