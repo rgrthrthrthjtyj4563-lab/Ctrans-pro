@@ -20,8 +20,19 @@ Thumbs.db
 .vscode/
 
 # Local agent / IDE skill copies
+.agent/
+.claude/
+.codebuddy/
 .codex/
+.continue/
+.cursor/
+.gemini/
+.kiro/
+.opencode/
+.qoder/
+.roo/
 .trae/
+.windsurf/
 .zcode/
 
 # Temp
