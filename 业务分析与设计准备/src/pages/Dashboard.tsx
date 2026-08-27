@@ -36,13 +36,10 @@ import type {
   DashboardRecentOperation,
   DashboardRoleData,
   DashboardStatItem,
-  FocusSeverity,
-  FocusState,
   PageId,
   Role,
   SalesWorkbenchData,
   WorkbenchDeliverable,
-  WorkbenchFocusEvent,
   WorkbenchPeriod,
   WorkbenchTask,
   WorkbenchTodo,
@@ -502,18 +499,6 @@ const PERIOD_RANGES: Record<WorkbenchPeriod, { start: string; end: string; label
 };
 const TODAY = '2026-08-27';
 
-const focusSeverityMeta: Record<FocusSeverity, { bar: string; tagColor: 'danger' | 'warning' | 'info'; fg: string }> = {
-  紧急: { bar: '#C73A3A', tagColor: 'danger', fg: '#C73A3A' },
-  需关注: { bar: '#C77A16', tagColor: 'warning', fg: '#C77A16' },
-  信息: { bar: '#2F6BCE', tagColor: 'info', fg: '#2F6BCE' },
-};
-
-const focusStateColor: Record<FocusState, 'default' | 'brand' | 'info'> = {
-  待处理: 'default',
-  处理中: 'info',
-  待复核: 'brand',
-};
-
 const taskStatusColor: Record<string, 'brand' | 'info' | 'success' | 'default'> = {
   执行中: 'brand',
   待确认: 'info',
@@ -728,71 +713,6 @@ function WorkbenchTodoPanel({
               查看全部
             </button>
           </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function WorkbenchFocusPanel({ events, navigate }: { events: WorkbenchFocusEvent[]; navigate: (page: PageId) => void }) {
-  return (
-    <section style={sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column' })}>
-      <div style={{ padding: '14px 16px 8px' }}>
-        <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>重点关注</h2>
-        <p style={{ margin: '4px 0 0', fontSize: 12, color: '#667085' }}>当前有效异常 · 红色仅用于已确认严重异常</p>
-      </div>
-      <div style={{ padding: '0 16px 14px' }}>
-        {events.length === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '18px 12px', borderRadius: 10, background: '#F8FAF9', fontSize: 13, color: '#667085' }}>
-            <CheckCircle2 size={15} color="#248A5A" />
-            暂无异常
-          </div>
-        ) : (
-          events.slice(0, 3).map(event => {
-            const meta = focusSeverityMeta[event.severity];
-            return (
-              <div
-                key={event.id}
-                style={{
-                  padding: '10px 12px',
-                  border: '1px solid #F2F4F7',
-                  borderLeft: `3px solid ${meta.bar}`,
-                  borderRadius: 10,
-                  marginBottom: 8,
-                  background: '#FFFFFF',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-                  <Tag label={event.severity} color={meta.tagColor} />
-                  <Tag label={event.state} color={focusStateColor[event.state]} />
-                  {event.provider && <span style={{ fontSize: 11, color: '#98A2B3' }}>{event.provider}</span>}
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1F2937', marginBottom: 4 }}>{event.title}</div>
-                <div style={{ fontSize: 12, color: '#667085', lineHeight: 1.6, marginBottom: 4 }}>{event.basis}</div>
-                <div style={{ fontSize: 12, color: '#475467', marginBottom: 6 }}>影响：{event.impact}</div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: '#98A2B3' }}>{event.occurredAt}</span>
-                  <button
-                    onClick={() => navigate(event.target)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      border: 'none',
-                      background: 'none',
-                      color: '#176B5B',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                  >
-                    {event.actionLabel} <ArrowRight size={12} />
-                  </button>
-                </div>
-              </div>
-            );
-          })
         )}
       </div>
     </section>
@@ -1070,7 +990,7 @@ function WorkbenchTaskOverviewPanel({
 }
 
 function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navigate: (page: PageId) => void }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const sections: { label: string; content: string }[] = [
     { label: '发现', content: ai.finding },
     { label: '证据', content: ai.evidence },
@@ -1079,11 +999,36 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
   ];
 
   return (
-    <section style={sectionCardStyle({ padding: '12px 16px' })}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <Sparkles size={16} color="#176B5B" />
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1F2937' }}>AI 分析</h2>
-        <span style={{ fontSize: 11, color: '#98A2B3' }}>生成时间 {ai.generatedAt}（与业务数据截至时间分开）</span>
+    <section
+      style={{
+        background: 'linear-gradient(180deg, #F4FAF8 0%, #FFFFFF 58%)',
+        border: '1px solid #C8E2DB',
+        borderRadius: 12,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '14px 16px 10px' }}>
+        <div
+          style={{
+            width: 30,
+            height: 30,
+            borderRadius: 8,
+            background: '#176B5B',
+            color: '#FFFFFF',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <Sparkles size={16} />
+        </div>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1F2937' }}>AI 分析</h2>
+        <span style={{ padding: '2px 8px', borderRadius: 999, background: '#E8F4F1', color: '#176B5B', fontSize: 12, fontWeight: 700 }}>
+          基于最新业务数据
+        </span>
+        <span style={{ fontSize: 11, color: '#98A2B3' }}>生成时间 {ai.generatedAt} · 与业务数据截至时间分开</span>
         <span style={{ flex: 1 }} />
         <button
           onClick={() => setExpanded(prev => !prev)}
@@ -1092,25 +1037,36 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
           {expanded ? '收起' : '展开分析'} <ChevronDown size={13} style={{ transform: expanded ? 'rotate(180deg)' : 'none' }} />
         </button>
       </div>
-      <div style={{ marginTop: 8, fontSize: 13, color: '#344054', lineHeight: 1.6 }}>{ai.summary}</div>
+      <div style={{ padding: '0 16px 12px', fontSize: 14, fontWeight: 600, color: '#1F2937', lineHeight: 1.7 }}>{ai.summary}</div>
       {expanded && (
-        <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+        <div
+          style={{
+            padding: '12px 16px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            borderTop: '1px dashed #CFE5DE',
+            margin: '0 16px',
+          }}
+        >
           {sections.map(section => (
-            <div key={section.label} style={{ display: 'grid', gridTemplateColumns: '44px minmax(0, 1fr)', gap: 10, alignItems: 'baseline' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#176B5B' }}>{section.label}</span>
-              <span style={{ fontSize: 12, color: '#475467', lineHeight: 1.7 }}>{section.content}</span>
+            <div key={section.label} style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 10, alignItems: 'baseline' }}>
+              <span style={{ padding: '2px 0', borderRadius: 6, background: '#E8F4F1', color: '#176B5B', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                {section.label}
+              </span>
+              <span style={{ fontSize: 13, color: '#475467', lineHeight: 1.7 }}>{section.content}</span>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-            {ai.actions.map(action => (
-              <Button key={action.label} size="sm" variant="outline" onClick={() => navigate(action.target)}>
+            {ai.actions.map((action, index) => (
+              <Button key={action.label} size="sm" variant={index === 0 ? 'primary' : 'outline'} onClick={() => navigate(action.target)}>
                 {action.label}
               </Button>
             ))}
           </div>
+          <div style={{ fontSize: 11, color: '#98A2B3' }}>AI 仅提供参考，所有操作需人工确认；不自动改变任何单据状态。</div>
         </div>
       )}
-      <div style={{ marginTop: 10, fontSize: 11, color: '#98A2B3' }}>AI 仅提供参考，所有操作需人工确认；不自动改变任何单据状态。</div>
     </section>
   );
 }
@@ -1208,7 +1164,7 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
     <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 1480 }}>
       <style>{`
         @media (max-width: 960px) {
-          .swb-workspace, .swb-bottom { grid-template-columns: 1fr !important; }
+          .swb-split { grid-template-columns: 1fr !important; }
         }
       `}</style>
 
@@ -1305,36 +1261,12 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
         <span style={{ fontSize: 11, color: '#98A2B3' }}>执行中 ≠ 完成进度 · 异常按任务去重 · 待我处理按待办计数</span>
       </section>
 
-      {/* 03 工作区：我的待办 + 重点关注 */}
-      <div className="swb-workspace" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
-        <div style={{ scrollMarginTop: 8 }}>
-          <WorkbenchTodoPanel todos={visibleTodos} outOfScopeCount={outOfScopeTodos} navigate={navigate} listRef={todoListRef} />
-        </div>
-        <WorkbenchFocusPanel events={workbench.focusEvents} navigate={navigate} />
-      </div>
-
-      {/* 04 任务交付概览 */}
-      <div ref={overviewRef} style={{ scrollMarginTop: 8 }}>
-        <WorkbenchTaskOverviewPanel
-          tasks={overviewTasks}
-          aggMode={aggMode}
-          onAggModeChange={setAggMode}
-          aggRows={aggRows}
-          periodLabel={period}
-          hasFilter={hasFilter}
-          onReset={resetFilters}
-          onFilterVariety={value => setSelVarieties(prev => (prev.includes(value) ? prev : [...prev, value]))}
-          onFilterRegion={value => setSelRegions(prev => (prev.includes(value) ? prev : [...prev, value]))}
-          navigate={navigate}
-        />
-      </div>
-
-      {/* 05 AI 与常用入口 */}
-      <div className="swb-bottom" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+      {/* 03 AI 分析 + 常用入口（提高布局权重：紧随运营摘要、默认展开、突出 AI） */}
+      <div className="swb-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.2fr) minmax(0, 1fr)', gap: 12, alignItems: 'stretch' }}>
         <WorkbenchAIPanel ai={workbench.ai} navigate={navigate} />
-        <section style={sectionCardStyle({ padding: '12px 16px' })}>
+        <section style={sectionCardStyle({ padding: '12px 16px', display: 'flex', flexDirection: 'column' })}>
           <h2 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 700, color: '#1F2937' }}>常用入口</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
             {workbench.quickActions.map(item => (
               <button
                 key={item.id}
@@ -1360,6 +1292,27 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
             ))}
           </div>
         </section>
+      </div>
+
+      {/* 04 我的待办（全宽） */}
+      <div style={{ scrollMarginTop: 8 }}>
+        <WorkbenchTodoPanel todos={visibleTodos} outOfScopeCount={outOfScopeTodos} navigate={navigate} listRef={todoListRef} />
+      </div>
+
+      {/* 05 任务交付概览 */}
+      <div ref={overviewRef} style={{ scrollMarginTop: 8 }}>
+        <WorkbenchTaskOverviewPanel
+          tasks={overviewTasks}
+          aggMode={aggMode}
+          onAggModeChange={setAggMode}
+          aggRows={aggRows}
+          periodLabel={period}
+          hasFilter={hasFilter}
+          onReset={resetFilters}
+          onFilterVariety={value => setSelVarieties(prev => (prev.includes(value) ? prev : [...prev, value]))}
+          onFilterRegion={value => setSelRegions(prev => (prev.includes(value) ? prev : [...prev, value]))}
+          navigate={navigate}
+        />
       </div>
     </div>
   );
