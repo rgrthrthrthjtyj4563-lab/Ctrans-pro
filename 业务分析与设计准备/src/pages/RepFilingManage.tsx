@@ -17,7 +17,6 @@ import type {
   ComplianceIncident,
   DemoActivity,
   EligibilityResult,
-  FilingBatchTask,
   FilingVerifyMethod,
   FilingVerifyResult,
   Representative,
@@ -35,7 +34,6 @@ import {
   allocActivityId,
   allocAuthId,
   allocAuthNo,
-  allocBatchId,
   allocIncidentId,
   allocIncidentNo,
   allocLogId,
@@ -69,10 +67,26 @@ interface Props {
 
 const PAGE_SIZE = 10;
 const REP_STATUSES: RepresentativeStatus[] = [
-  '草稿', '待提交', '审核中', '补件中', '合格', '启用', '冻结', '整改中', '复核中', '失效', '退出', '驳回',
+  '草稿', '待合规确认', '补件中', '合格', '待备案提交', '已备案', '提交失败', '变更待提交', '删除待提交', '已删除', '冻结', '整改中', '复核中', '失效', '退出', '驳回',
 ];
 const MED_MAJORS = ['药学', '临床医学', '药物制剂', '护理学', '预防医学', '中药学', '药理学', '生物制药', '相关专业'];
 type DetailTab = '档案' | '备案核验' | '授权' | '培训承诺' | '违规' | '活动' | '审计';
+
+type AuthorizationIndicator = '有效授权' | '范围待确认' | '授权将到期' | '授权已失效';
+
+function authorizationIndicator(rep: Representative, date: string): AuthorizationIndicator {
+  const live = rep.authorizations.filter((a) => a.approvalStatus === '通过' && !a.superseded);
+  if (live.some((a) => a.startDate <= date && a.endDate >= date)) {
+    const nearest = live.filter((a) => a.endDate >= date).sort((a, b) => a.endDate.localeCompare(b.endDate))[0];
+    const days = nearest ? Math.ceil((Date.parse(`${nearest.endDate}T00:00:00`) - Date.parse(`${date}T00:00:00`)) / 86400000) : 0;
+    return days <= 30 ? '授权将到期' : '有效授权';
+  }
+  return live.length > 0 ? '授权已失效' : '范围待确认';
+}
+
+function activeAuthorizations(rep: Representative, date: string) {
+  return rep.authorizations.filter((a) => a.approvalStatus === '通过' && !a.superseded && a.startDate <= date && a.endDate >= date);
+}
 
 function allLogIds(reps: Representative[]): string[] {
   return reps.flatMap((r) => r.timeline.map((t) => t.id));
@@ -84,13 +98,12 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
   const isSales = currentRole === '药厂销售部门';
   const isVendor = currentRole === '服务提供商';
   const canSeeFullId = isCompliance;
-  const canWrite = isSales || isVendor;
+  const canWrite = isSales;
   const canApprove = isCompliance;
 
   const [rows, setRows] = useState<Representative[]>(() => seedRepresentatives.map((r) => ({ ...r })));
   const [vendors] = useState(() => seedVendors.map((v) => ({ ...v })));
   const [activities, setActivities] = useState<DemoActivity[]>(() => seedActivities.map((a) => ({ ...a })));
-  const [batches, setBatches] = useState<FilingBatchTask[]>([]);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [applied, setApplied] = useState<Record<string, string>>({});
@@ -131,7 +144,6 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
   const [incidentOpen, setIncidentOpen] = useState(false);
   const [incident, setIncident] = useState(emptyIncident());
 
-  const [batchPick, setBatchPick] = useState<string[]>([]);
 
   const scoped = useMemo(() => {
     if (!isVendor) return rows;
@@ -151,9 +163,9 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
 
   const stats = useMemo(() => ({
     enabled: scoped.filter((r) => r.status === '启用').length,
-    pending: scoped.filter((r) => ['审核中', '补件中', '待提交'].includes(r.status)).length,
+    pending: scoped.filter((r) => ['待合规确认', '补件中', '待备案提交', '变更待提交', '删除待提交'].includes(r.status)).length,
     frozen: scoped.filter((r) => ['冻结', '整改中', '复核中'].includes(r.status)).length,
-    expiring: scoped.filter((r) => reminderHit(r.nextVerifyDate, [60, 30, 7])).length,
+    expiring: scoped.filter((r) => reminderHit(r.authorizations.find((a) => a.approvalStatus === '通过' && !a.superseded)?.endDate || '', [60, 30, 7])).length,
     active: scoped.filter((r) => canRepJoinActivity(r)).length,
   }), [scoped]);
 
@@ -191,19 +203,19 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
   function missingAccessFields(f: typeof form): string[] {
     const miss: string[] = [];
     if (!f.name) miss.push('姓名');
+    if (!f.gender) miss.push('性别');
+    if (!f.photoFile) miss.push('照片');
     if (!f.idNo) miss.push('证件号');
     if (!f.mobile) miss.push('手机号');
     if (!f.email) miss.push('邮箱');
     if (!f.providerId && f.employmentType !== 'MAH直聘') miss.push('所属服务商');
     if (!f.employStart || !f.employEnd) miss.push('雇佣起止日期');
+    if (!f.contractOrAuthNo || !f.agreementFile) miss.push('劳动合同或授权书');
     if (!f.education || !f.major || !f.school || !f.eduProof) miss.push('学历证明');
     if (!['大专', '本科', '硕士', '博士'].includes(f.education)) miss.push('学历须大专及以上');
-    if (!f.trainingDate || !f.trainingValidUntil || !f.trainingCert || f.examScore < 60) miss.push('培训考核');
+    if (!f.trainingDate || !f.trainingValidUntil || !f.trainingCert || (f.examScore ?? 0) < 60) miss.push('培训考核');
     if (!f.pledgeDate || !f.pledgeFile) miss.push('合规承诺');
     if (f.pledgeVersion !== CURRENT_PLEDGE_TEMPLATE) miss.push(`承诺书须为 ${CURRENT_PLEDGE_TEMPLATE}`);
-    if (!f.filingNo || f.filingStatus !== '有效') miss.push('备案核验');
-    if (f.riskCheckResult !== '通过') miss.push('风险核验');
-    if (!f.riskCheckEvidence) miss.push('风险核验证据');
     return miss;
   }
 
@@ -241,11 +253,11 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
     const trainings = form.trainingDate ? [{
       id: allocTrnId(rows.flatMap((r) => r.trainings.map((t) => t.id))),
       repId: editingId || 'pending',
-      planName: form.trainingPlan,
+      planName: form.trainingPlan || '',
       completedAt: form.trainingDate,
-      examScore: form.examScore,
-      validUntil: form.trainingValidUntil,
-      certFile: form.trainingCert,
+      examScore: form.examScore ?? 0,
+      validUntil: form.trainingValidUntil || '',
+      certFile: form.trainingCert || '',
     }] : [];
     if (editingId) {
       patch(editingId, (r) => ({
@@ -253,8 +265,8 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
         ...form,
         provider: providerName,
         trainings: trainings.length ? trainings.map((t) => ({ ...t, repId: r.id })) : r.trainings,
-        status: asSubmit ? '审核中' : r.status === '草稿' ? '草稿' : r.status,
-        timeline: pushLog(r, asSubmit ? '提交' : '修改', asSubmit ? '提交准入审批' : '保存档案', { before: r.status, after: asSubmit ? '审核中' : r.status }),
+        status: asSubmit ? '待合规确认' : r.status === '草稿' ? '草稿' : r.status,
+        timeline: pushLog(r, asSubmit ? '提交' : '修改', asSubmit ? '提交合规确认' : '保存档案', { before: r.status, after: asSubmit ? '待合规确认' : r.status }),
       }));
     } else {
       const id = allocRepId(rows);
@@ -263,7 +275,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
         ...form,
         provider: providerName,
         trainings: trainings.map((t) => ({ ...t, repId: id })),
-        status: asSubmit ? '审核中' : '草稿',
+        status: asSubmit ? '待合规确认' : '草稿',
         timeline: [{
           id: allocLogId(allLogIds(rows)),
           time: nowText(),
@@ -271,12 +283,12 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
           operatorId: actor.id,
           role: currentRole,
           action: asSubmit ? '提交' : '创建',
-          after: asSubmit ? '审核中' : '草稿',
+          after: asSubmit ? '待合规确认' : '草稿',
         }],
       };
       setRows((prev) => [created, ...prev]);
     }
-    addToast({ type: 'success', title: asSubmit ? '已提交准入审批' : '档案已保存', description: form.name });
+    addToast({ type: 'success', title: asSubmit ? '已提交合规确认' : '档案已保存', description: form.name });
     setFormOpen(false);
   }
 
@@ -285,10 +297,10 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
     const enable = hasActiveAuth(r);
     patch(r.id, (cur) => ({
       ...cur,
-      status: enable ? '启用' : '合格',
-      timeline: pushLog(cur, '审核通过', enable ? '准入及授权均有效，状态启用' : '准入合格，尚无有效授权，不能启用', { before: cur.status, after: enable ? '启用' : '合格' }),
+      status: enable ? '待备案提交' : '合格',
+      timeline: pushLog(cur, '合规确认通过', enable ? '资格与推广范围已确认，待登记国家平台备案结果' : '资格已确认，待补充推广范围', { before: cur.status, after: enable ? '待备案提交' : '合格' }),
     }));
-    addToast({ type: enable ? 'success' : 'warning', title: enable ? '已启用' : '准入合格，待授权后启用' });
+    addToast({ type: enable ? 'success' : 'warning', title: enable ? '待登记国家备案结果' : '合规已通过，待确认推广范围' });
   }
 
   function confirmReject() {
@@ -385,54 +397,22 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
 
   function submitVerify() {
     if (!detail) return;
-    const taskNo = allocVerifyTask(rows.flatMap((r) => r.verifications.map((v) => v.taskNo)));
-    const vfId = allocVerifyId(rows.flatMap((r) => r.verifications.map((v) => v.id)));
-    const next = new Date();
-    next.setDate(next.getDate() + 90);
-    const nextDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
-    const autoStatus: RepresentativeStatus | null =
-      verify.result === '有效' || verify.result === '待核验' ? null : (verify.result === '失效' ? '失效' : '冻结');
-    patch(detail.id, (cur) => ({
-      ...cur,
-      filingStatus: verify.result,
-      filingVerifiedAt: nowText(),
-      nextVerifyDate: nextDate,
-      status: autoStatus ?? cur.status,
-      verifications: [{
-        id: vfId, taskNo,
-        queryKey: verify.queryKey || cur.filingNo || `${cur.mah} + ${cur.name}`,
-        result: verify.result, method: verify.method, verifier: effectiveActor.name,
-        verifiedAt: nowText(), nextDate, evidence: verify.evidence, summary: verify.summary || '人工核验录入',
-      }, ...cur.verifications],
-      timeline: pushLog(cur, '核验', `${verify.method} · ${verify.result}`, { evidenceHash: fakeHash(verify.evidence), after: autoStatus || cur.status }),
-    }));
-    addToast({ type: verify.result === '有效' ? 'success' : 'warning', title: '备案核验已记录' });
-    setVerifyOpen(false);
-  }
-
-  function createBatch() {
-    if (batchPick.length === 0) return;
-    const id = allocBatchId(batches.map((b) => b.id));
-    setBatches((prev) => [{
-      id,
-      createdAt: nowText(),
-      creatorId: actor.id,
-      repIds: batchPick,
-      items: batchPick.map((repId) => ({ repId, result: '待核验' as FilingVerifyResult })),
-    }, ...prev]);
-    addToast({ type: 'info', title: '已创建批量核验任务', description: `${id} · ${batchPick.length} 人待核验，禁止一键判定有效` });
-    setBatchPick([]);
-  }
-
-  function recordBatchItem(batchId: string, repId: string, result: FilingVerifyResult, evidence: string) {
-    if (result === '有效' && !evidence) {
-      addToast({ type: 'warning', title: '判定有效必须上传证据' });
+    if (!verify.queryKey.trim() || !verify.evidence.trim()) {
+      addToast({ type: 'warning', title: '请填写国家备案号并上传备案回执' });
       return;
     }
-    setBatches((prev) => prev.map((b) => b.id !== batchId ? b : {
-      ...b,
-      items: b.items.map((it) => it.repId === repId ? { ...it, result, evidence } : it),
+    patch(detail.id, (cur) => ({
+      ...cur,
+      filingNo: verify.queryKey.trim(),
+      filingStatus: '已备案',
+      filingSubmittedAt: nowText(),
+      filingSubmittedBy: effectiveActor.name,
+      filingReceipt: verify.evidence,
+      status: '已备案',
+      timeline: pushLog(cur, '登记备案结果', `国家备案号：${verify.queryKey.trim()}`, { evidenceHash: fakeHash(verify.evidence), after: '已备案' }),
     }));
+    addToast({ type: 'success', title: '国家备案结果已登记' });
+    setVerifyOpen(false);
   }
 
   function submitAuth() {
@@ -441,9 +421,9 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
       addToast({ type: 'warning', title: '请完整填写授权范围与有效期' });
       return;
     }
-    const cap = [detail.employEnd, detail.trainingValidUntil, detail.nextVerifyDate].filter(Boolean).sort()[0];
+    const cap = [detail.employEnd, detail.trainingValidUntil].filter(Boolean).sort()[0];
     if (cap && authForm.endDate > cap) {
-      addToast({ type: 'warning', title: '授权结束日不得超过雇佣/培训/备案有效期', description: cap });
+      addToast({ type: 'warning', title: '授权结束日不得超过雇佣或培训有效期', description: cap });
       return;
     }
     const allAuths = rows.flatMap((r) => r.authorizations);
@@ -453,7 +433,8 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
     const id = version > 1 ? `${allocAuthId(allAuths.map((a) => a.id))}-V${version}` : allocAuthId(allAuths.map((a) => a.id));
     patch(detail.id, (cur) => ({
       ...cur,
-      filingStatus: cur.filingStatus === '有效' ? '待核验' : cur.filingStatus,
+      filingStatus: cur.status === '已备案' ? '变更待提交' : cur.filingStatus,
+      status: cur.status === '已备案' ? '变更待提交' : cur.status,
       authorizations: [{
         id, authNo, version, mahId: cur.mahId,
         productIds: authForm.products.map((p) => PRODUCT_IDS[p] || p),
@@ -481,15 +462,15 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
           return a;
         });
       }
-      const enabled = (cur.status === '合格' || cur.status === '启用') && pass && nextAuths.some((a) => a.approvalStatus === '通过' && !a.superseded);
+      const readyForFiling = (cur.status === '合格' || cur.status === '待合规确认') && pass && nextAuths.some((a) => a.approvalStatus === '通过' && !a.superseded);
       return {
         ...cur,
         authorizations: nextAuths,
-        status: enabled ? '启用' : cur.status,
-        timeline: pushLog(cur, pass ? '审核通过' : '审核驳回', pass ? '授权生效，旧版本已终止并保留' : '授权驳回', { after: enabled ? '启用' : cur.status }),
+        status: readyForFiling ? '待备案提交' : cur.status,
+        timeline: pushLog(cur, pass ? '审核通过' : '审核驳回', pass ? '推广范围已确认，待登记国家备案结果' : '推广范围驳回', { after: readyForFiling ? '待备案提交' : cur.status }),
       };
     });
-    addToast({ type: pass ? 'success' : 'warning', title: pass ? '授权已生效（旧版 superseded）' : '授权已驳回' });
+    addToast({ type: pass ? 'success' : 'warning', title: pass ? '推广范围已确认' : '推广范围已驳回' });
   }
 
   function runCheck() {
@@ -574,13 +555,13 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="医药代表备案管理"
-        description="准入、备案核验、授权、培训承诺与违规处置。未启用或超授权代表不可参与药品学术推广。"
+        description="药厂侧代表建档、合规确认、推广范围确认及国家备案结果登记。"
         dataRange={isVendor ? vendorNameOf(vendors, DEMO_VENDOR_ID) : '本企业全部代表'}
         actions={canWrite ? <Button variant="primary" size="md" icon={<UserPlus size={14} />} onClick={openCreate}>新建代表</Button> : undefined}
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        <InfoBanner>本期不向国家药监局备案平台自动提交。证件号加密存储。当前操作人 {actor.name}（{actor.id}）。合规可将「以复核人身份确认」打开，用 {ACTORS.compliance2.name} 做解冻终审。</InfoBanner>
+        <InfoBanner>本模块仅演示药厂内部操作：备案专员完成国家平台操作后，在此登记备案号与回执；不连接国家平台接口。当前操作人 {actor.name}（{actor.id}）。</InfoBanner>
         {isCompliance && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 12, color: '#374151' }}>
             <input type="checkbox" checked={asReviewer2} onChange={(e) => setAsReviewer2(e.target.checked)} />
@@ -591,8 +572,8 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
           <MetricCard compact title="启用中" value={stats.enabled} icon={BadgeCheck} />
           <MetricCard compact title="待处理准入" value={stats.pending} icon={ClipboardCheck} iconColor="#C77A16" iconBg="#FEF3E2" urgency={stats.pending ? 'warning' : 'normal'} />
           <MetricCard compact title="冻结 / 整改" value={stats.frozen} icon={Snowflake} iconColor="#C73A3A" iconBg="#FEECEC" urgency={stats.frozen ? 'danger' : 'normal'} />
-          <MetricCard compact title="60/30/7 天到期" value={stats.expiring} icon={FileSearch} iconColor="#C77A16" iconBg="#FEF3E2" />
-          <MetricCard compact title="可参与活动" value={stats.active} icon={ShieldCheck} subtitle="启用且授权有效" />
+          <MetricCard compact title="30 天内授权到期" value={stats.expiring} icon={FileSearch} iconColor="#C77A16" iconBg="#FEF3E2" />
+          <MetricCard compact title="可参与活动" value={stats.active} icon={ShieldCheck} subtitle="已备案且授权有效" />
         </div>
 
         <FilterBar
@@ -601,7 +582,6 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
           onChange={(id, val) => setFilters((p) => ({ ...p, [id]: val }))}
           onSearch={() => { setApplied(filters); setPage(1); }}
           onReset={() => { setFilters({}); setApplied({}); setPage(1); }}
-          extraActions={canApprove ? <Button size="sm" variant="outline" onClick={createBatch} disabled={!batchPick.length}>创建批量核验（{batchPick.length}）</Button> : undefined}
           stats={<span style={{ fontSize: 13, color: '#667085' }}>共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 名代表</span>}
         />
 
@@ -610,21 +590,19 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
               <thead>
                 <tr>
-                  {['', '代表', '证件号', '雇佣 / 服务商', '主状态', '备案', '培训有效期', '有效授权', '可参与活动', '操作'].map((h) => (
+                  {['代表', '证件号', '雇佣 / 服务商', '主状态', '备案号 / 状态', '培训有效期', '有效授权', '可参与活动', '操作'].map((h) => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {pageData.length === 0 ? (
-                  <tr><td colSpan={10}><EmptyState title="暂无代表" description="调整筛选或新建代表档案" /></td></tr>
+                  <tr><td colSpan={9}><EmptyState title="暂无代表" description="调整筛选或新建代表档案" /></td></tr>
                 ) : pageData.map((r, idx) => {
                   const join = canRepJoinActivity(r);
+                  const auth = authorizationIndicator(r, today());
                   return (
                     <tr key={r.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                      <td style={tdStyle}>
-                        {canApprove && <input type="checkbox" checked={batchPick.includes(r.id)} onChange={() => setBatchPick((p) => p.includes(r.id) ? p.filter((x) => x !== r.id) : [...p, r.id])} />}
-                      </td>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{r.name}</div>
                         <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{r.id}</div>
@@ -637,19 +615,22 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                         <div style={{ fontSize: 12, color: '#9CA3AF' }}>{r.providerId ? r.provider : r.mah}</div>
                       </td>
                       <td style={tdStyle}><StatusTag status={r.status as never} /></td>
-                      <td style={tdStyle}><StatusTag status={r.filingStatus as never} /></td>
+                      <td style={tdStyle}>
+                        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, marginBottom: 4 }}>{r.filingNo || '待取得'}</div>
+                        <StatusTag status={r.filingStatus as never} size="sm" />
+                      </td>
                       <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{r.trainingValidUntil || '—'}</td>
-                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>{r.authorizations.filter((a) => a.approvalStatus === '通过' && !a.superseded).length}</td>
+                      <td style={tdStyle}><StatusTag status={auth} size="sm" /></td>
                       <td style={tdStyle}>
                         <span style={{ color: join ? '#248A5A' : '#C73A3A', fontWeight: 600, fontSize: 12 }}>{join ? '是 · 限授权范围' : '否'}</span>
                       </td>
                       <td style={tdStyle}>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                           <Button variant="ghost" size="sm" onClick={() => { setDetail(r); setDetailTab('档案'); }}>查看</Button>
-                          {canWrite && ['草稿', '待提交', '补件中', '驳回'].includes(r.status) && (
+                          {canWrite && ['草稿', '待合规确认', '补件中', '驳回'].includes(r.status) && (
                             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>编辑</Button>
                           )}
-                          {canApprove && r.status === '审核中' && (
+                          {canApprove && r.status === '待合规确认' && (
                             <Button variant="ghost" size="sm" onClick={() => approve(r)}>通过</Button>
                           )}
                           {canApprove && r.status === '启用' && (
@@ -677,17 +658,17 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
         footer={current && (
           <>
             <Button variant="outline" onClick={() => setDetail(null)}>关闭</Button>
-            {canWrite && ['草稿', '待提交', '补件中', '驳回'].includes(current.status) && (
+            {canWrite && ['草稿', '待合规确认', '补件中', '驳回'].includes(current.status) && (
               <Button variant="secondary" onClick={() => openEdit(current)}>编辑资料</Button>
             )}
-            {canApprove && current.status === '审核中' && (
+            {canApprove && current.status === '待合规确认' && (
               <>
                 <Button variant="outline" onClick={() => { setSupplyTarget(current); setSupplyNote(''); }}>要求补件</Button>
                 <Button variant="danger" onClick={() => { setRejectTarget(current); setRejectReason(''); }}>驳回</Button>
                 <Button variant="primary" icon={<BadgeCheck size={14} />} onClick={() => approve(current)}>准入通过</Button>
               </>
             )}
-            {canApprove && current.status === '启用' && (
+            {canApprove && ['启用', '已备案'].includes(current.status) && (
               <Button variant="danger" icon={<Ban size={14} />} onClick={() => { setFreezeReason(''); setFreezeEvidence(''); setFreezeOpen(true); }}>冻结</Button>
             )}
             {canApprove && current.status === '冻结' && (
@@ -713,7 +694,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                   <span style={{ fontSize: 12, color: '#9CA3AF' }}>{current.id} · {current.mahId} · 发起人 {current.initiatorName}（{current.initiatorId}）</span>
                 </div>
                 <div style={{ fontSize: 13, color: '#667085' }}>
-                  {current.employmentType} · {current.provider} · 下次备案核验 {current.nextVerifyDate || '—'}
+                  {current.employmentType} · {current.provider} · 备案号 {current.filingNo || '待取得'} · <StatusTag status={authorizationIndicator(current, today())} size="sm" />
                 </div>
               </div>
               <div style={{
@@ -730,7 +711,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
               onChange={(id) => setDetailTab(id as DetailTab)}
               items={[
                 { id: '档案', label: '档案' },
-                { id: '备案核验', label: '备案核验', count: current.verifications.length },
+                { id: '备案核验', label: '国家备案', count: current.verifications.length },
                 { id: '授权', label: '授权', count: current.authorizations.length },
                 { id: '培训承诺', label: '培训与承诺' },
                 { id: '违规', label: '违规处置', count: current.incidents.length },
@@ -753,6 +734,17 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                   <FieldItem label="服务商" value={current.providerId ? `${current.provider}（${current.providerId}）` : 'MAH直聘'} />
                   <FieldItem label="起止日期" value={`${current.employStart} ~ ${current.employEnd}`} />
                 </FieldGroup>
+                <FieldGroup title="国家备案">
+                  <FieldItem label="备案号" value={current.filingNo || '待取得'} />
+                  <FieldItem label="备案状态" value={<StatusTag status={current.filingStatus as never} />} />
+                  <FieldItem label="登记时间" value={current.filingSubmittedAt || '—'} />
+                  <FieldItem label="备案回执" value={current.filingReceipt || '未上传'} />
+                </FieldGroup>
+                <FieldGroup title="推广授权">
+                  <FieldItem label="有效授权" value={<StatusTag status={authorizationIndicator(current, today())} />} />
+                  <FieldItem label="合同/授权书编号" value={current.contractOrAuthNo || activeAuthorizations(current, today())[0]?.authNo || '—'} />
+                  <FieldItem label="当前授权范围" value={activeAuthorizations(current, today()).length ? activeAuthorizations(current, today()).map((a) => `${a.regions.join('、')} · 至 ${a.endDate}`).join('；') : '—'} span />
+                </FieldGroup>
                 <FieldGroup title="风险核验">
                   <FieldItem label="结果" value={current.riskCheckResult} />
                   <FieldItem label="日期" value={current.riskCheckDate || '—'} />
@@ -763,22 +755,28 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
 
             {detailTab === '备案核验' && (
               <>
-                <InfoBanner tone="warning">批量复核只创建待核验任务，不能一键判定有效。变更授权或服务商后备案状态会打回待核验。</InfoBanner>
-                {canApprove && (
+                <InfoBanner tone="warning">备案专员在国家平台完成操作后，回填备案号与回执。推广范围发生变更后，需要重新登记变更结果。</InfoBanner>
+                <FieldGroup title="当前国家备案信息">
+                  <FieldItem label="备案号" value={current.filingNo || '待取得'} />
+                  <FieldItem label="备案状态" value={<StatusTag status={current.filingStatus as never} />} />
+                  <FieldItem label="登记时间" value={current.filingSubmittedAt || '—'} />
+                  <FieldItem label="备案回执" value={current.filingReceipt || '未上传'} />
+                </FieldGroup>
+                {canApprove && ['待备案提交', '变更待提交'].includes(current.status) && (
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                     <Button variant="primary" size="sm" icon={<FileSearch size={13} />} onClick={() => {
-                      setVerify({ queryKey: current.filingNo || `${current.mah} + ${current.name}`, result: '有效', method: '人工核验', evidence: '备案平台查询截图.png', summary: '' });
+                      setVerify({ queryKey: current.filingNo || '', result: '有效', method: '人工核验', evidence: '', summary: '' });
                       setVerifyOpen(true);
-                    }}>录入核验结果</Button>
+                    }}>登记国家备案结果</Button>
                   </div>
                 )}
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr>{['任务号', '查询条件', '结果', '方式', '核验人', '时间', '下次核验', '证据'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                    <tr>{['任务号', '备案号', '结果', '登记方式', '登记人', '时间', '证据'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
                   </thead>
                   <tbody>
                     {current.verifications.length === 0 ? (
-                      <tr><td colSpan={8} style={{ ...tdStyle, color: '#9CA3AF' }}>暂无核验记录</td></tr>
+                      <tr><td colSpan={7} style={{ ...tdStyle, color: '#9CA3AF' }}>暂无历史备案记录</td></tr>
                     ) : current.verifications.map((v) => (
                       <tr key={v.id}>
                         <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{v.taskNo}</td>
@@ -787,32 +785,18 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                         <td style={tdStyle}>{v.method}</td>
                         <td style={tdStyle}>{v.verifier}</td>
                         <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{v.verifiedAt}</td>
-                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{v.nextDate}</td>
                         <td style={tdStyle}>{v.evidence}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {batches.filter((b) => b.repIds.includes(current.id)).map((b) => (
-                  <div key={b.id} style={{ marginTop: 12, padding: 12, border: '1px solid #E5E7EB', borderRadius: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{b.id} · 逐条核验</div>
-                    {b.items.filter((it) => it.repId === current.id).map((it) => (
-                      <div key={it.repId} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <StatusTag status={it.result as never} />
-                        <select value={it.result} onChange={(e) => recordBatchItem(b.id, current.id, e.target.value as FilingVerifyResult, it.evidence || '核验截图.png')} style={{ ...inputStyle, width: 160 }}>
-                          <option>待核验</option><option>有效</option><option>无结果</option><option>失效</option><option>异常待人工确认</option>
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                ))}
               </>
             )}
 
             {detailTab === '授权' && (
               <>
                 <InfoBanner>变更须创建新版本并保留同一授权号。新版本通过后旧版本 superseded 并终止。</InfoBanner>
-                {(canWrite || canApprove) && ['合格', '启用', '审核中'].includes(current.status) && (
+                {(canWrite || canApprove) && ['合格', '待合规确认', '待备案提交', '已备案', '变更待提交'].includes(current.status) && (
                   <div style={{ marginBottom: 12 }}>
                     <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={() => {
                       const live = current.authorizations.find((a) => a.approvalStatus === '通过' && !a.superseded);
@@ -950,16 +934,18 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
           {formStep === 2 && (
             <>
               <Button variant="secondary" onClick={() => saveForm(false)}>保存草稿</Button>
-              <Button variant="primary" onClick={() => saveForm(true)}>提交准入审批</Button>
+              <Button variant="primary" onClick={() => saveForm(true)}>提交合规确认</Button>
             </>
           )}
         </>
       }>
-        <Stepper steps={['基本信息与雇佣', '学历培训承诺', '备案与风险核验']} current={formStep} />
+        <Stepper steps={['基本信息与雇佣', '学历培训承诺', '合同/授权资料']} current={formStep} />
         {formError && <div style={{ color: '#C73A3A', fontSize: 13, marginBottom: 12 }}>{formError}</div>}
         {formStep === 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="姓名" required><input value={form.name} onChange={(e) => setF('name', e.target.value)} style={inputStyle} /></Field>
+            <Field label="性别" required><select value={form.gender || ''} onChange={(e) => setF('gender', e.target.value as Representative['gender'])} style={inputStyle}><option value="">请选择</option><option>男</option><option>女</option></select></Field>
+            <Field label="照片" required><input value={form.photoFile || ''} onChange={(e) => setF('photoFile', e.target.value)} placeholder="照片文件名" style={inputStyle} /></Field>
             <Field label="证件号" required><input value={form.idNo} onChange={(e) => setF('idNo', e.target.value)} style={inputStyle} /></Field>
             <Field label="手机号" required><input value={form.mobile} onChange={(e) => setF('mobile', e.target.value)} style={inputStyle} /></Field>
             <Field label="邮箱" required><input value={form.email} onChange={(e) => setF('email', e.target.value)} style={inputStyle} /></Field>
@@ -1005,39 +991,20 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
         )}
         {formStep === 2 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="备案号" required><input value={form.filingNo} onChange={(e) => setF('filingNo', e.target.value)} style={inputStyle} /></Field>
-            <Field label="备案状态" required>
-              <select value={form.filingStatus} onChange={(e) => setF('filingStatus', e.target.value as Representative['filingStatus'])} style={inputStyle}>
-                <option>未核验</option><option>待核验</option><option>有效</option><option>无结果</option><option>失效</option><option>异常待人工确认</option>
-              </select>
-            </Field>
-            <Field label="风险核验结果" required>
-              <select value={form.riskCheckResult} onChange={(e) => setF('riskCheckResult', e.target.value as Representative['riskCheckResult'])} style={inputStyle}>
-                <option>待核验</option><option>通过</option><option>未通过</option>
-              </select>
-            </Field>
-            <Field label="风险核验日期"><input type="date" value={form.riskCheckDate} onChange={(e) => setF('riskCheckDate', e.target.value)} style={inputStyle} /></Field>
-            <Field label="风险核验证据" required span><input value={form.riskCheckEvidence} onChange={(e) => setF('riskCheckEvidence', e.target.value)} style={inputStyle} /></Field>
+            <Field label="劳动合同/授权书编号" required><input value={form.contractOrAuthNo || ''} onChange={(e) => setF('contractOrAuthNo', e.target.value)} style={inputStyle} /></Field>
+            <Field label="合同/授权书附件" required><input value={form.agreementFile || ''} onChange={(e) => setF('agreementFile', e.target.value)} style={inputStyle} /></Field>
+            <Field label="备案号" span><input value="待取得（国家平台完成备案后由备案专员回填）" disabled style={{ ...inputStyle, color: '#667085', background: '#F9FAFB' }} /></Field>
+            <InfoBanner tone="warning">国家备案号始终可见：新建时显示“待取得”；备案专员完成国家平台操作后，在详情页「国家备案」中登记正式备案号与回执。</InfoBanner>
           </div>
         )}
       </Modal>
 
-      <Modal open={verifyOpen} title="录入备案核验" onClose={() => setVerifyOpen(false)} width={560} footer={
-        <><Button variant="outline" onClick={() => setVerifyOpen(false)}>取消</Button><Button variant="primary" onClick={submitVerify}>保存核验</Button></>
+      <Modal open={verifyOpen} title="登记国家备案结果" onClose={() => setVerifyOpen(false)} width={560} footer={
+        <><Button variant="outline" onClick={() => setVerifyOpen(false)}>取消</Button><Button variant="primary" onClick={submitVerify}>确认登记</Button></>
       }>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Field label="查询条件" span><input value={verify.queryKey} onChange={(e) => setVerify((v) => ({ ...v, queryKey: e.target.value }))} style={inputStyle} /></Field>
-          <Field label="核验方式">
-            <select value={verify.method} onChange={(e) => setVerify((v) => ({ ...v, method: e.target.value as FilingVerifyMethod }))} style={inputStyle}>
-              <option>人工核验</option><option>接口核验</option><option>批量复核</option>
-            </select>
-          </Field>
-          <Field label="查询结果">
-            <select value={verify.result} onChange={(e) => setVerify((v) => ({ ...v, result: e.target.value as FilingVerifyResult }))} style={inputStyle}>
-              <option>待核验</option><option>有效</option><option>无结果</option><option>失效</option><option>异常待人工确认</option>
-            </select>
-          </Field>
-          <Field label="证据附件" span><input value={verify.evidence} onChange={(e) => setVerify((v) => ({ ...v, evidence: e.target.value }))} style={inputStyle} /></Field>
+          <Field label="国家备案号" required span><input value={verify.queryKey} onChange={(e) => setVerify((v) => ({ ...v, queryKey: e.target.value }))} style={inputStyle} /></Field>
+          <Field label="备案回执" required span><input value={verify.evidence} onChange={(e) => setVerify((v) => ({ ...v, evidence: e.target.value }))} placeholder="备案信息表或回执文件名" style={inputStyle} /></Field>
         </div>
       </Modal>
 
