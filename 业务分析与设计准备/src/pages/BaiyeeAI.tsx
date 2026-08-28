@@ -278,7 +278,7 @@ function Composer({ value, setValue, send, busy, inputRef, attachments, onAddFil
       )}
       <div style={S.composerbar}>
         <Icon label={attachments.length ? `添加附件（${attachments.length}/${MAX_FILES}）` : '添加附件'} onClick={() => fileRef.current?.click()}><Paperclip size={17} /></Icon>
-        <button type="button" aria-label="发送消息" disabled={idle} onClick={send} style={{ ...S.send, background: idle ? '#C8CECA' : '#176B5B', cursor: idle ? 'not-allowed' : 'pointer' }}>
+        <button type="button" aria-label="发送消息" disabled={idle} onClick={send} style={{ ...S.send, background: idle ? '#C8CECA' : 'var(--color-brand)', cursor: idle ? 'not-allowed' : 'pointer' }}>
           <Send size={15} />
         </button>
       </div>
@@ -322,7 +322,7 @@ function Process({ phase, revealed, confirm, cancel }: { phase: Phase; revealed:
   return (
     <div>
       <button type="button" onClick={() => setOpen(v => !v)} style={S.processhead}>
-        <span style={{ ...S.processmark, color: done ? '#176B5B' : '#A56B12', background: done ? '#E6F1EC' : '#FFF2D9' }}>{done ? <Check size={13} /> : <Sparkles size={12} />}</span>
+        <span style={{ ...S.processmark, color: done ? 'var(--color-brand)' : '#A56B12', background: done ? '#E6F1EC' : '#FFF2D9' }}>{done ? <Check size={13} /> : <Sparkles size={12} />}</span>
         <b>处理过程</b>
         <span style={S.processsummary}>{phase === 'running' ? '正在分析业务范围…' : '已完成需求识别、配置读取、沙箱模拟与风险校验'}</span>
         {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -339,7 +339,7 @@ function StepView({ step, running }: { step: Step; running: boolean }) {
     <div style={S.step}>
       <button type="button" onClick={() => setOpen(v => !v)} style={S.stepline}>
         <span style={S.check}><Check size={12} /></span>
-        <b style={{ fontSize: 13 }}>{step.title}{running ? '…' : ''}</b>
+        <b style={{ fontSize: 'var(--fs-13)' }}>{step.title}{running ? '…' : ''}</b>
         {step.sandbox && <span style={S.sandbox}>沙箱环境，不写入生产</span>}
         <span style={S.stepsummary}>{step.summary}</span>
         {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
@@ -356,7 +356,7 @@ function StepView({ step, running }: { step: Step; running: boolean }) {
 function Confirm({ confirm, cancel }: { confirm: () => void; cancel: () => void }) {
   return (
     <div style={S.confirm}>
-      <b style={{ fontSize: 14 }}>限时拜访</b>
+      <b style={{ fontSize: 'var(--fs-14)' }}>限时拜访</b>
       <p style={{ ...S.aitext, marginTop: 7 }}>每日 09:00–18:00<br />覆盖医院、商业、药房拜访<br />影响百益健康下属全部服务商、工作组和服务专员</p>
       <div style={S.confirmactions}>
         <button type="button" onClick={cancel} style={S.cancel}>取消</button>
@@ -421,8 +421,8 @@ const SCOPED_CSS = `
 .baiyee-ai-root { width: 100%; max-width: 100%; overflow: hidden; }
 .baiyee-ai-root *, .baiyee-ai-root *::before, .baiyee-ai-root *::after { box-sizing: border-box; }
 .baiyee-ai-root button:focus-visible,
-.baiyee-ai-root textarea:focus-visible { outline: 2px solid #176B5B; outline-offset: 2px; }
-.baiyee-ai-composer:focus-within { box-shadow: 0 0 0 2px #176B5B; }
+.baiyee-ai-root textarea:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.baiyee-ai-composer:focus-within { box-shadow: 0 0 0 2px var(--color-brand); }
 .baiyee-ai-root textarea { outline: none; }
 .baiyee-ai-root .baiyee-icon:hover { background: rgba(36,39,37,.06); }
 .baiyee-ai-root .baiyee-icon-dark:hover { background: rgba(255,255,255,.08); }
@@ -452,79 +452,79 @@ const S: Record<string, CSSProperties> = {
   railDrawer: { position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 40, width: 240, boxShadow: '8px 0 24px rgba(23,26,25,.28)' },
   backdrop: { position: 'fixed', inset: 0, zIndex: 30, margin: 0, padding: 0, border: 0, background: 'rgba(23,26,25,.45)', cursor: 'pointer' },
   brandrow: { display: 'flex', alignItems: 'center', minHeight: 36, marginBottom: 14 },
-  brand: { display: 'flex', alignItems: 'center', gap: 9, fontSize: 15, whiteSpace: 'nowrap' },
-  mark: { width: 23, height: 23, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: '#176B5B', color: '#fff', flexShrink: 0 },
+  brand: { display: 'flex', alignItems: 'center', gap: 9, fontSize: 'var(--fs-15)', whiteSpace: 'nowrap' },
+  mark: { width: 23, height: 23, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'var(--color-brand)', color: '#fff', flexShrink: 0 },
   icon: { width: 32, height: 32, flexShrink: 0, marginLeft: 4, border: 0, borderRadius: 6, background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
-  new: { height: 38, gap: 9, display: 'flex', alignItems: 'center', borderRadius: 8, background: '#2A302D', border: '1px solid #363D39', color: '#F7F7F5', fontSize: 13, cursor: 'pointer' },
-  backRail: { marginTop: 'auto', height: 38, gap: 8, display: 'flex', alignItems: 'center', borderRadius: 8, background: 'transparent', border: '1px solid #363D39', color: '#E9ECE9', fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0 },
+  new: { height: 38, gap: 9, display: 'flex', alignItems: 'center', borderRadius: 8, background: '#2A302D', border: '1px solid #363D39', color: '#F7F7F5', fontSize: 'var(--fs-13)', cursor: 'pointer' },
+  backRail: { marginTop: 'auto', height: 38, gap: 8, display: 'flex', alignItems: 'center', borderRadius: 8, background: 'transparent', border: '1px solid #363D39', color: '#E9ECE9', fontSize: 'var(--fs-13)', fontWeight: 600, cursor: 'pointer', flexShrink: 0 },
   history: { marginTop: 23, overflowY: 'auto', overflowX: 'hidden', flex: 1, minHeight: 0 },
-  group: { margin: '0 0 6px', padding: '0 8px', color: '#7D8781', fontSize: 11 },
-  historyitem: { display: 'block', border: 0, borderRadius: 6, width: '100%', padding: '8px 9px', marginBottom: 2, textAlign: 'left', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' },
+  group: { margin: '0 0 6px', padding: '0 8px', color: '#7D8781', fontSize: 'var(--fs-11)' },
+  historyitem: { display: 'block', border: 0, borderRadius: 6, width: '100%', padding: '8px 9px', marginBottom: 2, textAlign: 'left', fontSize: 'var(--fs-13)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' },
   main: { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#F7F7F5' },
   top: { height: 54, flexShrink: 0, display: 'flex', alignItems: 'center', padding: '0 12px 0 16px', borderBottom: '1px solid #E5E7E5', gap: 4, minWidth: 0, overflow: 'hidden' },
-  title: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' },
+  title: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-14)', fontWeight: 600, whiteSpace: 'nowrap' },
   sep: { width: 1, height: 16, margin: '0 10px', background: '#E5E7E5', flexShrink: 0 },
-  assistant: { fontSize: 12, color: '#6B706D', whiteSpace: 'nowrap' },
+  assistant: { fontSize: 'var(--fs-12)', color: '#6B706D', whiteSpace: 'nowrap' },
   spacer: { flex: 1, minWidth: 8 },
-  pharma: { padding: '4px 9px', borderRadius: 999, border: '1px solid #E5E7E5', background: '#fff', color: '#535956', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '42%' },
+  pharma: { padding: '4px 9px', borderRadius: 999, border: '1px solid #E5E7E5', background: '#fff', color: '#535956', fontSize: 'var(--fs-12)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '42%' },
   scroll: { flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden' },
   stream: { maxWidth: 800, width: '100%', minHeight: '100%', margin: '0 auto', padding: '28px 16px' },
   footer: { flexShrink: 0, width: '100%', maxWidth: '100%', padding: '12px 16px 14px', background: '#F7F7F5' },
   shortcuts: { maxWidth: 800, margin: '0 auto 10px', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 7 },
-  prompt: { padding: '6px 10px', border: '1px solid #E5E7E5', borderRadius: 8, background: '#fff', color: '#6B706D', fontSize: 12, lineHeight: 1.4, cursor: 'pointer' },
-  disclaimer: { maxWidth: 800, margin: '8px auto 0', textAlign: 'center', color: '#7B817E', fontSize: 11 },
+  prompt: { padding: '6px 10px', border: '1px solid #E5E7E5', borderRadius: 8, background: '#fff', color: '#6B706D', fontSize: 'var(--fs-12)', lineHeight: 1.4, cursor: 'pointer' },
+  disclaimer: { maxWidth: 800, margin: '8px auto 0', textAlign: 'center', color: '#7B817E', fontSize: 'var(--fs-11)' },
   welcome: { minHeight: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingTop: '4vh', paddingBottom: '8vh' },
   welcomeinner: { width: '100%', maxWidth: 800, margin: '0 auto' },
   h1: { margin: '0 0 10px', textAlign: 'center', fontSize: 'clamp(26px, 4vw, 34px)', lineHeight: 1.25, letterSpacing: '-.03em', fontWeight: 650, color: '#242725' },
-  lead: { maxWidth: 580, margin: '0 auto 26px', textAlign: 'center', color: '#6B706D', fontSize: 15, lineHeight: 1.65 },
+  lead: { maxWidth: 580, margin: '0 auto 26px', textAlign: 'center', color: '#6B706D', fontSize: 'var(--fs-15)', lineHeight: 1.65 },
   composer: { maxWidth: 800, width: '100%', margin: '0 auto', padding: '11px 12px 10px', border: '1px solid #E5E7E5', borderRadius: 14, background: '#FFFFFF', boxShadow: '0 2px 7px rgba(26,34,29,.06)' },
-  textarea: { display: 'block', width: '100%', minHeight: 44, border: 0, outline: 0, resize: 'none', background: 'transparent', color: '#242725', font: '14px var(--font-sans)', lineHeight: 1.6 },
+  textarea: { display: 'block', width: '100%', minHeight: 44, border: 0, outline: 0, resize: 'none', background: 'transparent', color: '#242725', font: 'var(--fs-14) var(--font-sans)', lineHeight: 1.6 },
   composerbar: { display: 'flex', alignItems: 'center', marginTop: 6, minWidth: 0 },
   send: { marginLeft: 'auto', width: 31, height: 31, border: 0, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 },
   userrow: { display: 'flex', justifyContent: 'flex-end', marginBottom: 24 },
-  userbubble: { maxWidth: '78%', padding: '10px 13px', borderRadius: '13px 13px 3px 13px', background: '#E7F0EC', color: '#28332E', fontSize: 14, lineHeight: 1.6, wordBreak: 'break-word' },
+  userbubble: { maxWidth: '78%', padding: '10px 13px', borderRadius: '13px 13px 3px 13px', background: '#E7F0EC', color: '#28332E', fontSize: 'var(--fs-14)', lineHeight: 1.6, wordBreak: 'break-word' },
   airow: { display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 28, minWidth: 0 },
   aibody: { minWidth: 0, flex: 1, paddingTop: 1 },
-  ainame: { margin: '0 0 7px', color: '#535A56', fontSize: 12, fontWeight: 600 },
-  aitext: { margin: '0 0 11px', color: '#3F4642', fontSize: 13, lineHeight: 1.7, wordBreak: 'break-word' },
+  ainame: { margin: '0 0 7px', color: '#535A56', fontSize: 'var(--fs-12)', fontWeight: 600 },
+  aitext: { margin: '0 0 11px', color: '#3F4642', fontSize: 'var(--fs-13)', lineHeight: 1.7, wordBreak: 'break-word' },
   actions: { display: 'flex', alignItems: 'center', marginTop: 9, gap: 2 },
   processhead: { width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '10px 0', border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: '#242725', minWidth: 0 },
   processmark: { width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', flexShrink: 0 },
-  processsummary: { flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: '#6B706D', fontSize: 12, minWidth: 0 },
+  processsummary: { flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: '#6B706D', fontSize: 'var(--fs-12)', minWidth: 0 },
   step: { padding: '11px 0', borderBottom: '1px solid #EDF0ED' },
   stepline: { display: 'flex', width: '100%', alignItems: 'center', gap: 9, padding: 0, border: 0, background: 'transparent', color: '#242725', textAlign: 'left', cursor: 'pointer', minWidth: 0 },
-  check: { display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRadius: '50%', color: '#176B5B', background: '#E6F1EC' },
-  sandbox: { padding: '2px 5px', border: '1px solid #F3DCB6', borderRadius: 4, background: '#FFF2D9', color: '#986016', fontSize: 11, whiteSpace: 'nowrap' },
-  stepsummary: { flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: '#6B706D', fontSize: 12, minWidth: 0 },
+  check: { display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRadius: '50%', color: 'var(--color-brand)', background: '#E6F1EC' },
+  sandbox: { padding: '2px 5px', border: '1px solid #F3DCB6', borderRadius: 4, background: '#FFF2D9', color: '#986016', fontSize: 'var(--fs-11)', whiteSpace: 'nowrap' },
+  stepsummary: { flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: '#6B706D', fontSize: 'var(--fs-12)', minWidth: 0 },
   stepdetails: { margin: '10px 0 0 27px', padding: '9px 11px', borderRadius: 6, background: '#FBFCFA', minWidth: 0 },
-  detailrow: { display: 'flex', gap: 12, padding: '4px 0', fontSize: 12, lineHeight: 1.55, minWidth: 0 },
+  detailrow: { display: 'flex', gap: 12, padding: '4px 0', fontSize: 'var(--fs-12)', lineHeight: 1.55, minWidth: 0 },
   detailk: { color: '#6B706D', flexShrink: 0, minWidth: 72 },
   detailv: { minWidth: 0, flex: 1, wordBreak: 'break-word', color: '#242725' },
-  note: { margin: '8px 0 0', padding: '7px 9px', borderLeft: '2px solid #E7BD79', background: '#FFF8EA', color: '#875C21', fontSize: 12, lineHeight: 1.55, wordBreak: 'break-word' },
+  note: { margin: '8px 0 0', padding: '7px 9px', borderLeft: '2px solid #E7BD79', background: '#FFF8EA', color: '#875C21', fontSize: 'var(--fs-12)', lineHeight: 1.55, wordBreak: 'break-word' },
   confirm: { marginTop: 15, padding: '13px 14px', border: '1px solid #DDE5DF', borderRadius: 9, background: '#fff' },
   confirmactions: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 13, flexWrap: 'wrap' },
-  cancel: { height: 30, padding: '0 12px', border: '1px solid #DCE0DD', borderRadius: 6, background: '#fff', color: '#4F5652', fontSize: 12, cursor: 'pointer' },
-  confirmbutton: { height: 30, padding: '0 12px', border: 0, borderRadius: 6, background: '#176B5B', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' },
-  cancelled: { margin: '11px 0 0', color: '#6B706D', fontSize: 13 },
+  cancel: { height: 30, padding: '0 12px', border: '1px solid #DCE0DD', borderRadius: 6, background: '#fff', color: '#4F5652', fontSize: 'var(--fs-12)', cursor: 'pointer' },
+  confirmbutton: { height: 30, padding: '0 12px', border: 0, borderRadius: 6, background: 'var(--color-brand)', color: '#fff', fontSize: 'var(--fs-12)', fontWeight: 600, cursor: 'pointer' },
+  cancelled: { margin: '11px 0 0', color: '#6B706D', fontSize: 'var(--fs-13)' },
   card: { padding: '14px 15px', border: '1px solid #E5E7E5', borderRadius: 9, background: '#FFFFFF', color: '#242725', minWidth: 0 },
-  source: { margin: '10px 0 0', color: '#737975', fontSize: 11, lineHeight: 1.6, wordBreak: 'break-word' },
-  outline: { marginTop: 12, padding: '6px 9px', border: '1px solid #C9D9D2', borderRadius: 6, background: '#fff', color: '#176B5B', fontSize: 12, fontWeight: 600, cursor: 'pointer' },
-  undo: { marginTop: 12, padding: 0, border: 0, background: 'transparent', color: '#4E655C', fontSize: 12, textDecoration: 'underline', cursor: 'pointer' },
+  source: { margin: '10px 0 0', color: '#737975', fontSize: 'var(--fs-11)', lineHeight: 1.6, wordBreak: 'break-word' },
+  outline: { marginTop: 12, padding: '6px 9px', border: '1px solid #C9D9D2', borderRadius: 6, background: '#fff', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 600, cursor: 'pointer' },
+  undo: { marginTop: 12, padding: 0, border: 0, background: 'transparent', color: '#4E655C', fontSize: 'var(--fs-12)', textDecoration: 'underline', cursor: 'pointer' },
   usertext: { whiteSpace: 'pre-wrap' },
   bubbleatts: { display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'flex-end', minWidth: 0 },
   chipsrow: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, margin: '8px 0 2px', minWidth: 0 },
-  pendingchip: { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 6px 4px 4px', border: '1px solid #E2E6E2', borderRadius: 9, background: '#FBFCFA', fontSize: 12, color: '#3F4642', maxWidth: 280, minWidth: 0 },
+  pendingchip: { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 6px 4px 4px', border: '1px solid #E2E6E2', borderRadius: 9, background: '#FBFCFA', fontSize: 'var(--fs-12)', color: '#3F4642', maxWidth: 280, minWidth: 0 },
   chipname: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, fontWeight: 500 },
-  chipsize: { flexShrink: 0, color: '#7B817E', fontFamily: 'var(--font-mono)', fontSize: 11 },
+  chipsize: { flexShrink: 0, color: '#7B817E', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-11)' },
   chipremove: { width: 20, height: 20, marginLeft: 2, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, borderRadius: '50%', background: 'transparent', color: '#8A908C', cursor: 'pointer' },
   attimgbtn: { padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in', borderRadius: 8, lineHeight: 0 },
   attimgthumb: { width: 68, height: 68, objectFit: 'cover', borderRadius: 8, display: 'block', background: '#F1F4F1' },
-  msgchip: { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 9px 4px 4px', border: '1px solid #D8E2DC', borderRadius: 9, background: '#FFFFFF', fontSize: 12, color: '#3F4642', cursor: 'pointer', maxWidth: 250, minWidth: 0 },
-  attacherrortext: { alignSelf: 'center', fontSize: 12, color: '#B3411B' },
-  composerdrop: { borderColor: '#176B5B', boxShadow: '0 0 0 2px rgba(23,107,91,.32), 0 2px 7px rgba(26,34,29,.06)' },
+  msgchip: { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 9px 4px 4px', border: '1px solid #D8E2DC', borderRadius: 9, background: '#FFFFFF', fontSize: 'var(--fs-12)', color: '#3F4642', cursor: 'pointer', maxWidth: 250, minWidth: 0 },
+  attacherrortext: { alignSelf: 'center', fontSize: 'var(--fs-12)', color: '#B3411B' },
+  composerdrop: { borderColor: 'var(--color-brand)', boxShadow: '0 0 0 2px rgba(23,107,91,.32), 0 2px 7px rgba(26,34,29,.06)' },
   previewback: { position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(18,21,19,.63)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 },
   previewcard: { margin: 0, maxWidth: 'min(1100px, 92vw)', display: 'flex', flexDirection: 'column', gap: 10 },
   previewimg: { display: 'block', maxHeight: '76vh', maxWidth: '100%', objectFit: 'contain', borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,.45)', background: '#141715' },
-  previewcap: { display: 'flex', alignItems: 'center', gap: 10, color: '#ECEFEB', fontSize: 12, minWidth: 0 },
+  previewcap: { display: 'flex', alignItems: 'center', gap: 10, color: '#ECEFEB', fontSize: 'var(--fs-12)', minWidth: 0 },
   previewname: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, minWidth: 0 },
 };

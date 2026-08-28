@@ -127,8 +127,8 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
   ];
 
   const statsNode = (
-    <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 13 }}>
-      <span style={{ color: '#667085' }}>共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条</span>
+    <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 'var(--fs-13)' }}>
+      <span style={{ color: '#667085' }}>共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条</span>
       {Object.entries(statusCounts).map(([status, count]) => (
         <span key={status} style={{ color: '#667085', display: 'flex', alignItems: 'center', gap: 4 }}>
           <StatusTag status={status as AuditStatus} size="sm" />
@@ -143,7 +143,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
       <Button variant="outline" size="sm" icon={<Download size={13} />}>导出</Button>
       {selected.length > 0 && (
         <>
-          <span style={{ fontSize: 13, color: '#667085', padding: '0 4px' }}>已选 {selected.length} 条</span>
+          <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {selected.length} 条</span>
           <Button variant="secondary" size="sm" icon={<CheckCircle size={13} />} onClick={handleBatchApprove}>批量审核通过</Button>
           <Button variant="secondary" size="sm" icon={<XCircle size={13} />} onClick={handleBatchReject} style={{ color: '#C73A3A' }}>批量驳回</Button>
           <Button variant="secondary" size="sm" icon={<Trash2 size={13} />} onClick={() => setDeleteTarget('batch')} style={{ color: '#C73A3A' }}>批量删除</Button>
@@ -156,13 +156,13 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
     <th style={{
       padding: '10px 12px',
       textAlign: 'left',
-      fontSize: 12,
+      fontSize: 'var(--fs-12)',
       fontWeight: 600,
       color: '#9CA3AF',
       textTransform: 'uppercase',
       letterSpacing: '0.03em',
       background: '#F9FAFB',
-      borderBottom: '1px solid #E5E7EB',
+      borderBottom: '1px solid var(--color-border)',
       whiteSpace: 'nowrap',
       width: w,
     }}>
@@ -198,7 +198,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
 
         <div style={{
           background: '#FFFFFF',
-          border: '1px solid #E5E7EB',
+          border: '1px solid var(--color-border)',
           borderRadius: '8px',
           overflow: 'hidden',
         }}>
@@ -209,14 +209,14 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                   <th style={{
                     padding: '10px 12px',
                     background: '#F9FAFB',
-                    borderBottom: '1px solid #E5E7EB',
+                    borderBottom: '1px solid var(--color-border)',
                     width: 40,
                   }}>
                     <input
                       type="checkbox"
                       checked={selected.length === pageData.length && pageData.length > 0}
                       onChange={toggleAll}
-                      style={{ cursor: 'pointer', accentColor: '#176B5B' }}
+                      style={{ cursor: 'pointer', accentColor: 'var(--color-brand)' }}
                     />
                   </th>
                   {th('序号', 50)}
@@ -261,57 +261,57 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                         type="checkbox"
                         checked={selected.includes(record.id)}
                         onChange={() => toggleRow(record.id)}
-                        style={{ cursor: 'pointer', accentColor: '#176B5B' }}
+                        style={{ cursor: 'pointer', accentColor: 'var(--color-brand)' }}
                       />
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>
                       {(page - 1) * PAGE_SIZE + idx + 1}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 500, color: '#1F2937', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-text-1)', whiteSpace: 'nowrap' }}>
                       {record.specialist}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, color: '#374151', maxWidth: 120 }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', maxWidth: 120 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {record.provider}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, color: '#374151', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', whiteSpace: 'nowrap' }}>
                       {record.workGroup}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: '#1F2937' }}>{record.hospital}</div>
-                      <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
+                      <div style={{ fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-text-1)' }}>{record.hospital}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>
                         {record.department} · {record.visitee}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, color: '#374151', maxWidth: 140 }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', maxWidth: 140 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {record.variety}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#667085', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#667085', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                       {record.visitPeriod}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#374151', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                         {record.startTime}
                       </div>
                       {!record.startOnTime && (
-                        <div style={{ fontSize: 11, color: '#248A5A', marginTop: 1 }}>非整点</div>
+                        <div style={{ fontSize: 'var(--fs-11)', color: '#248A5A', marginTop: 1 }}>非整点</div>
                       )}
                       {record.startOnTime && (
-                        <div style={{ fontSize: 11, color: '#C77A16', marginTop: 1 }}>整点</div>
+                        <div style={{ fontSize: 'var(--fs-11)', color: '#C77A16', marginTop: 1 }}>整点</div>
                       )}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#374151', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                         {record.endTime}
                       </div>
                       {!record.endOnTime && (
-                        <div style={{ fontSize: 11, color: '#248A5A', marginTop: 1 }}>非整点</div>
+                        <div style={{ fontSize: 'var(--fs-11)', color: '#248A5A', marginTop: 1 }}>非整点</div>
                       )}
                       {record.endOnTime && (
-                        <div style={{ fontSize: 11, color: '#C77A16', marginTop: 1 }}>整点</div>
+                        <div style={{ fontSize: 'var(--fs-11)', color: '#C77A16', marginTop: 1 }}>整点</div>
                       )}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
@@ -320,7 +320,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                     <td style={{ padding: '10px 12px' }}>
                       <StatusTag status={record.auditStatus} size="sm" />
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#C73A3A', maxWidth: 140 }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#C73A3A', maxWidth: 140 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={record.auditComment}>
                         {record.auditComment || '—'}
                       </span>
@@ -415,13 +415,13 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
               background: '#F9FAFB',
               borderRadius: '8px',
               marginBottom: 20,
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
             }}>
               <StatusTag status={drawerRecord.auditStatus} />
-              <span style={{ fontSize: 12, color: '#9CA3AF' }}>·</span>
-              <span style={{ fontSize: 12, color: '#667085' }}>绩效状态：</span>
+              <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>·</span>
+              <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>绩效状态：</span>
               <StatusTag status={drawerRecord.performanceStatus} size="sm" />
-              <span style={{ fontSize: 12, color: '#9CA3AF', marginLeft: 'auto' }}>
+              <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginLeft: 'auto' }}>
                 {drawerRecord.startTime}
               </span>
             </div>
@@ -433,7 +433,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                 border: '1px solid #FECACA',
                 borderRadius: '6px',
                 marginBottom: 16,
-                fontSize: 13,
+                fontSize: 'var(--fs-13)',
                 color: '#C73A3A',
                 display: 'flex',
                 gap: 8,
@@ -463,7 +463,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                 <span>
                   {drawerRecord.startTime}
                   {drawerRecord.startOnTime && (
-                    <span style={{ marginLeft: 6, fontSize: 11, background: '#FEF3E2', color: '#C77A16', padding: '1px 5px', borderRadius: 3 }}>整点</span>
+                    <span style={{ marginLeft: 6, fontSize: 'var(--fs-11)', background: '#FEF3E2', color: '#C77A16', padding: '1px 5px', borderRadius: 3 }}>整点</span>
                   )}
                 </span>
               } />
@@ -471,7 +471,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                 <span>
                   {drawerRecord.endTime}
                   {drawerRecord.endOnTime && (
-                    <span style={{ marginLeft: 6, fontSize: 11, background: '#FEF3E2', color: '#C77A16', padding: '1px 5px', borderRadius: 3 }}>整点</span>
+                    <span style={{ marginLeft: 6, fontSize: 'var(--fs-11)', background: '#FEF3E2', color: '#C77A16', padding: '1px 5px', borderRadius: 3 }}>整点</span>
                   )}
                 </span>
               } />
@@ -480,14 +480,14 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
             <FieldGroup title="金额">
               <FieldItem
                 label="本次金额"
-                value={<span style={{ fontSize: 16, fontWeight: 700, color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>￥{drawerRecord.amount.toLocaleString()}</span>}
+                value={<span style={{ fontSize: 'var(--fs-16)', fontWeight: 700, color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>￥{drawerRecord.amount.toLocaleString()}</span>}
               />
               <FieldItem label="结算状态" value={<StatusTag status={drawerRecord.auditStatus} />} />
             </FieldGroup>
 
             {showAuditPanel && (
               <div style={{ marginBottom: 16, padding: '14px', background: '#FEF3E2', border: '1px solid #FDE68A', borderRadius: '8px' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#C77A16', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: '#C77A16', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Info size={14} /> 驳回意见（必填）
                 </div>
                 <textarea
@@ -498,7 +498,7 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                     width: '100%',
                     height: 80,
                     padding: '8px 10px',
-                    fontSize: 13,
+                    fontSize: 'var(--fs-13)',
                     border: '1px solid #FDE68A',
                     borderRadius: '6px',
                     resize: 'vertical',

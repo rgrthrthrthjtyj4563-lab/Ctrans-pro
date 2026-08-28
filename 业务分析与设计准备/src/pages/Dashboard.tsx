@@ -68,7 +68,7 @@ const iconMap = {
 };
 
 const toneStyles = {
-  brand: { fg: '#176B5B', bg: '#E8F4F1', bar: '#176B5B' },
+  brand: { fg: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', bar: 'var(--color-brand)' },
   success: { fg: '#248A5A', bg: '#E6F5ED', bar: '#248A5A' },
   warning: { fg: '#C77A16', bg: '#FEF3E2', bar: '#C77A16' },
   danger: { fg: '#C73A3A', bg: '#FEECEC', bar: '#C73A3A' },
@@ -98,7 +98,7 @@ function getMetricIcon(metric: DashboardMetric) {
 function sectionCardStyle(extra?: CSSProperties): CSSProperties {
   return {
     background: '#FFFFFF',
-    border: '1px solid #E5E7EB',
+    border: '1px solid var(--color-border)',
     borderRadius: 12,
     padding: 16,
     ...extra,
@@ -122,8 +122,8 @@ function SectionCard({
     <section style={sectionCardStyle()}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>{title}</h2>
-          {subtitle && <p style={{ margin: '4px 0 0', fontSize: 12, color: '#667085' }}>{subtitle}</p>}
+          <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>{title}</h2>
+          {subtitle && <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>{subtitle}</p>}
         </div>
         {actionLabel && onAction && (
           <button
@@ -134,8 +134,8 @@ function SectionCard({
               gap: 4,
               border: 'none',
               background: 'none',
-              color: '#176B5B',
-              fontSize: 13,
+              color: 'var(--color-brand)',
+              fontSize: 'var(--fs-13)',
               fontWeight: 600,
               cursor: 'pointer',
             }}
@@ -177,13 +177,13 @@ function TrendPanel({ data }: { data: DashboardRoleData['trend'] }) {
                 strokeDasharray="4 4"
               />
             ))}
-            <polyline fill="none" stroke="#176B5B" strokeWidth="3" points={points} />
+            <polyline fill="none" style={{ stroke: "var(--color-brand)" }} strokeWidth="3" points={points} />
             {data.points.map((point, index) => {
               const x = data.points.length === 1 ? width / 2 : (index * (width - 32)) / (data.points.length - 1) + 16;
               const y = height - (point.value / max) * 124 - 24;
               return (
                 <g key={point.label}>
-                  <circle cx={x} cy={y} r="5" fill="#176B5B" />
+                  <circle cx={x} cy={y} r="5" style={{ fill: "var(--color-brand)" }} />
                   <text x={x} y={height - 6} fontSize="11" textAnchor="middle" fill="#98A2B3">{point.label}</text>
                 </g>
               );
@@ -195,8 +195,8 @@ function TrendPanel({ data }: { data: DashboardRoleData['trend'] }) {
             const tone = toneStyles[item.tone || 'neutral'];
             return (
               <div key={item.id} style={{ padding: 12, borderRadius: 10, background: tone.bg }}>
-                <div style={{ fontSize: 12, color: tone.fg, fontWeight: 600, marginBottom: 4 }}>{item.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#1F2937', lineHeight: 1 }}>{item.value}</div>
+                <div style={{ fontSize: 'var(--fs-12)', color: tone.fg, fontWeight: 600, marginBottom: 4 }}>{item.label}</div>
+                <div style={{ fontSize: 'var(--fs-22)', fontWeight: 700, color: 'var(--color-text-1)', lineHeight: 1 }}>{item.value}</div>
               </div>
             );
           })}
@@ -216,15 +216,15 @@ function StatListPanel({ title, items }: { title: string; items: DashboardStatIt
             <div key={item.id}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
                 <div>
-                  <div style={{ fontSize: 13, color: '#344054', fontWeight: 600 }}>{item.label}</div>
-                  {item.hint && <div style={{ fontSize: 12, color: '#667085', marginTop: 2 }}>{item.hint}</div>}
+                  <div style={{ fontSize: 'var(--fs-13)', color: '#344054', fontWeight: 600 }}>{item.label}</div>
+                  {item.hint && <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 2 }}>{item.hint}</div>}
                 </div>
                 <span
                   style={{
                     alignSelf: 'flex-start',
                     padding: '2px 8px',
                     borderRadius: 999,
-                    fontSize: 12,
+                    fontSize: 'var(--fs-12)',
                     fontWeight: 700,
                     background: tone.bg,
                     color: tone.fg,
@@ -253,9 +253,9 @@ function ComparisonTablePanel({ data }: { data: NonNullable<DashboardRoleData['c
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={{ padding: '0 0 10px', textAlign: 'left', fontSize: 12, color: '#98A2B3', fontWeight: 600 }}>队伍</th>
+              <th style={{ padding: '0 0 10px', textAlign: 'left', fontSize: 'var(--fs-12)', color: '#98A2B3', fontWeight: 600 }}>队伍</th>
               {data.columns.map(column => (
-                <th key={column} style={{ padding: '0 0 10px', textAlign: 'left', fontSize: 12, color: '#98A2B3', fontWeight: 600 }}>{column}</th>
+                <th key={column} style={{ padding: '0 0 10px', textAlign: 'left', fontSize: 'var(--fs-12)', color: '#98A2B3', fontWeight: 600 }}>{column}</th>
               ))}
             </tr>
           </thead>
@@ -264,10 +264,10 @@ function ComparisonTablePanel({ data }: { data: NonNullable<DashboardRoleData['c
               const tone = toneStyles[row.tone || 'neutral'];
               return (
                 <tr key={row.name}>
-                  <td style={{ padding: '12px 0', borderTop: '1px solid #F2F4F7', fontSize: 13, color: '#344054', fontWeight: 600 }}>{row.name}</td>
+                  <td style={{ padding: '12px 0', borderTop: '1px solid #F2F4F7', fontSize: 'var(--fs-13)', color: '#344054', fontWeight: 600 }}>{row.name}</td>
                   {row.values.map(value => (
                     <td key={`${row.name}-${value}`} style={{ padding: '12px 0', borderTop: '1px solid #F2F4F7' }}>
-                      <span style={{ padding: '3px 8px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: tone.bg, color: tone.fg }}>
+                      <span style={{ padding: '3px 8px', borderRadius: 999, fontSize: 'var(--fs-12)', fontWeight: 700, background: tone.bg, color: tone.fg }}>
                         {value}
                       </span>
                     </td>
@@ -300,7 +300,7 @@ function QueueTable({
               display: 'grid',
               gridTemplateColumns: '1.3fr 130px 150px 120px 110px',
               padding: '0 0 10px',
-              fontSize: 12,
+              fontSize: 'var(--fs-12)',
               color: '#98A2B3',
               fontWeight: 600,
             }}
@@ -328,18 +328,18 @@ function QueueTable({
               }}
             >
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1F2937', marginBottom: 4 }}>{item.name}</div>
+                <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)', marginBottom: 4 }}>{item.name}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                   <Tag label={item.type} />
                   {item.note && <Tag label={item.note} color={item.risk === 'overdue' ? 'danger' : item.risk === 'risk' ? 'warning' : 'info'} />}
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: item.risk === 'overdue' ? '#C73A3A' : '#344054', fontWeight: item.risk === 'overdue' ? 700 : 500 }}>
+              <div style={{ fontSize: 'var(--fs-13)', color: item.risk === 'overdue' ? '#C73A3A' : '#344054', fontWeight: item.risk === 'overdue' ? 700 : 500 }}>
                 {item.deadline}
               </div>
               <div>
-                <div style={{ fontSize: 13, color: '#344054', fontWeight: 600 }}>{item.assignee}</div>
-                <div style={{ fontSize: 12, color: '#667085', marginTop: 2 }}>{item.lastAction}</div>
+                <div style={{ fontSize: 'var(--fs-13)', color: '#344054', fontWeight: 600 }}>{item.assignee}</div>
+                <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 2 }}>{item.lastAction}</div>
               </div>
               <div>
                 <RiskTag level={item.risk} size="sm" />
@@ -384,7 +384,7 @@ function RecentOperationsPanel({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 fontWeight: 700,
                 flexShrink: 0,
               }}
@@ -392,11 +392,11 @@ function RecentOperationsPanel({
               {item.user.slice(0, 1)}
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, color: '#344054' }}>
+              <div style={{ fontSize: 'var(--fs-13)', color: '#344054' }}>
                 <strong style={{ color: item.color }}>{item.action}</strong>
                 <span style={{ color: '#667085' }}> · {item.target}</span>
               </div>
-              <div style={{ fontSize: 12, color: '#98A2B3', marginTop: 2 }}>{item.user} · {item.time}</div>
+              <div style={{ fontSize: 'var(--fs-12)', color: '#98A2B3', marginTop: 2 }}>{item.user} · {item.time}</div>
             </div>
           </div>
         ))}
@@ -420,7 +420,7 @@ function QuickActionsPanel({
             key={item.id}
             onClick={() => navigate(item.target)}
             style={{
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               borderRadius: 10,
               background: '#FFFFFF',
               padding: 12,
@@ -428,8 +428,8 @@ function QuickActionsPanel({
               cursor: 'pointer',
             }}
           >
-            <div style={{ fontSize: 13, color: '#1F2937', fontWeight: 700, marginBottom: 4 }}>{item.label}</div>
-            <div style={{ fontSize: 12, color: '#667085', lineHeight: 1.5 }}>{item.description}</div>
+            <div style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', fontWeight: 700, marginBottom: 4 }}>{item.label}</div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', lineHeight: 1.5 }}>{item.description}</div>
           </button>
         ))}
       </div>
@@ -464,15 +464,15 @@ function TaskListPanel({
             >
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-                  <div style={{ fontSize: 14, color: '#1F2937', fontWeight: 700 }}>{item.title}</div>
+                  <div style={{ fontSize: 'var(--fs-14)', color: 'var(--color-text-1)', fontWeight: 700 }}>{item.title}</div>
                   {reminder && (
-                    <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: reminder.fg, background: reminder.bg }}>
+                    <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 'var(--fs-11)', fontWeight: 700, color: reminder.fg, background: reminder.bg }}>
                       {reminder.label}
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 13, color: '#667085', marginBottom: 6 }}>{item.summary}</div>
-                <div style={{ fontSize: 12, color: '#98A2B3' }}>{item.time}</div>
+                <div style={{ fontSize: 'var(--fs-13)', color: '#667085', marginBottom: 6 }}>{item.summary}</div>
+                <div style={{ fontSize: 'var(--fs-12)', color: '#98A2B3' }}>{item.time}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 <Button size="sm" variant={item.reminderLevel === '已超期' ? 'danger' : 'primary'} onClick={() => navigate(item.target)}>
@@ -532,10 +532,10 @@ function WorkbenchFilterDropdown({
           height: 30,
           padding: '0 10px',
           borderRadius: 8,
-          border: `1px solid ${selected.length > 0 ? '#176B5B' : '#D1D5DB'}`,
-          background: selected.length > 0 ? '#E8F4F1' : '#FFFFFF',
-          color: selected.length > 0 ? '#176B5B' : '#374151',
-          fontSize: 12,
+          border: `1px solid ${selected.length > 0 ? 'var(--color-brand)' : '#D1D5DB'}`,
+          background: selected.length > 0 ? 'var(--color-brand-subtle)' : '#FFFFFF',
+          color: selected.length > 0 ? 'var(--color-brand)' : '#374151',
+          fontSize: 'var(--fs-12)',
           fontWeight: 600,
           cursor: 'pointer',
           whiteSpace: 'nowrap',
@@ -558,7 +558,7 @@ function WorkbenchFilterDropdown({
               minWidth: 220,
               maxWidth: 280,
               background: '#FFFFFF',
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               borderRadius: 10,
               padding: 8,
               boxShadow: '0 8px 24px rgba(16, 24, 40, 0.12)',
@@ -572,7 +572,7 @@ function WorkbenchFilterDropdown({
                   alignItems: 'center',
                   gap: 8,
                   padding: '6px 8px',
-                  fontSize: 13,
+                  fontSize: 'var(--fs-13)',
                   color: '#344054',
                   cursor: 'pointer',
                   borderRadius: 6,
@@ -590,7 +590,7 @@ function WorkbenchFilterDropdown({
                 border: 'none',
                 background: 'none',
                 color: '#98A2B3',
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 cursor: 'pointer',
                 padding: '4px 8px',
                 textAlign: 'right',
@@ -620,7 +620,7 @@ function WorkbenchSummaryChip({
   tone?: 'neutral' | 'warning' | 'brand';
   onClick?: () => void;
 }) {
-  const toneFg = tone === 'warning' ? '#C77A16' : tone === 'brand' ? '#176B5B' : '#1F2937';
+  const toneFg = tone === 'warning' ? '#C77A16' : tone === 'brand' ? 'var(--color-brand)' : '#1F2937';
   return (
     <button
       onClick={onClick}
@@ -630,14 +630,14 @@ function WorkbenchSummaryChip({
         gap: 8,
         padding: '6px 12px',
         borderRadius: 10,
-        border: `1px solid ${active ? '#176B5B' : '#F2F4F7'}`,
-        background: active ? '#E8F4F1' : '#FFFFFF',
+        border: `1px solid ${active ? 'var(--color-brand)' : '#F2F4F7'}`,
+        background: active ? 'var(--color-brand-subtle)' : '#FFFFFF',
         cursor: onClick ? 'pointer' : 'default',
       }}
     >
-      <span style={{ fontSize: 12, color: '#667085', whiteSpace: 'nowrap' }}>{label}</span>
-      <span style={{ fontSize: 18, fontWeight: 700, color: toneFg, lineHeight: 1.2, whiteSpace: 'nowrap' }}>{value}</span>
-      {hint && <span style={{ fontSize: 11, color: '#98A2B3', whiteSpace: 'nowrap' }}>{hint}</span>}
+      <span style={{ fontSize: 'var(--fs-12)', color: '#667085', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ fontSize: 'var(--fs-18)', fontWeight: 700, color: toneFg, lineHeight: 1.2, whiteSpace: 'nowrap' }}>{value}</span>
+      {hint && <span style={{ fontSize: 'var(--fs-11)', color: '#98A2B3', whiteSpace: 'nowrap' }}>{hint}</span>}
     </button>
   );
 }
@@ -657,13 +657,13 @@ function WorkbenchTodoPanel({
     <section style={sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column' })}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 8px' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>我的待办</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#667085' }}>全部未完成，含历史事项 · 按逾期与到期时间排序</p>
+          <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>我的待办</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>全部未完成，含历史事项 · 按逾期与到期时间排序</p>
         </div>
       </div>
       <div ref={listRef} style={{ padding: '0 16px 14px' }}>
         {todos.length === 0 ? (
-          <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 13, color: '#98A2B3' }}>当前筛选范围内暂无待办事项</div>
+          <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 'var(--fs-13)', color: '#98A2B3' }}>当前筛选范围内暂无待办事项</div>
         ) : (
           todos.map(todo => (
             <div
@@ -683,13 +683,13 @@ function WorkbenchTodoPanel({
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {todo.taskName}
                   </span>
                   <Tag label={todo.docType} />
                 </div>
-                <div style={{ fontSize: 12, color: '#667085', marginBottom: 4 }}>{todo.reason}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+                <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 4 }}>{todo.reason}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 'var(--fs-12)' }}>
                   <span style={{ color: todo.overdue ? '#C73A3A' : todo.dueToday ? '#C77A16' : '#667085', fontWeight: todo.overdue || todo.dueToday ? 700 : 500 }}>
                     {todo.dueState}
                   </span>
@@ -704,11 +704,11 @@ function WorkbenchTodoPanel({
           ))
         )}
         {outOfScopeCount > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#98A2B3', paddingTop: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: '#98A2B3', paddingTop: 2 }}>
             <span>范围外仍有 {outOfScopeCount} 项待办</span>
             <button
               onClick={() => navigate('task-dispatch')}
-              style={{ border: 'none', background: 'none', color: '#176B5B', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}
+              style={{ border: 'none', background: 'none', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
             >
               查看全部
             </button>
@@ -765,8 +765,8 @@ function WorkbenchTaskOverviewPanel({
     <section style={sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column' })}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 10px', flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>任务交付概览</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#667085' }}>
+          <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>任务交付概览</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>
             计划执行区间与 {periodLabel} 有交集的任务 · 需要干预的优先 · 跨月任务不复制
           </p>
         </div>
@@ -779,7 +779,7 @@ function WorkbenchTaskOverviewPanel({
                 border: 'none',
                 borderRadius: 6,
                 padding: '4px 10px',
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 fontWeight: 600,
                 cursor: 'pointer',
                 background: aggMode === mode.key ? '#FFFFFF' : 'transparent',
@@ -803,7 +803,7 @@ function WorkbenchTaskOverviewPanel({
                   gridTemplateColumns: taskCols,
                   gap: 10,
                   padding: '0 12px 8px',
-                  fontSize: 12,
+                  fontSize: 'var(--fs-12)',
                   color: '#98A2B3',
                   fontWeight: 600,
                   borderBottom: '1px solid #F2F4F7',
@@ -818,7 +818,7 @@ function WorkbenchTaskOverviewPanel({
               </div>
               {tasks.length === 0 ? (
                 <div style={{ padding: '28px 12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 13, color: '#667085', marginBottom: 10 }}>当前组合无匹配任务</div>
+                  <div style={{ fontSize: 'var(--fs-13)', color: '#667085', marginBottom: 10 }}>当前组合无匹配任务</div>
                   {hasFilter && (
                     <Button size="sm" variant="outline" onClick={onReset}>
                       <RotateCcw size={12} /> 重置筛选
@@ -847,16 +847,16 @@ function WorkbenchTaskOverviewPanel({
                         }}
                       >
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1F2937', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                             {task.name}
                           </div>
-                          <div style={{ fontSize: 11, color: '#98A2B3', marginTop: 2 }}>{task.taskNo}</div>
+                          <div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3', marginTop: 2 }}>{task.taskNo}</div>
                         </div>
-                        <div style={{ fontSize: 12, color: '#475467', lineHeight: 1.8, minWidth: 0 }}>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#475467', lineHeight: 1.8, minWidth: 0 }}>
                           <div>
                             <button
                               onClick={() => onFilterVariety(task.varieties[0])}
-                              style={{ border: 'none', background: 'none', padding: 0, color: '#176B5B', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
+                              style={{ border: 'none', background: 'none', padding: 0, color: 'var(--color-brand)', fontSize: 'var(--fs-12)', cursor: 'pointer', textAlign: 'left' }}
                             >
                               {task.varieties[0]}
                             </button>
@@ -865,7 +865,7 @@ function WorkbenchTaskOverviewPanel({
                           <div>
                             <button
                               onClick={() => onFilterRegion(task.regions[0])}
-                              style={{ border: 'none', background: 'none', padding: 0, color: '#176B5B', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
+                              style={{ border: 'none', background: 'none', padding: 0, color: 'var(--color-brand)', fontSize: 'var(--fs-12)', cursor: 'pointer', textAlign: 'left' }}
                             >
                               {task.regions[0]}
                             </button>
@@ -873,12 +873,12 @@ function WorkbenchTaskOverviewPanel({
                           </div>
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 12, color: '#344054', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.provider}</div>
+                          <div style={{ fontSize: 'var(--fs-12)', color: '#344054', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.provider}</div>
                           <div style={{ marginTop: 4 }}>
                             <Tag label={task.status} color={taskStatusColor[task.status] ?? 'default'} />
                           </div>
                         </div>
-                        <div style={{ fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
+                        <div style={{ fontSize: 'var(--fs-12)', lineHeight: 1.7, minWidth: 0 }}>
                           {task.status === '待确认' ? (
                             <span style={{ color: '#98A2B3' }}>—（待服务商确认）</span>
                           ) : firstDeliverable ? (
@@ -892,7 +892,7 @@ function WorkbenchTaskOverviewPanel({
             <span style={{ color: '#98A2B3' }}>—</span>
           )}
                         </div>
-                        <div style={{ fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
+                        <div style={{ fontSize: 'var(--fs-12)', lineHeight: 1.7, minWidth: 0 }}>
                           {task.anomalies.length > 0 ? (
                             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 2 }}>
                               {task.anomalies.map(anomaly => (
@@ -915,7 +915,7 @@ function WorkbenchTaskOverviewPanel({
                   {tasks.length > 5 && (
                     <button
                       onClick={() => setShowAll(prev => !prev)}
-                      style={{ width: '100%', border: 'none', background: 'none', color: '#176B5B', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '6px 0' }}
+                      style={{ width: '100%', border: 'none', background: 'none', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 600, cursor: 'pointer', padding: '6px 0' }}
                     >
                       {showAll ? '收起' : `显示全部 ${tasks.length} 项`}
                     </button>
@@ -935,7 +935,7 @@ function WorkbenchTaskOverviewPanel({
                   gridTemplateColumns: aggCols,
                   gap: 10,
                   padding: '0 12px 8px',
-                  fontSize: 12,
+                  fontSize: 'var(--fs-12)',
                   color: '#98A2B3',
                   fontWeight: 600,
                   borderBottom: '1px solid #F2F4F7',
@@ -957,7 +957,7 @@ function WorkbenchTaskOverviewPanel({
                     alignItems: 'center',
                     padding: '10px 12px',
                     borderTop: '1px solid #F2F4F7',
-                    fontSize: 13,
+                    fontSize: 'var(--fs-13)',
                   }}
                 >
                   <span style={{ color: '#344054', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.key}</span>
@@ -973,7 +973,7 @@ function WorkbenchTaskOverviewPanel({
               ))}
               {(aggRows ?? []).length === 0 && (
                 <div style={{ padding: '28px 12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 13, color: '#667085', marginBottom: 10 }}>当前组合无匹配任务</div>
+                  <div style={{ fontSize: 'var(--fs-13)', color: '#667085', marginBottom: 10 }}>当前组合无匹配任务</div>
                   {hasFilter && (
                     <Button size="sm" variant="outline" onClick={onReset}>
                       <RotateCcw size={12} /> 重置筛选
@@ -1014,7 +1014,7 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
             width: 30,
             height: 30,
             borderRadius: 8,
-            background: '#176B5B',
+            background: 'var(--color-brand)',
             color: '#FFFFFF',
             display: 'flex',
             alignItems: 'center',
@@ -1024,20 +1024,20 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
         >
           <Sparkles size={16} />
         </div>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1F2937' }}>AI 分析</h2>
-        <span style={{ padding: '2px 8px', borderRadius: 999, background: '#E8F4F1', color: '#176B5B', fontSize: 12, fontWeight: 700 }}>
+        <h2 style={{ margin: 0, fontSize: 'var(--fs-16)', fontWeight: 800, color: 'var(--color-text-1)' }}>AI 分析</h2>
+        <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700 }}>
           基于最新业务数据
         </span>
-        <span style={{ fontSize: 11, color: '#98A2B3' }}>生成时间 {ai.generatedAt} · 与业务数据截至时间分开</span>
+        <span style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>生成时间 {ai.generatedAt} · 与业务数据截至时间分开</span>
         <span style={{ flex: 1 }} />
         <button
           onClick={() => setExpanded(prev => !prev)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', color: '#176B5B', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 600, cursor: 'pointer' }}
         >
           {expanded ? '收起' : '展开分析'} <ChevronDown size={13} style={{ transform: expanded ? 'rotate(180deg)' : 'none' }} />
         </button>
       </div>
-      <div style={{ padding: '0 16px 12px', fontSize: 14, fontWeight: 600, color: '#1F2937', lineHeight: 1.7 }}>{ai.summary}</div>
+      <div style={{ padding: '0 16px 12px', fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)', lineHeight: 1.7 }}>{ai.summary}</div>
       {expanded && (
         <div
           style={{
@@ -1051,10 +1051,10 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
         >
           {sections.map(section => (
             <div key={section.label} style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 10, alignItems: 'baseline' }}>
-              <span style={{ padding: '2px 0', borderRadius: 6, background: '#E8F4F1', color: '#176B5B', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+              <span style={{ padding: '2px 0', borderRadius: 6, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700, textAlign: 'center' }}>
                 {section.label}
               </span>
-              <span style={{ fontSize: 13, color: '#475467', lineHeight: 1.7 }}>{section.content}</span>
+              <span style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>{section.content}</span>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
@@ -1064,7 +1064,7 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
               </Button>
             ))}
           </div>
-          <div style={{ fontSize: 11, color: '#98A2B3' }}>AI 仅提供参考，所有操作需人工确认；不自动改变任何单据状态。</div>
+          <div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>AI 仅提供参考，所有操作需人工确认；不自动改变任何单据状态。</div>
         </div>
       )}
     </section>
@@ -1171,28 +1171,28 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
       {/* 01 页面标题与范围 */}
       <section style={{ minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#1F2937' }}>{workbench.headline}</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#667085' }}>
+          <h1 style={{ margin: 0, fontSize: 'var(--fs-22)', fontWeight: 800, color: 'var(--color-text-1)' }}>{workbench.headline}</h1>
+          <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-13)', color: '#667085' }}>
             聚焦委托推广任务交付与协同处理 · 数据截至 {workbench.dataAsOf} · 时区 Asia/Shanghai
           </p>
         </div>
-        <div style={{ flexShrink: 0, fontSize: 12, color: '#667085' }}>AI 仅供参考，操作需人工确认</div>
+        <div style={{ flexShrink: 0, fontSize: 'var(--fs-12)', color: '#667085' }}>AI 仅供参考，操作需人工确认</div>
       </section>
 
       {/* 全局筛选 */}
       <section style={{ ...sectionCardStyle({ padding: '10px 14px' }), display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: '#667085', fontWeight: 600 }}>周期</span>
+        <span style={{ fontSize: 'var(--fs-12)', color: '#667085', fontWeight: 600 }}>周期</span>
         {(Object.keys(PERIOD_RANGES) as WorkbenchPeriod[]).map(item => (
           <button
             key={item}
             onClick={() => setPeriod(item)}
             style={{
-              border: `1px solid ${period === item ? '#176B5B' : '#E5E7EB'}`,
-              background: period === item ? '#E8F4F1' : '#FFFFFF',
-              color: period === item ? '#176B5B' : '#475467',
+              border: `1px solid ${period === item ? 'var(--color-brand)' : '#E5E7EB'}`,
+              background: period === item ? 'var(--color-brand-subtle)' : '#FFFFFF',
+              color: period === item ? 'var(--color-brand)' : '#475467',
               borderRadius: 999,
               padding: '4px 12px',
-              fontSize: 12,
+              fontSize: 'var(--fs-12)',
               fontWeight: 600,
               cursor: 'pointer',
             }}
@@ -1223,11 +1223,11 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
           onClear={() => setSelProviders([])}
         />
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: '#98A2B3' }}>{range.label}</span>
+        <span style={{ fontSize: 'var(--fs-12)', color: '#98A2B3' }}>{range.label}</span>
         {(hasFilter || statusFilter) && (
           <button
             onClick={resetFilters}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', color: '#98A2B3', fontSize: 12, cursor: 'pointer', padding: '4px 6px' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', color: '#98A2B3', fontSize: 'var(--fs-12)', cursor: 'pointer', padding: '4px 6px' }}
           >
             <RotateCcw size={12} /> 重置
           </button>
@@ -1236,7 +1236,7 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
 
       {/* 02 运营摘要 */}
       <section style={{ ...sectionCardStyle({ padding: '10px 16px' }), display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: '#667085', fontWeight: 600, flexShrink: 0 }}>运营摘要</span>
+        <span style={{ fontSize: 'var(--fs-12)', color: '#667085', fontWeight: 600, flexShrink: 0 }}>运营摘要</span>
         <WorkbenchSummaryChip
           label="执行中任务"
           value={`${execCount} 项`}
@@ -1258,14 +1258,14 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
         />
         <WorkbenchSummaryChip label="待我处理" value={`${workbench.todos.length} 项`} hint="含历史事项" tone="brand" onClick={() => scrollTo(todoListRef)} />
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: '#98A2B3' }}>执行中 ≠ 完成进度 · 异常按任务去重 · 待我处理按待办计数</span>
+        <span style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>执行中 ≠ 完成进度 · 异常按任务去重 · 待我处理按待办计数</span>
       </section>
 
       {/* 03 AI 分析 + 常用入口（提高布局权重：紧随运营摘要、默认展开、突出 AI） */}
       <div className="swb-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.2fr) minmax(0, 1fr)', gap: 12, alignItems: 'stretch' }}>
         <WorkbenchAIPanel ai={workbench.ai} navigate={navigate} />
         <section style={sectionCardStyle({ padding: '12px 16px', display: 'flex', flexDirection: 'column' })}>
-          <h2 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 700, color: '#1F2937' }}>常用入口</h2>
+          <h2 style={{ margin: '0 0 10px', fontSize: 'var(--fs-14)', fontWeight: 700, color: 'var(--color-text-1)' }}>常用入口</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
             {workbench.quickActions.map(item => (
               <button
@@ -1277,15 +1277,15 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
                   justifyContent: 'space-between',
                   padding: '9px 12px',
                   background: '#F9FAFB',
-                  border: '1px solid #E5E7EB',
+                  border: '1px solid var(--color-border)',
                   borderRadius: 8,
                   cursor: 'pointer',
                   textAlign: 'left',
                 }}
               >
                 <span>
-                  <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151' }}>{item.label}</span>
-                  <span style={{ display: 'block', fontSize: 11, color: '#667085', marginTop: 2 }}>{item.description}</span>
+                  <span style={{ display: 'block', fontSize: 'var(--fs-13)', fontWeight: 600, color: '#374151' }}>{item.label}</span>
+                  <span style={{ display: 'block', fontSize: 'var(--fs-11)', color: '#667085', marginTop: 2 }}>{item.description}</span>
                 </span>
                 <ArrowRight size={14} color="#9CA3AF" />
               </button>
@@ -1360,8 +1360,8 @@ function ComplianceQueuePanel({
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 10px' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>优先处理队列</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#667085' }}>
+          <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>优先处理队列</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>
             排序保持：逾期 &gt; 风险 &gt; 关注 &gt; 正常 · 橙=门槛 / 蓝=建议
           </p>
         </div>
@@ -1373,8 +1373,8 @@ function ComplianceQueuePanel({
             gap: 4,
             border: 'none',
             background: 'none',
-            color: '#176B5B',
-            fontSize: 13,
+            color: 'var(--color-brand)',
+            fontSize: 'var(--fs-13)',
             fontWeight: 600,
             cursor: 'pointer',
           }}
@@ -1392,7 +1392,7 @@ function ComplianceQueuePanel({
                 gridTemplateColumns: cols,
                 gap: 10,
                 padding: '0 12px 8px',
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 color: '#98A2B3',
                 fontWeight: 600,
                 borderBottom: '1px solid #F2F4F7',
@@ -1426,7 +1426,7 @@ function ComplianceQueuePanel({
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1F2937', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {item.name}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1434,12 +1434,12 @@ function ComplianceQueuePanel({
                         {item.note && <Tag label={item.note} color={tone.tag} />}
                       </div>
                     </div>
-                    <div style={{ fontSize: 12, color: item.risk === 'overdue' ? '#C73A3A' : '#344054', fontWeight: item.risk === 'overdue' ? 700 : 500, lineHeight: 1.5 }}>
+                    <div style={{ fontSize: 'var(--fs-12)', color: item.risk === 'overdue' ? '#C73A3A' : '#344054', fontWeight: item.risk === 'overdue' ? 700 : 500, lineHeight: 1.5 }}>
                       {item.deadline}
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12, color: '#344054', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.assignee}</div>
-                      <div style={{ fontSize: 12, color: '#667085', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.lastAction}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#344054', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.assignee}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.lastAction}</div>
                     </div>
                     <div>
                       <Tag label={tone.label} color={tone.tag} />
@@ -1481,8 +1481,8 @@ function RepFilingAnalysisPanel() {
   return (
     <section style={sectionCardStyle({ padding: '12px 16px' })}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1F2937' }}>备案异常分析</h2>
-        <span style={{ fontSize: 12, color: '#667085' }}>未备案专员的推广提交将被自动拦截</span>
+        <h2 style={{ margin: 0, fontSize: 'var(--fs-14)', fontWeight: 700, color: 'var(--color-text-1)' }}>备案异常分析</h2>
+        <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>未备案专员的推广提交将被自动拦截</span>
       </div>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
         <div
@@ -1496,9 +1496,9 @@ function RepFilingAnalysisPanel() {
             gap: 6,
           }}
         >
-          <span style={{ fontSize: 12, color: tone.fg, fontWeight: 600 }}>未备案专员</span>
-          <span style={{ fontSize: 20, fontWeight: 700, color: '#1F2937', lineHeight: 1 }}>{summary.unfiled}</span>
-          <span style={{ fontSize: 12, color: tone.fg }}>人</span>
+          <span style={{ fontSize: 'var(--fs-12)', color: tone.fg, fontWeight: 600 }}>未备案专员</span>
+          <span style={{ fontSize: 'var(--fs-20)', fontWeight: 700, color: 'var(--color-text-1)', lineHeight: 1 }}>{summary.unfiled}</span>
+          <span style={{ fontSize: 'var(--fs-12)', color: tone.fg }}>人</span>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -1507,7 +1507,7 @@ function RepFilingAnalysisPanel() {
               gridTemplateColumns: cols,
               gap: 10,
               padding: '0 0 6px',
-              fontSize: 12,
+              fontSize: 'var(--fs-12)',
               color: '#98A2B3',
               fontWeight: 600,
             }}
@@ -1529,8 +1529,8 @@ function RepFilingAnalysisPanel() {
                 borderTop: '1px solid #F2F4F7',
               }}
             >
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#344054' }}>{item.name}</span>
-              <span style={{ fontSize: 13, color: '#667085', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.provider}</span>
+              <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: '#344054' }}>{item.name}</span>
+              <span style={{ fontSize: 'var(--fs-13)', color: '#667085', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.provider}</span>
               <span><Tag label={item.status} color={filingStatusTag[item.status]} /></span>
               <span><Tag label={item.action} color={filingActionTag[item.action]} /></span>
             </div>
@@ -1577,12 +1577,12 @@ function ComplianceAdminDashboard({
       {/* 页头 */}
       <section style={{ minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#1F2937' }}>{data.headline}</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#667085', lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <h1 style={{ margin: 0, fontSize: 'var(--fs-22)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
+          <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-13)', color: '#667085', lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             合规管控生命周期：{summaryParts.join(' → ')}
           </p>
         </div>
-        <div style={{ flexShrink: 0, fontSize: 12, color: '#667085', whiteSpace: 'nowrap' }}>AI 仅供参考，操作需人工确认</div>
+        <div style={{ flexShrink: 0, fontSize: 'var(--fs-12)', color: '#667085', whiteSpace: 'nowrap' }}>AI 仅供参考，操作需人工确认</div>
       </section>
 
       {/* KPI 行：四张对象卡 */}
@@ -1610,13 +1610,13 @@ function ComplianceAdminDashboard({
         <section>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={16} color="#176B5B" />
-              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>AI 洞察</h2>
-              <span style={{ padding: '2px 8px', borderRadius: 999, background: '#E8F4F1', color: '#176B5B', fontSize: 12, fontWeight: 700 }}>
+              <Sparkles size={16} color="var(--color-brand)" />
+              <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>AI 洞察</h2>
+              <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700 }}>
                 {insights.length} 条
               </span>
             </div>
-            <span style={{ fontSize: 12, color: '#98A2B3' }}>每条均含结论 / 依据 / 数据范围 / 置信度 / 建议动作 / 人工确认</span>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#98A2B3' }}>每条均含结论 / 依据 / 数据范围 / 置信度 / 建议动作 / 人工确认</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {insights.map(insight => (
@@ -1640,7 +1640,7 @@ function ComplianceAdminDashboard({
         </div>
         <div style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <section style={sectionCardStyle({ padding: '12px 16px', display: 'flex', flexDirection: 'column' })}>
-            <h2 style={{ margin: '0 0 12px 0', fontSize: 14, fontWeight: 700, color: '#1F2937' }}>快捷入口</h2>
+            <h2 style={{ margin: '0 0 12px 0', fontSize: 'var(--fs-14)', fontWeight: 700, color: 'var(--color-text-1)' }}>快捷入口</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {data.quickActions.map(item => (
                 <button
@@ -1652,15 +1652,15 @@ function ComplianceAdminDashboard({
                     justifyContent: 'space-between',
                     padding: '10px 12px',
                     background: '#F9FAFB',
-                    border: '1px solid #E5E7EB',
+                    border: '1px solid var(--color-border)',
                     borderRadius: 8,
                     cursor: 'pointer',
                     textAlign: 'left',
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{item.label}</div>
-                    <div style={{ fontSize: 11, color: '#667085', marginTop: 2 }}>{item.description}</div>
+                    <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: '#374151' }}>{item.label}</div>
+                    <div style={{ fontSize: 'var(--fs-11)', color: '#667085', marginTop: 2 }}>{item.description}</div>
                   </div>
                   <ArrowRight size={14} color="#9CA3AF" />
                 </button>
@@ -1744,20 +1744,20 @@ export function Dashboard({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
               <Tag label={data.role} color="brand" />
             </div>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#1F2937' }}>{data.headline}</h1>
-            <p style={{ margin: '8px 0 0', fontSize: 14, color: '#667085', lineHeight: 1.7 }}>{data.subtitle}</p>
+            <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
+            <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-14)', color: '#667085', lineHeight: 1.7 }}>{data.subtitle}</p>
           </div>
           <div
             style={{
               padding: 12,
               borderRadius: 12,
               background: '#F9FAFB',
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               minWidth: 280,
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#176B5B', marginBottom: 6 }}>AI 呈现规范</div>
-            <div style={{ fontSize: 12, color: '#667085', lineHeight: 1.7 }}>
+            <div style={{ fontSize: 'var(--fs-12)', fontWeight: 700, color: 'var(--color-brand)', marginBottom: 6 }}>AI 呈现规范</div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', lineHeight: 1.7 }}>
               AI 仅提供参考，所有动作都需要人工确认；AI 不会自动改变任何单据状态。
             </div>
           </div>
@@ -1813,12 +1813,12 @@ export function Dashboard({
             <section>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1F2937' }}>AI 洞察</h2>
-                  <span style={{ padding: '2px 8px', borderRadius: 999, background: '#E8F4F1', color: '#176B5B', fontSize: 12, fontWeight: 700 }}>
+                  <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>AI 洞察</h2>
+                  <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700 }}>
                     {visibleInsights.length} 条
                   </span>
                 </div>
-                <span style={{ fontSize: 12, color: '#98A2B3' }}>每条均含结论 / 依据 / 数据范围 / 置信度 / 建议动作 / 人工确认</span>
+                <span style={{ fontSize: 'var(--fs-12)', color: '#98A2B3' }}>每条均含结论 / 依据 / 数据范围 / 置信度 / 建议动作 / 人工确认</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {visibleInsights.map(insight => (
@@ -1850,11 +1850,11 @@ export function Dashboard({
           {!hideDistribution && data.distribution && <StatListPanel title={data.distribution.title} items={data.distribution.items} />}
           {data.spotlight && <StatListPanel title={data.spotlight.title} items={data.spotlight.items} />}
           <div style={{ ...sectionCardStyle({ background: '#F9FAFB' }) }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#667085', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-12)', fontWeight: 700, color: '#667085', marginBottom: 8 }}>
               <TrendingUp size={14} />
               审计提示
             </div>
-            <div style={{ fontSize: 13, color: '#475467', lineHeight: 1.7 }}>
+            <div style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>
               最近操作保留审计视角，消息待办保留行动视角，两者分开呈现，避免“发生了什么”和“接下来做什么”混在一起。
             </div>
           </div>

@@ -5,8 +5,8 @@ export const inputStyle: CSSProperties = {
   width: '100%',
   height: 36,
   padding: '0 10px',
-  fontSize: 13,
-  border: '1px solid #E5E7EB',
+  fontSize: 'var(--fs-13)',
+  border: '1px solid var(--color-border)',
   borderRadius: 6,
   outline: 'none',
   fontFamily: 'inherit',
@@ -16,20 +16,20 @@ export const inputStyle: CSSProperties = {
 export const thStyle: CSSProperties = {
   padding: '10px 12px',
   textAlign: 'left',
-  fontSize: 12,
+  fontSize: 'var(--fs-12)',
   fontWeight: 600,
   color: '#9CA3AF',
   textTransform: 'uppercase',
   letterSpacing: '0.03em',
   background: '#F9FAFB',
-  borderBottom: '1px solid #E5E7EB',
+  borderBottom: '1px solid var(--color-border)',
   whiteSpace: 'nowrap',
 };
 
 export const tdStyle: CSSProperties = {
   padding: '11px 12px',
-  fontSize: 13,
-  color: '#1F2937',
+  fontSize: 'var(--fs-13)',
+  color: 'var(--color-text-1)',
   borderBottom: '1px solid #F3F4F6',
   verticalAlign: 'middle',
 };
@@ -47,7 +47,7 @@ export function Field({
 }) {
   return (
     <label style={{ display: 'block', gridColumn: span ? '1 / -1' : undefined }}>
-      <div style={{ fontSize: 12, color: '#667085', marginBottom: 6, fontWeight: 500 }}>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6, fontWeight: 500 }}>
         {label}
         {required && <span style={{ color: '#C73A3A', marginLeft: 2 }}>*</span>}
       </div>
@@ -72,19 +72,19 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 fontWeight: 700,
-                background: active || done ? '#176B5B' : '#F3F4F6',
+                background: active || done ? 'var(--color-brand)' : '#F3F4F6',
                 color: active || done ? '#fff' : '#9CA3AF',
               }}>
                 {i + 1}
               </span>
-              <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? '#176B5B' : done ? '#374151' : '#9CA3AF', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 'var(--fs-13)', fontWeight: active ? 600 : 400, color: active ? 'var(--color-brand)' : done ? '#374151' : '#9CA3AF', whiteSpace: 'nowrap' }}>
                 {s}
               </span>
             </div>
             {i < steps.length - 1 && (
-              <div style={{ flex: 1, height: 1, background: done ? '#176B5B' : '#E5E7EB', margin: '0 12px' }} />
+              <div style={{ flex: 1, height: 1, background: done ? 'var(--color-brand)' : '#E5E7EB', margin: '0 12px' }} />
             )}
           </div>
         );
@@ -103,19 +103,19 @@ export function Tabs({
   onChange: (id: string) => void;
 }) {
   return (
-    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #E5E7EB', marginBottom: 16 }}>
+    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--color-border)', marginBottom: 16 }}>
       {items.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}
           style={{
             padding: '8px 14px',
-            fontSize: 13,
+            fontSize: 'var(--fs-13)',
             fontWeight: value === tab.id ? 600 : 400,
-            color: value === tab.id ? '#176B5B' : '#667085',
+            color: value === tab.id ? 'var(--color-brand)' : '#667085',
             background: 'none',
             border: 'none',
-            borderBottom: value === tab.id ? '2px solid #176B5B' : '2px solid transparent',
+            borderBottom: value === tab.id ? '2px solid var(--color-brand)' : '2px solid transparent',
             cursor: 'pointer',
           }}
         >
@@ -123,11 +123,11 @@ export function Tabs({
           {tab.count !== undefined && (
             <span style={{
               marginLeft: 6,
-              fontSize: 11,
+              fontSize: 'var(--fs-11)',
               padding: '1px 6px',
               borderRadius: 999,
-              background: value === tab.id ? '#E8F4F1' : '#F3F4F6',
-              color: value === tab.id ? '#176B5B' : '#6B7280',
+              background: value === tab.id ? 'var(--color-brand-subtle)' : '#F3F4F6',
+              color: value === tab.id ? 'var(--color-brand)' : '#6B7280',
               fontFamily: "'JetBrains Mono', monospace",
             }}>
               {tab.count}
@@ -156,7 +156,7 @@ export function EligibilityPanel({ result }: { result: EligibilityResult }) {
         border: `1px solid ${s.border}`,
         color: s.fg,
         fontWeight: 700,
-        fontSize: 14,
+        fontSize: 'var(--fs-14)',
         marginBottom: 12,
         fontFamily: "'JetBrains Mono', monospace",
       }}>
@@ -173,11 +173,11 @@ export function EligibilityPanel({ result }: { result: EligibilityResult }) {
         <tbody>
           {result.hits.map((h) => (
             <tr key={h.code}>
-              <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{h.code}</td>
+              <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{h.code}</td>
               <td style={tdStyle}>{h.rule}</td>
               <td style={tdStyle}>
                 <span style={{
-                  fontSize: 11,
+                  fontSize: 'var(--fs-11)',
                   fontWeight: 600,
                   padding: '2px 8px',
                   borderRadius: 999,
@@ -208,7 +208,7 @@ export function InfoBanner({ tone = 'info', children }: { tone?: 'info' | 'warni
       background: cfg.bg,
       border: `1px solid ${cfg.border}`,
       borderRadius: 8,
-      fontSize: 13,
+      fontSize: 'var(--fs-13)',
       color: cfg.fg,
       marginBottom: 12,
       lineHeight: 1.6,

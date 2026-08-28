@@ -85,10 +85,10 @@ export function ConfirmDialog({
             <AlertTriangle size={20} />
           </span>
           <div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#1F2937', marginBottom: 6 }}>
+            <h3 style={{ margin: 0, fontSize: 'var(--fs-16)', fontWeight: 600, color: 'var(--color-text-1)', marginBottom: 6 }}>
               {title}
             </h3>
-            <p style={{ margin: 0, fontSize: 14, color: '#667085', lineHeight: 1.6 }}>
+            <p style={{ margin: 0, fontSize: 'var(--fs-14)', color: '#667085', lineHeight: 1.6 }}>
               {description}
             </p>
           </div>
@@ -100,7 +100,7 @@ export function ConfirmDialog({
             background: variant === 'danger' ? '#FEECEC' : '#FEF3E2',
             borderRadius: '6px',
             marginBottom: 20,
-            fontSize: 13,
+            fontSize: 'var(--fs-13)',
             color: iconColor,
             border: `1px solid ${variant === 'danger' ? '#FECACA' : '#FDE68A'}`,
           }}>

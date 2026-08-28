@@ -290,15 +290,20 @@ export interface ServiceItem {
   adjustReason?: string;
 }
 
-/** 拆解粒度 = 单品种 + 单地区 + 工作组 */
+/** 拆解粒度 = 单工作组 + 单品种 + 单地区 + 单业务（服务项目） */
 export interface WorkgroupSplit {
   id: string;
   workGroup: string;
   variety: string;
   region: string;
+  category: ServiceCategory;
+  itemName: string;
+  /** 锁定价目表单价 */
+  unitPrice: number;
+  /** 分配次数 */
+  qty: number;
+  /** 分项金额 = unitPrice × qty */
   amount: number;
-  startDate: string;
-  endDate: string;
 }
 
 /** 任务量：专员执行记录；「已完成」=已审核，可选入结算。粒度 = 单品种 + 单地区 */
@@ -502,7 +507,9 @@ export type PageId =
   | 'inspection'
   | 'evidence-chain'
   | 'business-switch'
-  | 'price-config'
+  | 'price-base'
+  | 'price-gs'
+  | 'price-report'
   | 'roles'
   | 'user-grants'
   | 'perm-audit'

@@ -408,10 +408,10 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
           onChange={(id, val) => setFilters((p) => ({ ...p, [id]: val }))}
           onSearch={() => { setApplied(filters); setPage(1); }}
           onReset={() => { setFilters({}); setApplied({}); setPage(1); }}
-          stats={<span style={{ fontSize: 13, color: '#667085' }}>共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 家服务商</span>}
+          stats={<span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 家服务商</span>}
         />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1240 }}>
               <thead>
@@ -430,19 +430,19 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
                     <tr key={v.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{v.name}</div>
-                        <div style={{ fontSize: 11, color: '#9CA3AF' }}>{v.id} · {v.serviceTypes.join('、')}</div>
+                        <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF' }}>{v.id} · {v.serviceTypes.join('、')}</div>
                       </td>
-                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{v.creditCode}</td>
+                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{v.creditCode}</td>
                       <td style={tdStyle}><StatusTag status={v.status as never} /></td>
                       <td style={tdStyle}><StatusTag status={v.riskGrade as never} /></td>
                       <td style={tdStyle}>
-                        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{v.accessNo || '—'}</div>
-                        <div style={{ fontSize: 12, color: '#9CA3AF' }}>{v.accessValidUntil || '未准入'}</div>
+                        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{v.accessNo || '—'}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{v.accessValidUntil || '未准入'}</div>
                       </td>
                       <td style={tdStyle}>{v.contracts.filter((x) => x.status === '已生效').length}/{v.contracts.length}</td>
                       <td style={tdStyle}>{v.repIds.length}</td>
                       <td style={tdStyle}>
-                        <span style={{ color: c.project ? '#248A5A' : '#C73A3A', fontSize: 12, fontWeight: 600 }}>
+                        <span style={{ color: c.project ? '#248A5A' : '#C73A3A', fontSize: 'var(--fs-12)', fontWeight: 600 }}>
                           {c.project ? '可分配' : '不可分配'} / {c.settle ? '可结算' : '不可结算'}
                         </span>
                       </td>
@@ -498,12 +498,12 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <StatusTag status={current.status as never} />
                   <StatusTag status={current.riskGrade as never} />
-                  <span style={{ fontSize: 12, color: '#9CA3AF' }}>{current.id} · 发起人 {current.initiatorName}（{current.initiatorId}）</span>
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{current.id} · 发起人 {current.initiatorName}（{current.initiatorId}）</span>
                 </div>
-                <div style={{ fontSize: 13, color: '#667085' }}>审批链：{approvalChain(current.riskGrade)} · 复审到期 {current.reviewDue || '—'}</div>
+                <div style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>审批链：{approvalChain(current.riskGrade)} · 复审到期 {current.reviewDue || '—'}</div>
               </div>
               {current.incidents.some((i) => i.status !== '已结案' && i.risk === '高') && (
-                <div style={{ padding: '8px 12px', borderRadius: 8, background: '#FEECEC', color: '#C73A3A', fontSize: 12, fontWeight: 600 }}>未结案高风险事件，高风险操作已阻断</div>
+                <div style={{ padding: '8px 12px', borderRadius: 8, background: '#FEECEC', color: '#C73A3A', fontSize: 'var(--fs-12)', fontWeight: 600 }}>未结案高风险事件，高风险操作已阻断</div>
               )}
             </div>
 
@@ -577,7 +577,7 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
                     <tbody>
                       {current.selectionRecords.map((s) => (
                         <tr key={s.id}>
-                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{s.id}</td>
+                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{s.id}</td>
                           <td style={tdStyle}>{s.method}</td>
                           <td style={tdStyle}>{s.processNote}</td>
                           <td style={tdStyle}>{s.awardReason}</td>
@@ -608,10 +608,10 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
                   <tbody>
                     {current.contracts.map((c) => (
                       <tr key={c.id}>
-                        <td style={{ ...tdStyle, fontSize: 12 }}>{c.id}<br />{c.contractNo}</td>
+                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{c.id}<br />{c.contractNo}</td>
                         <td style={tdStyle}>{(c.serviceTypes || []).join('、')}</td>
                         <td style={tdStyle}>{c.regions.join('、')}</td>
-                        <td style={{ ...tdStyle, fontSize: 12 }}>{c.startDate} ~ {c.endDate}</td>
+                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{c.startDate} ~ {c.endDate}</td>
                         <td style={tdStyle}>{formatCNY(c.amountCap)}</td>
                         <td style={tdStyle}><StatusTag status={(c.status === '已生效' ? '已通过' : c.status === '草案' ? '草稿' : '已撤销') as never} /></td>
                         <td style={tdStyle}>{canApprove && c.status === '草案' && <Button variant="ghost" size="sm" onClick={() => activateContract(c.id)}>标记生效</Button>}</td>
@@ -627,7 +627,7 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {current.repIds.map((id) => {
                     const n = reps.find((r) => r.id === id)?.name || id;
-                    return <span key={id} style={{ padding: '6px 12px', background: '#F3F4F6', borderRadius: 6, fontSize: 13 }}>{n}（{id}）</span>;
+                    return <span key={id} style={{ padding: '6px 12px', background: '#F3F4F6', borderRadius: 6, fontSize: 'var(--fs-13)' }}>{n}（{id}）</span>;
                   })}
                 </div>
               )
@@ -642,11 +642,11 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
                   <tbody>
                     {current.projects.map((p) => (
                       <tr key={p.id}>
-                        <td style={tdStyle}>{p.projectNo}<div style={{ fontSize: 11, color: '#9CA3AF' }}>{p.id} · {p.name}</div></td>
+                        <td style={tdStyle}>{p.projectNo}<div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF' }}>{p.id} · {p.name}</div></td>
                         <td style={tdStyle}>{p.region} / {p.serviceType}</td>
-                        <td style={{ ...tdStyle, fontSize: 12 }}>{p.assignedRepIds.join('、') || '—'}</td>
+                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{p.assignedRepIds.join('、') || '—'}</td>
                         <td style={tdStyle}>{p.acceptance} · {(p.deliverables || []).length} 份成果</td>
-                        <td style={{ ...tdStyle, fontSize: 12 }}>{p.payeeAccountName || '—'}</td>
+                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{p.payeeAccountName || '—'}</td>
                         <td style={tdStyle}>{formatCNY(p.amount)}</td>
                       </tr>
                     ))}
@@ -658,12 +658,12 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
             {detailTab === '审计' && current.timeline.map((e, idx) => (
               <div key={e.id} style={{ display: 'flex', gap: 12, paddingBottom: 14, position: 'relative' }}>
                 {idx < current.timeline.length - 1 && <div style={{ position: 'absolute', left: 7, top: 16, bottom: 0, width: 2, background: '#E5E7EB' }} />}
-                <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#E8F4F1', border: '2px solid #176B5B', flexShrink: 0 }} />
+                <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--color-brand-subtle)', border: '2px solid var(--color-brand)', flexShrink: 0 }} />
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{e.action} · {e.id}</div>
-                  <div style={{ fontSize: 12, color: '#9CA3AF' }}>{e.operator}（{e.operatorId || '—'}） · {e.time}</div>
-                  {(e.before || e.after) && <div style={{ fontSize: 12, color: '#667085' }}>{e.before} → {e.after}</div>}
-                  {e.comment && <div style={{ marginTop: 6, fontSize: 13, background: '#F9FAFB', padding: '8px 10px', borderRadius: 6 }}>{e.comment}</div>}
+                  <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600 }}>{e.action} · {e.id}</div>
+                  <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{e.operator}（{e.operatorId || '—'}） · {e.time}</div>
+                  {(e.before || e.after) && <div style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>{e.before} → {e.after}</div>}
+                  {e.comment && <div style={{ marginTop: 6, fontSize: 'var(--fs-13)', background: '#F9FAFB', padding: '8px 10px', borderRadius: 6 }}>{e.comment}</div>}
                 </div>
               </div>
             ))}
@@ -685,7 +685,7 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
         </>
       }>
         <Stepper steps={['主体与控制关系', '资质财税合规', '人员选聘']} current={formStep} />
-        {formError && <div style={{ color: '#C73A3A', fontSize: 13, marginBottom: 12 }}>{formError}</div>}
+        {formError && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)', marginBottom: 12 }}>{formError}</div>}
         {formStep === 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="公司名称" required><input value={form.name} onChange={(e) => setF('name', e.target.value)} style={inputStyle} /></Field>
@@ -710,7 +710,7 @@ export function VendorAccessManage({ addToast, currentRole }: Props) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="合规联系人" required><input value={form.contact} onChange={(e) => setF('contact', e.target.value)} style={inputStyle} /></Field>
             <Field label="联系电话"><input value={form.contactMobile} onChange={(e) => setF('contactMobile', e.target.value)} style={inputStyle} /></Field>
-            <div style={{ gridColumn: '1 / -1', fontSize: 12, color: '#667085' }}>提交引入前须在详情页补齐合规信用与选聘记录。草稿可先保存。</div>
+            <div style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-12)', color: '#667085' }}>提交引入前须在详情页补齐合规信用与选聘记录。草稿可先保存。</div>
           </div>
         )}
       </Modal>

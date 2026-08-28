@@ -553,18 +553,40 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const splitToWorkgroup = useCallback((taskId: string, splits: Omit<WorkgroupSplit, 'id'>[]): MutationResult<Task> => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return { ok: false, error: '任务不存在' };
-    if (task.taskStatus !== '执行中') return { ok: false, error: '仅执行中任务可拆解' };
-    const sum = splits.reduce((s, x) => s + x.amount, 0);
-    if (sum > task.planAmount) return { ok: false, error: `累计拆解金额 ${formatCNY(sum)} 超过计划总金额 ${formatCNY(task.planAmount)}` };
-    if (splits.some((s) => !s.workGroup || !s.variety || !s.region || s.amount <= 0)) {
-      return { ok: false, error: '请完整填写工作组、品种、地区、推广金额和时区' };
+    if (task.taskStatus !== '执行中') return { ok: false, error: '仅执行中任务可拆分任务包' };
+    const rows = splits.filter((s) => s.qty > 0);
+    if (rows.length === 0) return { ok: false, error: '请至少为一个工作组分配业务次数' };
+    const groups = [...new Set(rows.map((s) => s.workGroup))];
+    if (groups.some((g) => !g)) return { ok: false, error: '请选择工作组' };
+    if (groups.some((g) => !rows.some((s) => s.workGroup === g && s.qty > 0))) {
+      return { ok: false, error: '每个工作组至少分配 1 条业务次数' };
     }
-    if (splits.some((s) => !task.varieties.includes(s.variety) || !task.regions.includes(s.region))) {
-      return { ok: false, error: '拆解的品种/地区必须属于本任务覆盖范围' };
+    const badRow = rows.find((s) => !s.itemName || !s.variety || !s.region || s.unitPrice <= 0);
+    if (badRow) return { ok: false, error: '拆分明细不完整，请重新选择工作组、品种、地区与业务' };
+    const notInPlan = rows.find((s) => !task.serviceItems.some(
+      (i) => i.variety === s.variety && i.region === s.region && i.name === s.itemName
+        && i.category === s.category && i.unitPrice === s.unitPrice,
+    ));
+    if (notInPlan) {
+      return { ok: false, error: `${notInPlan.workGroup}：${notInPlan.variety} · ${notInPlan.region} · ${notInPlan.itemName} 不在任务计划明细中（单价须与价目表一致）` };
+    }
+    const overQty = rows.find((s) => {
+      const plan = task.serviceItems.find((i) => i.variety === s.variety && i.region === s.region && i.name === s.itemName);
+      const total = rows.filter((x) => x.variety === s.variety && x.region === s.region && x.itemName === s.itemName)
+        .reduce((sum, x) => sum + x.qty, 0);
+      return !plan || total > plan.qty;
+    });
+    if (overQty) {
+      const plan = task.serviceItems.find((i) => i.variety === overQty.variety && i.region === overQty.region && i.name === overQty.itemName);
+      return { ok: false, error: `${overQty.variety} · ${overQty.region} · ${overQty.itemName} 各组次数合计超过计划次数（计划 ${plan?.qty ?? 0}）` };
+    }
+    const sum = rows.reduce((s, x) => s + x.unitPrice * x.qty, 0);
+    if (sum > task.planAmount) {
+      return { ok: false, error: `累计拆分金额 ${formatCNY(sum)} 超过计划总金额 ${formatCNY(task.planAmount)}` };
     }
     const next: Task = {
       ...task,
-      workgroupSplits: splits.map((s, i) => ({ ...s, id: `${taskId}-WG-${i + 1}` })),
+      workgroupSplits: rows.map((s, i) => ({ ...s, amount: s.unitPrice * s.qty, id: `${taskId}-WG-${i + 1}` })),
     };
     setTasks((prev) => prev.map((t) => (t.id === taskId ? next : t)));
     return { ok: true, data: next };

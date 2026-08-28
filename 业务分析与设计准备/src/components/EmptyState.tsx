@@ -33,13 +33,13 @@ export function EmptyState({ icon: Icon = SearchX, title, description, action, h
       }}>
         <Icon size={28} />
       </div>
-      <div style={{ fontSize: 15, fontWeight: 600, color: '#374151', marginBottom: 6 }}>{title}</div>
-      <div style={{ fontSize: 13, color: '#9CA3AF', maxWidth: 320, lineHeight: 1.6, marginBottom: 16 }}>
+      <div style={{ fontSize: 'var(--fs-15)', fontWeight: 600, color: '#374151', marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF', maxWidth: 320, lineHeight: 1.6, marginBottom: 16 }}>
         {description}
       </div>
       {hint && (
         <div style={{
-          fontSize: 12,
+          fontSize: 'var(--fs-12)',
           color: '#9CA3AF',
           padding: '6px 12px',
           background: '#F9FAFB',
@@ -68,13 +68,13 @@ export function LoadingState() {
       <div style={{
         width: 32,
         height: 32,
-        border: '3px solid #E5E7EB',
-        borderTop: '3px solid #176B5B',
+        border: '3px solid var(--color-border)',
+        borderTop: '3px solid var(--color-brand)',
         borderRadius: '50%',
         animation: 'spin 0.8s linear infinite',
         marginBottom: 12,
       }} />
-      <div style={{ fontSize: 13, color: '#9CA3AF' }}>数据加载中…</div>
+      <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>数据加载中…</div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );

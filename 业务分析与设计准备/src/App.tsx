@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   LayoutDashboard, ClipboardList,
   Database, Settings, Shield,
@@ -6,7 +6,7 @@ import {
   Building2, Archive,
   ChevronLeft, Users, CircleDollarSign, UserCheck,
   ShieldCheck, FileSearch,
-  Sparkles,
+  Sparkles, Smartphone, Table2,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { VisitManagement } from './pages/VisitManagement';
@@ -29,11 +29,14 @@ import { PermissionAudit } from './pages/PermissionAudit';
 import { RolePreview } from './pages/RolePreview';
 import { PreviewBanner } from './pages/permUi';
 import { BaiyeeAI } from './pages/BaiyeeAI';
+import { RepAppointmentMobileDemo } from './pages/RepAppointmentMobileDemo';
 import { BrandLogo } from './components/Brand';
+import { DisplaySettingsMenu } from './components/DisplaySettingsMenu';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { getRoleDashboardData } from './data/mockData';
 import { TaskDataProvider } from './context/TaskDataContext';
+import { DisplayPreferenceProvider } from './context/DisplayPreferenceContext';
 import { PermissionProvider, usePermission } from './context/PermissionContext';
 import { RESOURCE_PAGES } from './data/permissions';
 import type { NavFocus, NavigateFn, PageId, Role } from './types';
@@ -101,7 +104,14 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
         id: 'config-group', label: '规则配置', icon: Settings,
         children: [
           { id: 'business-switch', label: '药厂业务开关', disabled: true },
-          { id: 'price-config', label: '价目配置' },
+        ],
+      },
+      {
+        id: 'price-group', label: '价目管理', icon: Table2,
+        children: [
+          { id: 'price-base', label: '基础价目表' },
+          { id: 'price-gs', label: '公私分离价目表' },
+          { id: 'price-report', label: '报告价目表' },
         ],
       },
       {
@@ -139,7 +149,9 @@ const pageLabels: Record<string, string> = {
   inspection: '随检工作台',
   'evidence-chain': '证据链复审',
   'business-switch': '药厂业务开关',
-  'price-config': '价目配置',
+  'price-base': '基础价目表',
+  'price-gs': '公私分离价目表',
+  'price-report': '报告价目表',
   roles: '角色管理',
   'user-grants': '用户授权',
   'perm-audit': '权限审计',
@@ -168,7 +180,9 @@ const pageSections: Record<string, string> = {
   'rep-filing': '企业用户管理',
   'vendor-access': '企业用户管理',
   'business-switch': '规则配置',
-  'price-config': '规则配置',
+  'price-base': '价目管理',
+  'price-gs': '价目管理',
+  'price-report': '价目管理',
   roles: '系统管理',
   'user-grants': '系统管理',
   'perm-audit': '系统管理',
@@ -196,10 +210,10 @@ function NavLeaf({
         width: '100%',
         padding: collapsed ? '8px' : '7px 12px',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        fontSize: 13,
+        fontSize: 'var(--fs-13)',
         fontWeight: active ? 600 : 400,
-        color: disabled ? '#374151' : active ? '#4ADE80' : '#D1D5DB',
-        background: active ? 'rgba(74,222,128,0.10)' : 'none',
+        color: disabled ? '#374151' : active ? 'var(--color-sidebar-accent)' : 'var(--color-sidebar-text)',
+        background: active ? 'color-mix(in srgb, var(--color-sidebar-accent) 10%, transparent)' : 'none',
         border: 'none',
         borderRadius: '6px',
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -220,17 +234,17 @@ function NavLeaf({
           transform: 'translateY(-50%)',
           width: 3,
           height: 20,
-          background: '#4ADE80',
+          background: 'var(--color-sidebar-accent)',
           borderRadius: '0 2px 2px 0',
         }} />
       )}
-      {Icon && <Icon size={16} style={{ color: disabled ? '#374151' : active ? '#4ADE80' : '#6B7280', flexShrink: 0 }} />}
+      {Icon && <Icon size={16} style={{ color: disabled ? '#374151' : active ? 'var(--color-sidebar-accent)' : '#6B7280', flexShrink: 0 }} />}
       {!collapsed && <span style={{ marginLeft: active ? 4 : 0 }}>{label}</span>}
-      {collapsed && !Icon && <span style={{ fontSize: 11, color: active ? '#4ADE80' : '#9CA3AF' }}>{label.slice(0, 2)}</span>}
+      {collapsed && !Icon && <span style={{ fontSize: 'var(--fs-11)', color: active ? 'var(--color-sidebar-accent)' : '#9CA3AF' }}>{label.slice(0, 2)}</span>}
       {badge !== undefined && !collapsed && (
         <span style={{
           marginLeft: 'auto',
-          fontSize: 10,
+          fontSize: 'var(--fs-10)',
           fontWeight: 700,
           minWidth: 18,
           height: 18,
@@ -285,7 +299,7 @@ function NavGroup({
           width: '100%',
           padding: collapsed ? '8px' : '8px 12px',
           justifyContent: collapsed ? 'center' : 'flex-start',
-          fontSize: 13,
+          fontSize: 'var(--fs-13)',
           fontWeight: childActive ? 600 : 400,
           color: childActive ? '#E5E7EB' : '#9CA3AF',
           background: 'none',
@@ -298,7 +312,7 @@ function NavGroup({
         onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
       >
-        <Icon size={16} style={{ color: childActive ? '#4ADE80' : '#6B7280', flexShrink: 0 }} />
+        <Icon size={16} style={{ color: childActive ? 'var(--color-sidebar-accent)' : '#6B7280', flexShrink: 0 }} />
         {!collapsed && (
           <>
             <span style={{ flex: 1 }}>{item.label}</span>
@@ -357,8 +371,8 @@ function StubPage({ title, description }: { title: string; description?: string 
       }}>
         <Archive size={24} style={{ color: '#9CA3AF' }} />
       </div>
-      <div style={{ fontSize: 16, fontWeight: 600, color: '#374151' }}>{title}</div>
-      <div style={{ fontSize: 13, color: '#9CA3AF', maxWidth: 320, textAlign: 'center', lineHeight: 1.6 }}>
+      <div style={{ fontSize: 'var(--fs-16)', fontWeight: 600, color: '#374151' }}>{title}</div>
+      <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF', maxWidth: 320, textAlign: 'center', lineHeight: 1.6 }}>
         {description || '此页面在首批交付范围内，即将上线。请联系产品经理了解上线时间。'}
       </div>
       <div style={{
@@ -366,7 +380,7 @@ function StubPage({ title, description }: { title: string; description?: string 
         background: '#FEF3E2',
         border: '1px solid #FDE68A',
         borderRadius: '6px',
-        fontSize: 12,
+        fontSize: 'var(--fs-12)',
         color: '#C77A16',
         display: 'flex',
         alignItems: 'center',
@@ -383,11 +397,13 @@ function StubPage({ title, description }: { title: string; description?: string 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<Role>('药厂销售部门');
   return (
-    <TaskDataProvider>
-      <PermissionProvider loginRole={currentRole}>
-        <AppShell currentRole={currentRole} setCurrentRole={setCurrentRole} />
-      </PermissionProvider>
-    </TaskDataProvider>
+    <DisplayPreferenceProvider>
+      <TaskDataProvider>
+        <PermissionProvider loginRole={currentRole}>
+          <AppShell currentRole={currentRole} setCurrentRole={setCurrentRole} />
+        </PermissionProvider>
+      </TaskDataProvider>
+    </DisplayPreferenceProvider>
   );
 }
 
@@ -402,11 +418,14 @@ function AppShell({
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['master-group', 'config-group', 'enterprise-user-group', 'admin-group'])
+    new Set(['master-group', 'config-group', 'price-group', 'enterprise-user-group', 'admin-group'])
   );
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [navFocus, setNavFocus] = useState<NavFocus>({});
+  const [mobileDemoOpen, setMobileDemoOpen] = useState(false);
+  const [mobileDemoShown, setMobileDemoShown] = useState(false);
+  const mobileDemoCloseTimer = useRef<number | null>(null);
 
   const addToast = useCallback((msg: Omit<ToastMessage, 'id'>) => {
     const id = `toast-${Date.now()}`;
@@ -463,7 +482,9 @@ function AppShell({
       case 'doctors':          return <DoctorMaster />;
       case 'varieties':        return <VarietyManage addToast={addToast} currentRole={currentRole} />;
       case 'variety-auth':     return <VarietyAuth addToast={addToast} currentRole={currentRole} />;
-      case 'price-config':     return <PriceConfig addToast={addToast} currentRole={currentRole} />;
+      case 'price-base':       return <PriceConfig key="base" addToast={addToast} currentRole={currentRole} kind="base" />;
+      case 'price-gs':         return <PriceConfig key="gs" addToast={addToast} currentRole={currentRole} kind="gs" />;
+      case 'price-report':     return <PriceConfig key="report" addToast={addToast} currentRole={currentRole} kind="report" />;
       case 'settlement':       return <Settlement addToast={addToast} currentRole={currentRole} navigate={navigate} />;
       case 'inspection':       return <InspectionWorkbench addToast={addToast} />;
       case 'evidence-chain':   return <EvidenceChainReview addToast={addToast} />;
@@ -516,6 +537,39 @@ function AppShell({
   const previewOrgName = preview ? (orgs.find(o => o.id === preview.orgId)?.name ?? '') : '';
   const previewUserName = preview?.userId ? users.find(u => u.id === preview.userId)?.name : undefined;
   const isBaiyeeAI = currentPage === 'baiyee-ai';
+  const reducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const demoMs = reducedMotion ? 0 : 200;
+
+  function openMobileDemo() {
+    if (mobileDemoCloseTimer.current) {
+      window.clearTimeout(mobileDemoCloseTimer.current);
+      mobileDemoCloseTimer.current = null;
+    }
+    setShowUserMenu(false);
+    setMobileDemoOpen(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setMobileDemoShown(true));
+    });
+  }
+
+  function closeMobileDemo() {
+    setMobileDemoShown(false);
+    if (mobileDemoCloseTimer.current) window.clearTimeout(mobileDemoCloseTimer.current);
+    mobileDemoCloseTimer.current = window.setTimeout(() => {
+      setMobileDemoOpen(false);
+      mobileDemoCloseTimer.current = null;
+    }, demoMs);
+  }
+
+  useEffect(() => {
+    if (!mobileDemoOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMobileDemo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileDemoOpen, demoMs]);
 
   return (
     <div style={{ display: 'flex', height: '100%', background: isBaiyeeAI ? '#F7F7F5' : '#F5F7F8', overflow: 'hidden' }}>
@@ -526,7 +580,7 @@ function AppShell({
         display: 'flex',
         width: SIDEBAR_W,
         flexShrink: 0,
-        background: '#111827',
+        background: 'var(--color-sidebar)',
         flexDirection: 'column',
         overflow: 'hidden',
         transition: 'width 200ms cubic-bezier(0.25,0.46,0.45,0.94)',
@@ -536,7 +590,7 @@ function AppShell({
         {/* Logo */}
         <div style={{
           padding: sidebarCollapsed ? '16px 8px' : '16px 16px',
-          borderBottom: '1px solid #1F2937',
+          borderBottom: '1px solid var(--color-sidebar-divider)',
           display: 'flex',
           alignItems: 'center',
           gap: 10,
@@ -552,7 +606,7 @@ function AppShell({
               {group.label && !sidebarCollapsed && (
                 <div style={{
                   padding: '10px 8px 4px',
-                  fontSize: 10,
+                  fontSize: 'var(--fs-10)',
                   fontWeight: 700,
                   color: '#4B5563',
                   textTransform: 'uppercase',
@@ -562,7 +616,7 @@ function AppShell({
                 </div>
               )}
               {group.label && sidebarCollapsed && gi > 0 && (
-                <div style={{ height: 1, background: '#1F2937', margin: '8px 4px' }} />
+                <div style={{ height: 1, background: 'var(--color-sidebar-divider)', margin: '8px 4px' }} />
               )}
               {group.items.map(item => (
                 <NavGroup
@@ -590,8 +644,8 @@ function AppShell({
             width: 24,
             height: 24,
             borderRadius: '50%',
-            background: '#1F2937',
-            border: '1px solid #374151',
+            background: 'var(--color-sidebar-elev)',
+            border: '1px solid var(--color-sidebar-line)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -606,7 +660,7 @@ function AppShell({
 
         {/* Bottom: user */}
         <div style={{
-          borderTop: '1px solid #1F2937',
+          borderTop: '1px solid var(--color-sidebar-divider)',
           padding: sidebarCollapsed ? '12px 8px' : '12px 12px',
           flexShrink: 0,
         }}>
@@ -619,17 +673,17 @@ function AppShell({
               marginBottom: 10,
               padding: '4px 8px',
               borderRadius: '4px',
-              background: 'rgba(74,222,128,0.06)',
+              background: 'color-mix(in srgb, var(--color-sidebar-accent) 6%, transparent)',
             }}>
               <span style={{
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: '#4ADE80',
-                boxShadow: '0 0 6px rgba(74,222,128,0.6)',
+                background: 'var(--color-sidebar-accent)',
+                boxShadow: '0 0 6px color-mix(in srgb, var(--color-sidebar-accent) 60%, transparent)',
                 flexShrink: 0,
               }} />
-              <span style={{ fontSize: 11, color: '#4B5563' }}>数据已同步 · 09:30</span>
+              <span style={{ fontSize: 'var(--fs-11)', color: '#4B5563' }}>数据已同步 · 09:30</span>
             </div>
           )}
 
@@ -655,11 +709,11 @@ function AppShell({
                 width: 30,
                 height: 30,
                 borderRadius: '8px',
-                background: 'linear-gradient(135deg, #176B5B, #2F6BCE)',
+                background: 'linear-gradient(135deg, var(--color-brand), #2F6BCE)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 13,
+                fontSize: 'var(--fs-13)',
                 fontWeight: 700,
                 color: '#fff',
                 flexShrink: 0,
@@ -668,8 +722,8 @@ function AppShell({
               </div>
               {!sidebarCollapsed && (
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: '#E5E7EB', lineHeight: 1 }}>演示账号</div>
-                  <div style={{ fontSize: 11, color: '#4ADE80', marginTop: 2 }}>{currentRole}</div>
+                  <div style={{ fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-sidebar-text)', lineHeight: 1 }}>演示账号</div>
+                  <div style={{ fontSize: 'var(--fs-11)', color: 'var(--color-sidebar-accent)', marginTop: 2 }}>{currentRole}</div>
                 </div>
               )}
             </button>
@@ -680,15 +734,15 @@ function AppShell({
                 bottom: '100%',
                 left: 0,
                 right: 0,
-                background: '#1F2937',
-                border: '1px solid #374151',
+                background: 'var(--color-sidebar-elev)',
+                border: '1px solid var(--color-sidebar-line)',
                 borderRadius: '8px',
                 padding: '8px',
                 marginBottom: 4,
                 boxShadow: '0 8px 24px rgba(0,0,0,0.30)',
                 zIndex: 100,
               }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#4B5563', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: 4 }}>
+                <div style={{ fontSize: 'var(--fs-11)', fontWeight: 600, color: '#4B5563', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: 4 }}>
                   角色切换
                 </div>
                 {roles.map(role => (
@@ -706,9 +760,9 @@ function AppShell({
                       alignItems: 'center',
                       width: '100%',
                       padding: '7px 8px',
-                      fontSize: 13,
-                      color: currentRole === role ? '#4ADE80' : '#D1D5DB',
-                      background: currentRole === role ? 'rgba(74,222,128,0.08)' : 'none',
+                      fontSize: 'var(--fs-13)',
+                      color: currentRole === role ? 'var(--color-sidebar-accent)' : 'var(--color-sidebar-text)',
+                      background: currentRole === role ? 'color-mix(in srgb, var(--color-sidebar-accent) 8%, transparent)' : 'none',
                       border: 'none',
                       borderRadius: '4px',
                       cursor: 'pointer',
@@ -721,14 +775,40 @@ function AppShell({
                     <Users size={13} /> {role}
                   </button>
                 ))}
-                <div style={{ height: 1, background: '#374151', margin: '8px 0' }} />
+                <div style={{ height: 1, background: 'var(--color-sidebar-line)', margin: '8px 0' }} />
+                <div style={{ fontSize: 'var(--fs-11)', fontWeight: 600, color: '#4B5563', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: 4 }}>
+                  演示场景
+                </div>
+                <button
+                  type="button"
+                  onClick={openMobileDemo}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    width: '100%',
+                    padding: '7px 8px',
+                    fontSize: 'var(--fs-13)',
+                    color: 'var(--color-sidebar-text)',
+                    background: 'none',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    gap: 8,
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                >
+                  <Smartphone size={13} /> 医药代表移动端
+                </button>
+                <div style={{ height: 1, background: 'var(--color-sidebar-line)', margin: '8px 0' }} />
                 <button
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     width: '100%',
                     padding: '7px 8px',
-                    fontSize: 13,
+                    fontSize: 'var(--fs-13)',
                     color: '#C73A3A',
                     background: 'none',
                     border: 'none',
@@ -765,7 +845,7 @@ function AppShell({
         {!isBaiyeeAI && <header style={{
           height: 52,
           background: '#FFFFFF',
-          borderBottom: '1px solid #E5E7EB',
+          borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
           padding: '0 20px',
@@ -779,8 +859,8 @@ function AppShell({
               <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {i > 0 && <ChevronRight size={13} style={{ color: '#D1D5DB' }} />}
                 <span style={{
-                  fontSize: 13,
-                  color: i === breadcrumb.length - 1 ? '#1F2937' : '#9CA3AF',
+                  fontSize: 'var(--fs-13)',
+                  color: i === breadcrumb.length - 1 ? 'var(--color-text-1)' : '#9CA3AF',
                   fontWeight: i === breadcrumb.length - 1 ? 600 : 400,
                 }}>
                   {crumb}
@@ -788,7 +868,7 @@ function AppShell({
               </span>
             ))}
             {breadcrumb.length === 0 && (
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>工作台</span>
+              <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>工作台</span>
             )}
           </nav>
 
@@ -800,23 +880,26 @@ function AppShell({
             height: 32,
             padding: '0 12px',
             background: '#F9FAFB',
-            border: '1px solid #E5E7EB',
+            border: '1px solid var(--color-border)',
             borderRadius: '6px',
             width: 240,
             cursor: 'text',
           }}>
             <Search size={13} style={{ color: '#9CA3AF', flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: '#9CA3AF' }}>全局搜索…</span>
+            <span style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>全局搜索…</span>
             <span style={{
               marginLeft: 'auto',
-              fontSize: 11,
+              fontSize: 'var(--fs-11)',
               color: '#D1D5DB',
               padding: '1px 5px',
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               borderRadius: '3px',
               fontFamily: "'JetBrains Mono', monospace",
             }}>⌘K</span>
           </div>
+
+          {/* Display preferences (personal, all roles) */}
+          <DisplaySettingsMenu onNotice={title => addToast({ type: 'info', title })} />
 
           {/* Notification */}
           <button
@@ -830,7 +913,7 @@ function AppShell({
               height: 36,
               borderRadius: '8px',
               background: 'none',
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               cursor: 'pointer',
               color: '#6B7280',
             }}
@@ -848,7 +931,7 @@ function AppShell({
               background: '#C73A3A',
               border: '1px solid #fff',
               color: '#fff',
-              fontSize: 10,
+              fontSize: 'var(--fs-10)',
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
@@ -866,19 +949,19 @@ function AppShell({
             gap: 8,
             padding: '0 12px',
             height: 36,
-            border: '1px solid #E5E7EB',
+            border: '1px solid var(--color-border)',
             borderRadius: '8px',
             cursor: 'pointer',
             background: '#F9FAFB',
           }}>
             <Building2 size={14} style={{ color: '#9CA3AF' }} />
-            <span style={{ fontSize: 13, color: '#374151', fontWeight: 500 }}>百益健康科技</span>
+            <span style={{ fontSize: 'var(--fs-13)', color: '#374151', fontWeight: 500 }}>百益健康科技</span>
             <span style={{
-              fontSize: 11,
+              fontSize: 'var(--fs-11)',
               padding: '2px 6px',
               borderRadius: '9999px',
-              background: '#E8F4F1',
-              color: '#176B5B',
+              background: 'var(--color-brand-subtle)',
+              color: 'var(--color-brand)',
               fontWeight: 600,
             }}>
               {currentRole}
@@ -891,6 +974,21 @@ function AppShell({
           {renderPage()}
         </main>
       </div>
+
+      {mobileDemoOpen && (
+        <div
+          className="demo-scene-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1400,
+            opacity: mobileDemoShown ? 1 : 0,
+            transition: reducedMotion ? 'none' : `opacity ${demoMs}ms ease`,
+          }}
+        >
+          <RepAppointmentMobileDemo onExit={closeMobileDemo} reducedMotion={reducedMotion} />
+        </div>
+      )}
 
       {/* Toast notifications */}
       <ToastContainer messages={toasts} onDismiss={dismissToast} />

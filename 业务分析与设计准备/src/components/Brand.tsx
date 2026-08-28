@@ -16,10 +16,10 @@ export function BrandMark({ size = 32, title = '药合作系统' }: BrandMarkPro
       aria-label={title}
       style={{ display: 'block', flexShrink: 0, borderRadius: 8 }}
     >
-      <rect width="32" height="32" rx="8" fill="#176B5B" />
+      <rect width="32" height="32" rx="8" style={{ fill: 'var(--color-brand)' }} />
       <rect x="6" y="13.5" width="20" height="5" rx="2.5" fill="#FFFFFF" />
       <rect x="13.5" y="6" width="5" height="20" rx="2.5" fill="#FFFFFF" />
-      <circle cx="16" cy="16" r="2.2" fill="#176B5B" />
+      <circle cx="16" cy="16" r="2.2" style={{ fill: 'var(--color-brand)' }} />
     </svg>
   );
 }
@@ -38,10 +38,10 @@ export function BrandLogo({
       <BrandMark size={32} />
       {!collapsed && (
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#F9FAFB', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 'var(--fs-13)', fontWeight: 700, color: '#F9FAFB', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
             药合作系统
           </div>
-          <div style={{ fontSize: 10, color: '#4ADE80', letterSpacing: '0.05em', marginTop: 1 }}>
+          <div style={{ fontSize: 'var(--fs-10)', color: 'var(--color-sidebar-accent)', letterSpacing: '0.05em', marginTop: 1 }}>
             {subtitle}
           </div>
         </div>

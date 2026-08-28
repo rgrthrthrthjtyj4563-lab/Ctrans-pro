@@ -26,8 +26,8 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '已撤销': { label: '已撤销', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   // 任务状态（手册）
   '待确认': { label: '待确认', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
-  '执行中': { label: '执行中', fg: '#176B5B', bg: '#E8F4F1', dot: '#176B5B' },
-  '已结算': { label: '已结算', fg: '#176B5B', bg: '#E8F4F1', dot: '#176B5B' },
+  '执行中': { label: '执行中', fg: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', dot: 'var(--color-brand)' },
+  '已结算': { label: '已结算', fg: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', dot: 'var(--color-brand)' },
   // 对账状态
   '未发起': { label: '未发起', fg: '#667085', bg: '#F3F4F6', dot: '#98A2B3' },
   '对账中': { label: '对账中', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
@@ -63,7 +63,7 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '不可执行': { label: '不可执行', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
   '未开始': { label: '未开始', fg: '#667085', bg: '#F3F4F6', dot: '#98A2B3' },
   '已结束': { label: '已结束', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
-  '进行中': { label: '进行中', fg: '#176B5B', bg: '#E8F4F1', dot: '#176B5B' },
+  '进行中': { label: '进行中', fg: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', dot: 'var(--color-brand)' },
   '无结果': { label: '无结果', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
   '异常待人工确认': { label: '异常待人工确认', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '待审': { label: '待审', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
@@ -171,7 +171,7 @@ interface GenericTagProps {
 export function Tag({ label, color = 'default' }: GenericTagProps) {
   const styles = {
     default: { fg: '#374151', bg: '#F3F4F6' },
-    brand:   { fg: '#176B5B', bg: '#E8F4F1' },
+    brand:   { fg: 'var(--color-brand)', bg: 'var(--color-brand-subtle)' },
     info:    { fg: '#2F6BCE', bg: '#EBF2FE' },
     success: { fg: '#248A5A', bg: '#E6F5ED' },
     warning: { fg: '#C77A16', bg: '#FEF3E2' },
@@ -183,7 +183,7 @@ export function Tag({ label, color = 'default' }: GenericTagProps) {
       display: 'inline-block',
       padding: '2px 8px',
       borderRadius: '4px',
-      fontSize: '12px',
+      fontSize: 'var(--fs-12)',
       fontWeight: 500,
       backgroundColor: s.bg,
       color: s.fg,

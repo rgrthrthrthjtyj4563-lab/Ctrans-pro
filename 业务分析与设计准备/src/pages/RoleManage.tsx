@@ -219,14 +219,14 @@ export function RoleManage({ addToast }: Props) {
           onSearch={() => { setApplied(filters); setPage(1); }}
           onReset={() => { setFilters({ status: 'enabled' }); setApplied({ status: 'enabled' }); setPage(1); }}
           stats={
-            <span style={{ fontSize: 13, color: '#667085' }}>
-              共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 个角色
+            <span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>
+              共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 个角色
               · 默认展示启用角色
             </span>
           }
         />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
               <thead>
@@ -245,7 +245,7 @@ export function RoleManage({ addToast }: Props) {
                     <tr key={role.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{role.name}</div>
-                        <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{role.description}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{role.description}</div>
                       </td>
                       <td style={tdStyle}>
                         <Tag label={role.kind === 'preset' ? '预置' : '定制'} color={role.kind === 'preset' ? 'brand' : 'info'} />
@@ -356,7 +356,7 @@ function RoleFormModal({
             新建定制角色默认没有业务写权限，保存后请在「页面与按钮权限」中勾选。
           </InfoBanner>
         )}
-        {error && <div style={{ color: '#C73A3A', fontSize: 13 }}>{error}</div>}
+        {error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{error}</div>}
         <Field label="角色名称" required>
           <input value={name} onChange={e => onName(e.target.value)} style={inputStyle} placeholder="同一租户内唯一" />
         </Field>
@@ -476,17 +476,17 @@ function RoleDetail({
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <Tag label={role.kind === 'preset' ? '预置角色' : '定制角色'} color={role.kind === 'preset' ? 'brand' : 'info'} />
           <StatusTag status={statusWord(role.status)} />
-          <span style={{ fontSize: 12, color: '#9CA3AF' }}>版本 v{role.version}</span>
-          <span style={{ fontSize: 12, color: '#9CA3AF' }}>适用租户 {role.tenant}</span>
-          {sourceName && <span style={{ fontSize: 12, color: '#9CA3AF' }}>复制自 {sourceName}</span>}
+          <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>版本 v{role.version}</span>
+          <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>适用租户 {role.tenant}</span>
+          {sourceName && <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>复制自 {sourceName}</span>}
           {role.kind === 'preset' && (
-            <span style={{ fontSize: 12, color: '#C77A16' }}>预置角色不可修改、删除或停用，请复制为定制角色后再调整</span>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#C77A16' }}>预置角色不可修改、删除或停用，请复制为定制角色后再调整</span>
           )}
         </div>
 
         {tab === 'pages' && (
-          <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E7EB' }}>
+          <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
               <InfoBanner>
                 按业务模块勾选页面和按钮。取消「查看页面」会同时取消该页全部按钮；勾选任一按钮会自动勾选查看。管理员无需输入权限编码。
               </InfoBanner>
@@ -519,7 +519,7 @@ function RoleDetail({
                           )}
                           <td style={tdStyle}>
                             <div style={{ fontWeight: 600 }}>{p.name}</div>
-                            <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{p.description}</div>
+                            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{p.description}</div>
                           </td>
                           {PAGE_ACTION_META.map(a => {
                             const available = p.actions.some(x => x.key === a.key);
@@ -550,7 +550,7 @@ function RoleDetail({
         )}
 
         {tab === 'scope' && (
-          <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: 20 }}>
+          <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 20 }}>
             <InfoBanner>
               系统仅返回同时满足授权范围和业务归属的数据。例如服务商管理员只能看到本服务商、已授权品种和区域内的任务。
             </InfoBanner>
@@ -609,7 +609,7 @@ function RoleDetail({
         )}
 
         {tab === 'fields' && (
-          <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
             <div style={{ padding: '12px 16px' }}>
               <InfoBanner>
                 仅对已登记为敏感的字段开放配置。脱敏在服务端序列化前执行；隐藏字段前端不会收到原始值，列表也不展示列名。
@@ -639,7 +639,7 @@ function RoleDetail({
                             checked={policy === p}
                             disabled={locked}
                             onChange={() => setDraft(d => ({ ...d, fieldPolicies: { ...d.fieldPolicies, [f.key]: p } }))}
-                            style={{ accentColor: p === 'hidden' ? '#C73A3A' : '#176B5B' }}
+                            style={{ accentColor: p === 'hidden' ? '#C73A3A' : 'var(--color-brand)' }}
                           />
                         </td>
                       ))}
@@ -655,7 +655,7 @@ function RoleDetail({
         )}
 
         {tab === 'basic' && (
-          <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 760 }}>
+          <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 760 }}>
             <Field label="角色名称" required>
               <input value={draft.name} disabled={locked} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} style={inputStyle} />
             </Field>
@@ -681,7 +681,7 @@ function RoleDetail({
         )}
 
         {tab === 'members' && (
-          <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
             {members.length === 0 ? (
               <EmptyState title="暂无授权用户" description="请到「用户授权」为该角色添加用户" />
             ) : (
@@ -698,7 +698,7 @@ function RoleDetail({
                       <tr key={g.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                         <td style={tdStyle}>
                           <div style={{ fontWeight: 600 }}>{user?.name}</div>
-                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>{user?.account} · {user?.accountStatus === 'enabled' ? '账户启用' : '账户停用'}</div>
+                          <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{user?.account} · {user?.accountStatus === 'enabled' ? '账户启用' : '账户停用'}</div>
                         </td>
                         <td style={tdStyle}>{g.orgName}</td>
                         <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>
@@ -717,7 +717,7 @@ function RoleDetail({
         )}
 
         {tab === 'history' && (
-          <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
             {history.length === 0 ? (
               <EmptyState title="暂无变更记录" description="保存权限、启停或授权后将在此留痕" />
             ) : (

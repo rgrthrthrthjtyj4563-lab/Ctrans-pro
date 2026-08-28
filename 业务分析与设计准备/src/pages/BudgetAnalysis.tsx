@@ -32,11 +32,11 @@ interface Props {
 const CURRENT_MONTH = Number(DEMO_NOW.slice(5, 7));
 
 const th: React.CSSProperties = {
-  padding: '10px 12px', textAlign: 'right', fontSize: 12, fontWeight: 600,
-  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', whiteSpace: 'nowrap',
+  padding: '10px 12px', textAlign: 'right', fontSize: 'var(--fs-12)', fontWeight: 600,
+  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
 const td: React.CSSProperties = {
-  padding: '10px 12px', fontSize: 13, color: '#1F2937', borderBottom: '1px solid #F3F4F6',
+  padding: '10px 12px', fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', borderBottom: '1px solid #F3F4F6',
   textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap',
 };
 const tdText: React.CSSProperties = { ...td, textAlign: 'left', fontFamily: 'inherit' };
@@ -108,10 +108,10 @@ function splitEven(amount: number, n: number): number[] {
 
 function StatCard({ label, value, tone, hint }: { label: string; value: string; tone?: string; hint?: string }) {
   return (
-    <div style={{ flex: 1, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '14px 18px', minWidth: 170 }}>
-      <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: tone ?? '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{value}</div>
-      {hint && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{hint}</div>}
+    <div style={{ flex: 1, background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: '14px 18px', minWidth: 170 }}>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 'var(--fs-20)', fontWeight: 700, color: tone ?? '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{value}</div>
+      {hint && <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF', marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
@@ -317,8 +317,8 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
         {boundPlan && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-            padding: '10px 14px', marginBottom: 12, fontSize: 13,
-            background: '#E8F4F1', border: '1px solid #B7DED6', borderRadius: 8, color: '#176B5B',
+            padding: '10px 14px', marginBottom: 12, fontSize: 'var(--fs-13)',
+            background: 'var(--color-brand-subtle)', border: '1px solid #B7DED6', borderRadius: 8, color: 'var(--color-brand)',
           }}>
             <span style={{ fontWeight: 600 }}>预算行口径：</span>
             <span>{boundPlan.year} 年 · {boundPlan.provider} · 品种 {formatCoverage(boundPlan.varieties)} · 地区 {formatCoverage(boundPlan.regions)}</span>
@@ -343,7 +343,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
           <StatCard label={`月度预算${monthFilter ? `（${monthFilter}月）` : '（全年）'}`} value={formatCNY(cardBudget)} />
-          <StatCard label={`已结算实际${monthFilter ? `（${monthFilter}月）` : '（全年）'}`} value={formatCNY(cardActual)} tone="#176B5B" />
+          <StatCard label={`已结算实际${monthFilter ? `（${monthFilter}月）` : '（全年）'}`} value={formatCNY(cardActual)} tone="var(--color-brand)" />
           <StatCard
             label="差异（月度预算 − 已结算实际）"
             value={`${cardDev > 0 ? '+' : ''}${formatCNY(cardDev)}`}
@@ -357,12 +357,12 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
           />
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: 16, marginBottom: 12 }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 16, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 650 }}>预算与实际并列柱状图（{year} 年 · 点击月份下钻）</div>
-            <div style={{ display: 'flex', gap: 14, fontSize: 12, color: '#667085' }}>
+            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 650 }}>预算与实际并列柱状图（{year} 年 · 点击月份下钻）</div>
+            <div style={{ display: 'flex', gap: 14, fontSize: 'var(--fs-12)', color: '#667085' }}>
               <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#94A3B8', borderRadius: 2, marginRight: 4 }} />月度预算</span>
-              <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#176B5B', borderRadius: 2, marginRight: 4 }} />已结算实际</span>
+              <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--color-brand)', borderRadius: 2, marginRight: 4 }} />已结算实际</span>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, overflowX: 'auto' }}>
@@ -379,24 +379,24 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
                   title={`点击下钻 ${m} 月`}
                   style={{
                     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 64,
-                    border: 'none', background: active ? '#E8F4F1' : 'transparent', borderRadius: 6, padding: '4px 0', cursor: 'pointer',
+                    border: 'none', background: active ? 'var(--color-brand-subtle)' : 'transparent', borderRadius: 6, padding: '4px 0', cursor: 'pointer',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 150, width: '100%', justifyContent: 'center' }}>
                     <div title={`${m}月 月度预算 ${formatCNY(budget)}`} style={{ width: 14, height: `${Math.max(2, (budget / maxVal) * 100)}%`, background: budget === 0 ? '#F3F4F6' : '#94A3B8', borderRadius: '3px 3px 0 0' }} />
-                    <div title={`${m}月 已结算实际 ${formatCNY(actual)}`} style={{ width: 14, height: `${Math.max(2, (actual / maxVal) * 100)}%`, background: actual === 0 ? '#F3F4F6' : '#176B5B', borderRadius: '3px 3px 0 0' }} />
+                    <div title={`${m}月 已结算实际 ${formatCNY(actual)}`} style={{ width: 14, height: `${Math.max(2, (actual / maxVal) * 100)}%`, background: actual === 0 ? '#F3F4F6' : 'var(--color-brand)', borderRadius: '3px 3px 0 0' }} />
                   </div>
-                  <div style={{ fontSize: 10.5, fontFamily: "'JetBrains Mono', monospace", color: dev < 0 ? '#C73A3A' : dev > 0 ? '#248A5A' : '#9CA3AF', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 'calc(10.5px * var(--font-scale))', fontFamily: "'JetBrains Mono', monospace", color: dev < 0 ? '#C73A3A' : dev > 0 ? '#248A5A' : '#9CA3AF', whiteSpace: 'nowrap' }}>
                     {budget === 0 && actual === 0 ? '—' : budget === 0 ? '无预算' : `${dev > 0 ? '+' : ''}${formatCNY(dev)}`}
                   </div>
-                  <div style={{ fontSize: 11, color: active ? '#176B5B' : '#667085', fontWeight: active ? 700 : 400 }}>{m}月</div>
+                  <div style={{ fontSize: 'var(--fs-11)', color: active ? 'var(--color-brand)' : '#667085', fontWeight: active ? 700 : 400 }}>{m}月</div>
                 </button>
               );
             })}
           </div>
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'auto', marginBottom: 8 }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto', marginBottom: 8 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
             <thead>
               <tr>
@@ -420,7 +420,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
                       {r.actual > 0 ? (
                         <button
                           onClick={() => setBillDrill({ provider: r.provider, variety: r.variety, region: r.region, month: monthFilter })}
-                          style={{ color: '#176B5B', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: 0, textDecoration: 'underline', fontFamily: "'JetBrains Mono', monospace" }}
+                          style={{ color: 'var(--color-brand)', border: 'none', background: 'none', cursor: 'pointer', fontSize: 'var(--fs-13)', padding: 0, textDecoration: 'underline', fontFamily: "'JetBrains Mono', monospace" }}
                         >
                           {formatCNY(r.actual)}
                         </button>
@@ -438,7 +438,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
             </tbody>
           </table>
         </div>
-        <div style={{ fontSize: 12, color: '#9CA3AF', lineHeight: 1.8, marginBottom: 20 }}>
+        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', lineHeight: 1.8, marginBottom: 20 }}>
           口径说明：明细粒度 = 服务商 × 品种 × 地区（默认当前月）。月度预算按预算行覆盖的授权「品种×地区」组合整除均摊（余数补到前几个组合，合计 = 服务商当月预算），是展示层分摊值、不是落库数据。已结算实际按确认结算单零分摊归集。差异 = 月度预算 − 已结算实际；预算为 0 显示「无预算」。点击「已结算实际金额」打开结算单列表，点结算单号看整单明细，点关联任务在本页查看任务详情。
         </div>
       </div>
@@ -465,7 +465,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
                   <td style={tdText}>
                     <button
                       onClick={() => setBillDetail({ bill: r.bill, task: r.task, matchedAmount: r.matchedAmount })}
-                      style={{ color: '#176B5B', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: 0, textDecoration: 'underline' }}
+                      style={{ color: 'var(--color-brand)', border: 'none', background: 'none', cursor: 'pointer', fontSize: 'var(--fs-13)', padding: 0, textDecoration: 'underline' }}
                     >
                       {r.bill.billNo}
                     </button>
@@ -473,7 +473,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
                   <td style={tdText}>
                     <button
                       onClick={() => { setTaskTab('plan'); setTaskDetail(r.task); }}
-                      style={{ color: '#2F6BCE', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: 0, textDecoration: 'underline' }}
+                      style={{ color: '#2F6BCE', border: 'none', background: 'none', cursor: 'pointer', fontSize: 'var(--fs-13)', padding: 0, textDecoration: 'underline' }}
                     >
                       {r.task.taskNo}
                     </button>
@@ -490,7 +490,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
             <tfoot>
               <tr>
                 <td style={{ ...tdText, fontWeight: 600 }} colSpan={7}>合计（＝明细表该行「已结算实际金额」）</td>
-                <td style={{ ...td, fontWeight: 700, color: '#176B5B' }}>{formatCNY(billDrillTotal)}</td>
+                <td style={{ ...td, fontWeight: 700, color: 'var(--color-brand)' }}>{formatCNY(billDrillTotal)}</td>
               </tr>
             </tfoot>
           </table>
@@ -519,8 +519,8 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
                 ['付款凭证', billDetail.bill.paymentVoucher ?? '—'],
               ].map(([label, value]) => (
                 <div key={label} style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: '#667085', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 13, color: '#1F2937', wordBreak: 'break-all' }}>{value}</div>
+                  <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', wordBreak: 'break-all' }}>{value}</div>
                 </div>
               ))}
             </div>
@@ -543,9 +543,9 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
                 ))}
               </tbody>
             </table>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 24, marginTop: 12, fontSize: 13 }}>
-              <span style={{ color: '#667085' }}>最终结算金额（整单）：<span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#1F2937' }}>{formatCNY(billDetail.bill.finalAmount)}</span></span>
-              <span style={{ color: '#667085' }}>计入当前口径金额：<span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#176B5B' }}>{formatCNY(billDetail.matchedAmount)}</span></span>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 24, marginTop: 12, fontSize: 'var(--fs-13)' }}>
+              <span style={{ color: '#667085' }}>最终结算金额（整单）：<span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: 'var(--color-text-1)' }}>{formatCNY(billDetail.bill.finalAmount)}</span></span>
+              <span style={{ color: '#667085' }}>计入当前口径金额：<span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: 'var(--color-brand)' }}>{formatCNY(billDetail.matchedAmount)}</span></span>
             </div>
           </>
         )}
@@ -557,18 +557,8 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
         onTab={setTaskTab}
         onClose={() => setTaskDetail(null)}
         isSales={false}
-        isProvider={false}
-        isCompliance
-        navigate={navigate}
-        onSplit={() => {}}
-        onAssign={() => {}}
-        onSettle={() => {}}
-        onConfirmBill={() => {}}
         onReview={() => {}}
-        onUploadReport={() => {}}
-        onHistory={() => {}}
-        onVoucher={() => {}}
-        onComplete={() => {}}
+        onConfirmBill={() => {}}
       />
     </div>
   );

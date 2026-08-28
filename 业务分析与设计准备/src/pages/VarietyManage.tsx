@@ -17,8 +17,8 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   height: 36,
   padding: '0 10px',
-  fontSize: 13,
-  border: '1px solid #E5E7EB',
+  fontSize: 'var(--fs-13)',
+  border: '1px solid var(--color-border)',
   borderRadius: 6,
   outline: 'none',
   fontFamily: 'inherit',
@@ -76,11 +76,11 @@ export function VarietyManage({ addToast, currentRole }: Props) {
   }
 
   const th: React.CSSProperties = {
-    padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 600,
-    color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', whiteSpace: 'nowrap',
+    padding: '10px 12px', textAlign: 'left', fontSize: 'var(--fs-12)', fontWeight: 600,
+    color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
   };
   const td: React.CSSProperties = {
-    padding: '12px', fontSize: 13, color: '#1F2937', borderBottom: '1px solid #F3F4F6',
+    padding: '12px', fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', borderBottom: '1px solid #F3F4F6',
   };
 
   return (
@@ -91,7 +91,7 @@ export function VarietyManage({ addToast, currentRole }: Props) {
         actions={canWrite ? <Button variant="primary" size="md" icon={<Plus size={14} />} onClick={openCreate}>新建品种</Button> : undefined}
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'auto' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -140,7 +140,7 @@ export function VarietyManage({ addToast, currentRole }: Props) {
         }
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {error && <div style={{ gridColumn: '1 / -1', color: '#C73A3A', fontSize: 13 }}>{error}</div>}
+          {error && <div style={{ gridColumn: '1 / -1', color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{error}</div>}
           <Field label="通用名"><input value={form.genericName} onChange={(e) => set('genericName', e.target.value)} style={inputStyle} /></Field>
           <Field label="商品名"><input value={form.tradeName} onChange={(e) => set('tradeName', e.target.value)} style={inputStyle} /></Field>
           <Field label="批准文号"><input value={form.approvalNo} onChange={(e) => set('approvalNo', e.target.value)} style={inputStyle} /></Field>
@@ -160,7 +160,7 @@ export function VarietyManage({ addToast, currentRole }: Props) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>
-      <div style={{ fontSize: 12, color: '#667085', marginBottom: 6, fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6, fontWeight: 500 }}>{label}</div>
       {children}
     </label>
   );

@@ -6,8 +6,8 @@ export const inputStyle: CSSProperties = {
   width: '100%',
   height: 36,
   padding: '0 10px',
-  fontSize: 13,
-  border: '1px solid #E5E7EB',
+  fontSize: 'var(--fs-13)',
+  border: '1px solid var(--color-border)',
   borderRadius: 6,
   outline: 'none',
   fontFamily: 'inherit',
@@ -17,20 +17,20 @@ export const inputStyle: CSSProperties = {
 export const thStyle: CSSProperties = {
   padding: '10px 12px',
   textAlign: 'left',
-  fontSize: 12,
+  fontSize: 'var(--fs-12)',
   fontWeight: 600,
   color: '#9CA3AF',
   textTransform: 'uppercase',
   letterSpacing: '0.03em',
   background: '#F9FAFB',
-  borderBottom: '1px solid #E5E7EB',
+  borderBottom: '1px solid var(--color-border)',
   whiteSpace: 'nowrap',
 };
 
 export const tdStyle: CSSProperties = {
   padding: '11px 12px',
-  fontSize: 13,
-  color: '#1F2937',
+  fontSize: 'var(--fs-13)',
+  color: 'var(--color-text-1)',
   borderBottom: '1px solid #F3F4F6',
   verticalAlign: 'middle',
 };
@@ -50,12 +50,12 @@ export function Field({
 }) {
   return (
     <label style={{ display: 'block', gridColumn: span ? '1 / -1' : undefined }}>
-      <div style={{ fontSize: 12, color: '#667085', marginBottom: 6, fontWeight: 500 }}>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6, fontWeight: 500 }}>
         {label}
         {required && <span style={{ color: '#C73A3A', marginLeft: 2 }}>*</span>}
       </div>
       {children}
-      {hint && <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 4 }}>{hint}</div>}
     </label>
   );
 }
@@ -69,7 +69,7 @@ export function RiskBadge() {
       marginLeft: 4,
       padding: '1px 6px',
       borderRadius: 4,
-      fontSize: 10,
+      fontSize: 'var(--fs-10)',
       fontWeight: 600,
       color: '#C73A3A',
       background: '#FEECEC',
@@ -105,7 +105,7 @@ export function CheckCell({
         checked={checked}
         disabled={disabled}
         onChange={e => onChange(e.target.checked)}
-        style={{ width: 15, height: 15, accentColor: risk ? '#C73A3A' : '#176B5B', cursor: disabled ? 'not-allowed' : 'pointer' }}
+        style={{ width: 15, height: 15, accentColor: risk ? '#C73A3A' : 'var(--color-brand)', cursor: disabled ? 'not-allowed' : 'pointer' }}
       />
     </label>
   );
@@ -132,8 +132,8 @@ export function RadioCard({
         textAlign: 'left',
         padding: '12px 14px',
         borderRadius: 8,
-        border: checked ? '1px solid #176B5B' : '1px solid #E5E7EB',
-        background: checked ? '#E8F4F1' : '#fff',
+        border: checked ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
+        background: checked ? 'var(--color-brand-subtle)' : '#fff',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
       }}
@@ -143,20 +143,20 @@ export function RadioCard({
           width: 14,
           height: 14,
           borderRadius: '50%',
-          border: checked ? '4px solid #176B5B' : '1.5px solid #D1D5DB',
+          border: checked ? '4px solid var(--color-brand)' : '1.5px solid #D1D5DB',
           background: '#fff',
           flexShrink: 0,
         }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>{title}</span>
+        <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>{title}</span>
       </div>
-      <div style={{ fontSize: 12, color: '#667085', marginTop: 6, marginLeft: 22, lineHeight: 1.5 }}>{hint}</div>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 6, marginLeft: 22, lineHeight: 1.5 }}>{hint}</div>
     </button>
   );
 }
 
 export function InfoBanner({ children, tone = 'brand' }: { children: ReactNode; tone?: 'brand' | 'warning' | 'danger' }) {
   const map = {
-    brand: { bg: '#F9FAFB', border: '#E5E7EB', fg: '#667085', icon: '#176B5B' },
+    brand: { bg: '#F9FAFB', border: 'var(--color-border)', fg: '#667085', icon: 'var(--color-brand)' },
     warning: { bg: '#FEF3E2', border: '#FDE68A', fg: '#C77A16', icon: '#C77A16' },
     danger: { bg: '#FEECEC', border: '#FECACA', fg: '#C73A3A', icon: '#C73A3A' },
   }[tone];
@@ -169,7 +169,7 @@ export function InfoBanner({ children, tone = 'brand' }: { children: ReactNode; 
       display: 'flex',
       gap: 10,
       alignItems: 'flex-start',
-      fontSize: 13,
+      fontSize: 'var(--fs-13)',
       color: map.fg,
       lineHeight: 1.6,
     }}>
@@ -206,11 +206,11 @@ export function ChipSelect({
             style={{
               padding: '4px 10px',
               borderRadius: 999,
-              fontSize: 12,
+              fontSize: 'var(--fs-12)',
               fontWeight: 500,
-              border: on ? '1px solid #176B5B' : '1px solid #E5E7EB',
-              background: on ? '#E8F4F1' : '#fff',
-              color: on ? '#176B5B' : '#374151',
+              border: on ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
+              background: on ? 'var(--color-brand-subtle)' : '#fff',
+              color: on ? 'var(--color-brand)' : '#374151',
               cursor: disabled ? 'not-allowed' : 'pointer',
             }}
           >
@@ -246,7 +246,7 @@ export function PreviewBanner({
       gap: 12,
       zIndex: 30,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', fontWeight: 600 }}>
         <Eye size={15} />
         预览模式（只读）· 以「{roleName}」查看
         <span style={{ fontWeight: 400, opacity: 0.9 }}>

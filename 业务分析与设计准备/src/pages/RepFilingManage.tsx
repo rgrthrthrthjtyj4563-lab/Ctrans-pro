@@ -563,7 +563,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <InfoBanner>本模块仅演示药厂内部操作：备案专员完成国家平台操作后，在此登记备案号与回执；不连接国家平台接口。当前操作人 {actor.name}（{actor.id}）。</InfoBanner>
         {isCompliance && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 12, color: '#374151' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 12, color: '#374151' }}>
             <input type="checkbox" checked={asReviewer2} onChange={(e) => setAsReviewer2(e.target.checked)} />
             以复核人身份确认（{ACTORS.compliance2.id} {ACTORS.compliance2.name}）
           </label>
@@ -582,10 +582,10 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
           onChange={(id, val) => setFilters((p) => ({ ...p, [id]: val }))}
           onSearch={() => { setApplied(filters); setPage(1); }}
           onReset={() => { setFilters({}); setApplied({}); setPage(1); }}
-          stats={<span style={{ fontSize: 13, color: '#667085' }}>共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 名代表</span>}
+          stats={<span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 名代表</span>}
         />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
               <thead>
@@ -605,24 +605,24 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                     <tr key={r.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{r.name}</div>
-                        <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{r.id}</div>
+                        <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{r.id}</div>
                       </td>
-                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: '#667085' }}>
+                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)', color: '#667085' }}>
                         {canSeeFullId ? r.idNo : maskIdNo(r.idNo)}
                       </td>
                       <td style={tdStyle}>
                         <div>{r.employmentType}</div>
-                        <div style={{ fontSize: 12, color: '#9CA3AF' }}>{r.providerId ? r.provider : r.mah}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{r.providerId ? r.provider : r.mah}</div>
                       </td>
                       <td style={tdStyle}><StatusTag status={r.status as never} /></td>
                       <td style={tdStyle}>
-                        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, marginBottom: 4 }}>{r.filingNo || '待取得'}</div>
+                        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)', marginBottom: 4 }}>{r.filingNo || '待取得'}</div>
                         <StatusTag status={r.filingStatus as never} size="sm" />
                       </td>
-                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{r.trainingValidUntil || '—'}</td>
+                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{r.trainingValidUntil || '—'}</td>
                       <td style={tdStyle}><StatusTag status={auth} size="sm" /></td>
                       <td style={tdStyle}>
-                        <span style={{ color: join ? '#248A5A' : '#C73A3A', fontWeight: 600, fontSize: 12 }}>{join ? '是 · 限授权范围' : '否'}</span>
+                        <span style={{ color: join ? '#248A5A' : '#C73A3A', fontWeight: 600, fontSize: 'var(--fs-12)' }}>{join ? '是 · 限授权范围' : '否'}</span>
                       </td>
                       <td style={tdStyle}>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -691,14 +691,14 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <StatusTag status={current.status as never} />
                   <StatusTag status={current.filingStatus as never} />
-                  <span style={{ fontSize: 12, color: '#9CA3AF' }}>{current.id} · {current.mahId} · 发起人 {current.initiatorName}（{current.initiatorId}）</span>
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{current.id} · {current.mahId} · 发起人 {current.initiatorName}（{current.initiatorId}）</span>
                 </div>
-                <div style={{ fontSize: 13, color: '#667085' }}>
+                <div style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>
                   {current.employmentType} · {current.provider} · 备案号 {current.filingNo || '待取得'} · <StatusTag status={authorizationIndicator(current, today())} size="sm" />
                 </div>
               </div>
               <div style={{
-                padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, height: 'fit-content',
+                padding: '8px 12px', borderRadius: 8, fontSize: 'var(--fs-12)', fontWeight: 600, height: 'fit-content',
                 background: canRepJoinActivity(current) ? '#E6F5ED' : '#FEECEC',
                 color: canRepJoinActivity(current) ? '#248A5A' : '#C73A3A',
               }}>
@@ -779,12 +779,12 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                       <tr><td colSpan={7} style={{ ...tdStyle, color: '#9CA3AF' }}>暂无历史备案记录</td></tr>
                     ) : current.verifications.map((v) => (
                       <tr key={v.id}>
-                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{v.taskNo}</td>
+                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{v.taskNo}</td>
                         <td style={tdStyle}>{v.queryKey}</td>
                         <td style={tdStyle}><StatusTag status={v.result as never} /></td>
                         <td style={tdStyle}>{v.method}</td>
                         <td style={tdStyle}>{v.verifier}</td>
-                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{v.verifiedAt}</td>
+                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{v.verifiedAt}</td>
                         <td style={tdStyle}>{v.evidence}</td>
                       </tr>
                     ))}
@@ -819,12 +819,12 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                       <tr><td colSpan={8} style={{ ...tdStyle, color: '#9CA3AF' }}>暂无授权。合格代表在授权通过前不能启用。</td></tr>
                     ) : [...current.authorizations].sort((a, b) => a.authNo.localeCompare(b.authNo) || b.version - a.version).map((a) => (
                       <tr key={a.id} style={{ opacity: a.superseded ? 0.55 : 1 }}>
-                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{a.authNo}</td>
+                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{a.authNo}</td>
                         <td style={tdStyle}>V{a.version}{a.superseded ? ' · 历史' : ''}</td>
                         <td style={tdStyle}>{a.mahId}</td>
                         <td style={tdStyle}>{a.products.join('、')}</td>
                         <td style={tdStyle}>{a.regions.join('、')}</td>
-                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{a.startDate} ~ {a.endDate}</td>
+                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{a.startDate} ~ {a.endDate}</td>
                         <td style={tdStyle}><StatusTag status={a.approvalStatus as never} /></td>
                         <td style={tdStyle}>
                           {canApprove && a.approvalStatus === '待审' && (
@@ -865,12 +865,12 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                     <tbody>
                       {current.incidents.map((i) => (
                         <tr key={i.id}>
-                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{i.incidentNo}</td>
+                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{i.incidentNo}</td>
                           <td style={tdStyle}>{i.source}</td>
                           <td style={tdStyle}>{i.type}</td>
                           <td style={tdStyle}><StatusTag status={(i.risk === '高' ? '高风险' : i.risk === '中' ? '中风险' : '低风险') as never} /></td>
-                          <td style={{ ...tdStyle, fontSize: 12 }}>{[i.relatedRepId, i.relatedVendorId, i.relatedProjectId].filter(Boolean).join(' / ') || '—'}</td>
-                          <td style={{ ...tdStyle, fontSize: 12 }}>{i.initialMeasure} · {i.dueDate || '—'}</td>
+                          <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{[i.relatedRepId, i.relatedVendorId, i.relatedProjectId].filter(Boolean).join(' / ') || '—'}</td>
+                          <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{i.initialMeasure} · {i.dueDate || '—'}</td>
                           <td style={tdStyle}>{i.status}</td>
                         </tr>
                       ))}
@@ -893,7 +893,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                     <tbody>
                       {currentActs.map((a) => (
                         <tr key={a.id}>
-                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{a.id}</td>
+                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{a.id}</td>
                           <td style={tdStyle}>{a.name}</td>
                           <td style={tdStyle}>{a.startDate}</td>
                           <td style={tdStyle}><StatusTag status={a.status as never} /></td>
@@ -910,13 +910,13 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                 {current.timeline.map((e, idx) => (
                   <div key={e.id} style={{ display: 'flex', gap: 12, paddingBottom: 14, position: 'relative' }}>
                     {idx < current.timeline.length - 1 && <div style={{ position: 'absolute', left: 7, top: 16, bottom: 0, width: 2, background: '#E5E7EB' }} />}
-                    <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#E8F4F1', border: '2px solid #176B5B', flexShrink: 0, zIndex: 1 }} />
+                    <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--color-brand-subtle)', border: '2px solid var(--color-brand)', flexShrink: 0, zIndex: 1 }} />
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{e.action} · {e.id}</div>
-                      <div style={{ fontSize: 12, color: '#9CA3AF' }}>{e.operator}（{e.operatorId || '—'}） · {e.role} · {e.time}</div>
-                      {(e.before || e.after) && <div style={{ fontSize: 12, color: '#667085' }}>{e.before || '—'} → {e.after || '—'}</div>}
-                      {e.approvalId && <div style={{ fontSize: 12, color: '#667085' }}>审批单 {e.approvalId}</div>}
-                      {e.comment && <div style={{ marginTop: 6, fontSize: 13, background: '#F9FAFB', padding: '8px 10px', borderRadius: 6 }}>{e.comment}</div>}
+                      <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600 }}>{e.action} · {e.id}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{e.operator}（{e.operatorId || '—'}） · {e.role} · {e.time}</div>
+                      {(e.before || e.after) && <div style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>{e.before || '—'} → {e.after || '—'}</div>}
+                      {e.approvalId && <div style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>审批单 {e.approvalId}</div>}
+                      {e.comment && <div style={{ marginTop: 6, fontSize: 'var(--fs-13)', background: '#F9FAFB', padding: '8px 10px', borderRadius: 6 }}>{e.comment}</div>}
                     </div>
                   </div>
                 ))}
@@ -940,7 +940,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
         </>
       }>
         <Stepper steps={['基本信息与雇佣', '学历培训承诺', '合同/授权资料']} current={formStep} />
-        {formError && <div style={{ color: '#C73A3A', fontSize: 13, marginBottom: 12 }}>{formError}</div>}
+        {formError && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)', marginBottom: 12 }}>{formError}</div>}
         {formStep === 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="姓名" required><input value={form.name} onChange={(e) => setF('name', e.target.value)} style={inputStyle} /></Field>
@@ -1026,7 +1026,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
                   <button key={v} type="button" onClick={() => {
                     const products = on ? authForm.products.filter((x) => x !== v) : [...authForm.products, v];
                     setAuthForm((f) => ({ ...f, products, therapyAreas: [...new Set(products.map((p) => PRODUCT_THERAPY[p]).filter(Boolean))] }));
-                  }} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${on ? '#176B5B' : '#E5E7EB'}`, background: on ? '#E8F4F1' : '#fff', color: on ? '#176B5B' : '#374151', fontSize: 12, cursor: 'pointer' }}>{v}</button>
+                  }} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${on ? 'var(--color-brand)' : '#E5E7EB'}`, background: on ? 'var(--color-brand-subtle)' : '#fff', color: on ? 'var(--color-brand)' : '#374151', fontSize: 'var(--fs-12)', cursor: 'pointer' }}>{v}</button>
                 );
               })}
             </div>
@@ -1038,7 +1038,7 @@ export function RepFilingManage({ addToast, currentRole }: Props) {
               {REGION_OPTIONS.map((r) => {
                 const on = authForm.regions.includes(r);
                 return (
-                  <button key={r} type="button" onClick={() => setAuthForm((f) => ({ ...f, regions: on ? f.regions.filter((x) => x !== r) : [...f.regions, r] }))} style={{ padding: '4px 8px', borderRadius: 4, border: `1px solid ${on ? '#176B5B' : '#E5E7EB'}`, background: on ? '#E8F4F1' : '#fff', color: on ? '#176B5B' : '#374151', fontSize: 12, cursor: 'pointer' }}>{r}</button>
+                  <button key={r} type="button" onClick={() => setAuthForm((f) => ({ ...f, regions: on ? f.regions.filter((x) => x !== r) : [...f.regions, r] }))} style={{ padding: '4px 8px', borderRadius: 4, border: `1px solid ${on ? 'var(--color-brand)' : '#E5E7EB'}`, background: on ? 'var(--color-brand-subtle)' : '#fff', color: on ? 'var(--color-brand)' : '#374151', fontSize: 'var(--fs-12)', cursor: 'pointer' }}>{r}</button>
                 );
               })}
             </div>

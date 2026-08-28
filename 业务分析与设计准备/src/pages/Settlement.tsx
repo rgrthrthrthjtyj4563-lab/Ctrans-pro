@@ -17,11 +17,11 @@ interface Props {
 
 const PAGE_SIZE = 10;
 const th: React.CSSProperties = {
-  padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 600,
-  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', whiteSpace: 'nowrap',
+  padding: '10px 12px', textAlign: 'left', fontSize: 'var(--fs-12)', fontWeight: 600,
+  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
 const td: React.CSSProperties = {
-  padding: '12px', fontSize: 13, color: '#1F2937', borderBottom: '1px solid #F3F4F6', verticalAlign: 'top',
+  padding: '12px', fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', borderBottom: '1px solid #F3F4F6', verticalAlign: 'top',
 };
 
 interface BillRow {
@@ -101,17 +101,17 @@ export function Settlement({ currentRole, navigate }: Props) {
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-          <div style={{ flex: 1, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '14px 20px', minWidth: 180 }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>结算单</div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>{rows.length} <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 400 }}>张</span></div>
+          <div style={{ flex: 1, background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: '14px 20px', minWidth: 180 }}>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>结算单</div>
+            <div style={{ fontSize: 'var(--fs-20)', fontWeight: 700 }}>{rows.length} <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontWeight: 400 }}>张</span></div>
           </div>
-          <div style={{ flex: 1, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '14px 20px', minWidth: 180 }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>已确认结算金额</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#176B5B', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(confirmedTotal)}</div>
+          <div style={{ flex: 1, background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: '14px 20px', minWidth: 180 }}>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>已确认结算金额</div>
+            <div style={{ fontSize: 'var(--fs-20)', fontWeight: 700, color: 'var(--color-brand)', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(confirmedTotal)}</div>
           </div>
-          <div style={{ flex: 1, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '14px 20px', minWidth: 180 }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>对账中金额</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#2F6BCE', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(pendingTotal)}</div>
+          <div style={{ flex: 1, background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: '14px 20px', minWidth: 180 }}>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>对账中金额</div>
+            <div style={{ fontSize: 'var(--fs-20)', fontWeight: 700, color: '#2F6BCE', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(pendingTotal)}</div>
           </div>
         </div>
 
@@ -128,7 +128,7 @@ export function Settlement({ currentRole, navigate }: Props) {
           onReset={() => { setFilters({}); setApplied({}); setPage(1); }}
         />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'auto', marginBottom: 20 }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto', marginBottom: 20 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
             <thead>
               <tr>
@@ -146,11 +146,11 @@ export function Settlement({ currentRole, navigate }: Props) {
                   <td style={td}>
                     <button
                       onClick={() => navigate('task-dispatch', { taskId: task.id })}
-                      style={{ color: '#176B5B', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: 0, textDecoration: 'underline' }}
+                      style={{ color: 'var(--color-brand)', border: 'none', background: 'none', cursor: 'pointer', fontSize: 'var(--fs-13)', padding: 0, textDecoration: 'underline' }}
                     >
                       {task.taskNo}
                     </button>
-                    <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{task.taskName}</div>
+                    <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{task.taskName}</div>
                   </td>
                   <td style={td}>{formatCoverage([...new Set(bill.lines.map((l) => l.variety))])}</td>
                   <td style={td}>{formatCoverage([...new Set(bill.lines.map((l) => l.region))])}</td>
@@ -160,7 +160,7 @@ export function Settlement({ currentRole, navigate }: Props) {
                   <td style={td}><StatusTag status={bill.confirmed ? '已结算' : '对账中'} size="sm" /></td>
                   <td style={{ ...td, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{formatCNY(bill.finalAmount)}</td>
                   <td style={td}>{bill.confirmedAt ?? '—'}</td>
-                  <td style={{ ...td, fontSize: 12, color: bill.paymentVoucher ? '#176B5B' : '#9CA3AF' }}>{bill.paymentVoucher ?? '未上传'}</td>
+                  <td style={{ ...td, fontSize: 'var(--fs-12)', color: bill.paymentVoucher ? 'var(--color-brand)' : '#9CA3AF' }}>{bill.paymentVoucher ?? '未上传'}</td>
                 </tr>
               ))}
             </tbody>
@@ -168,10 +168,10 @@ export function Settlement({ currentRole, navigate }: Props) {
         </div>
         <Pagination page={page} pageSize={PAGE_SIZE} total={rows.length} onChange={setPage} />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'auto' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E7EB', fontSize: 13, fontWeight: 650 }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', fontSize: 'var(--fs-13)', fontWeight: 650 }}>
             服务专员维度统计
-            <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 400, marginLeft: 8 }}>由任务执行明细（工作量分配 × 已确认结算单）汇总生成</span>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontWeight: 400, marginLeft: 8 }}>由任务执行明细（工作量分配 × 已确认结算单）汇总生成</span>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>

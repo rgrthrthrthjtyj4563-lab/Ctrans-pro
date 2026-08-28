@@ -13,8 +13,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const styles: Record<Variant, { bg: string; color: string; border: string; hoverBg: string }> = {
-  primary:   { bg: '#176B5B', color: '#fff',     border: '#176B5B', hoverBg: '#0f5044' },
-  secondary: { bg: '#F3F4F6', color: '#374151',  border: '#E5E7EB', hoverBg: '#E5E7EB' },
+  primary:   { bg: 'var(--color-brand)', color: '#fff',     border: 'var(--color-brand)', hoverBg: 'var(--color-brand-hover)' },
+  secondary: { bg: '#F3F4F6', color: '#374151',  border: 'var(--color-border)', hoverBg: '#E5E7EB' },
   ghost:     { bg: 'transparent', color: '#374151', border: 'transparent', hoverBg: '#F3F4F6' },
   danger:    { bg: '#C73A3A', color: '#fff',     border: '#C73A3A', hoverBg: '#a82d2d' },
   outline:   { bg: 'transparent', color: '#374151', border: '#D1D5DB', hoverBg: '#F9FAFB' },
@@ -22,9 +22,9 @@ const styles: Record<Variant, { bg: string; color: string; border: string; hover
 };
 
 const sizes: Record<Size, { padding: string; fontSize: string; height: string; iconSize: number }> = {
-  sm: { padding: '0 10px', fontSize: '12px', height: '28px', iconSize: 14 },
-  md: { padding: '0 14px', fontSize: '13px', height: '32px', iconSize: 15 },
-  lg: { padding: '0 18px', fontSize: '14px', height: '38px', iconSize: 16 },
+  sm: { padding: '0 10px', fontSize: 'var(--fs-12)', height: '28px', iconSize: 14 },
+  md: { padding: '0 14px', fontSize: 'var(--fs-13)', height: '32px', iconSize: 15 },
+  lg: { padding: '0 18px', fontSize: 'var(--fs-14)', height: '38px', iconSize: 16 },
 };
 
 export function Button({ variant = 'secondary', size = 'md', icon, iconAfter, loading, children, disabled, ...props }: ButtonProps) {
@@ -94,7 +94,7 @@ export function IconButton({ variant = 'ghost', size = 'md', icon, disabled, tit
         justifyContent: 'center',
         width: dim,
         height: dim,
-        fontSize: '13px',
+        fontSize: 'var(--fs-13)',
         color: s.color,
         background: s.bg,
         border: `1px solid ${s.border}`,

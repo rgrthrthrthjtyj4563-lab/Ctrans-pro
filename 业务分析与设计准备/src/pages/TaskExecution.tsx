@@ -15,7 +15,6 @@ import {
   formatCNY,
   formatCoverage,
   hasPromoItems,
-  hasReportItems,
   progressCountOf,
   remainingOfTask,
   settleableMonths,
@@ -42,10 +41,10 @@ import {
   validateSettlementPeriods,
   varietyPriceBook,
 } from '../domain/taskV4';
-import { workGroups, specialists, providers } from '../data/mockData';
+import { workGroups, workGroupMembers, SERVICE_DAILY_CAPACITY, providers } from '../data/mockData';
 import type {
   NavFocus, NavigateFn, PriceAdjustLog, Role, RoundingLog, ServiceItem, SettlementLine,
-  SettlementPeriod, Task, WorkgroupSplit, WorkloadAssign, WorkloadProgress,
+  SettlementPeriod, Task, WorkgroupSplit, WorkloadAssign,
 } from '../types';
 import { SETTLEMENT_DECLARATION_TEXT, SETTLEMENT_DECLARATION_VERSION } from '../types';
 import type { ToastMessage } from '../components/Toast';
@@ -60,15 +59,15 @@ interface Props {
 const PAGE_SIZE = 10;
 const MEMORY_KEY = 'by-create-task-memory';
 const inputStyle: React.CSSProperties = {
-  width: '100%', height: 36, padding: '0 10px', fontSize: 13,
-  border: '1px solid #E5E7EB', borderRadius: 6, outline: 'none', fontFamily: 'inherit',
+  width: '100%', height: 36, padding: '0 10px', fontSize: 'var(--fs-13)',
+  border: '1px solid var(--color-border)', borderRadius: 6, outline: 'none', fontFamily: 'inherit',
 };
 const th: React.CSSProperties = {
-  padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 600,
-  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', whiteSpace: 'nowrap',
+  padding: '10px 12px', textAlign: 'left', fontSize: 'var(--fs-12)', fontWeight: 600,
+  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
 const td: React.CSSProperties = {
-  padding: '12px', fontSize: 13, color: '#1F2937', borderBottom: '1px solid #F3F4F6', verticalAlign: 'top',
+  padding: '12px', fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', borderBottom: '1px solid #F3F4F6', verticalAlign: 'top',
 };
 
 export type DetailTab = 'plan' | 'exec' | 'settle' | 'log' | 'report';
@@ -117,7 +116,7 @@ export function TaskExecution({ addToast, currentRole, navFocus, navigate }: Pro
   const ctx = useTaskData();
   const {
     tasks, varieties,
-    revokeTask, confirmTask, unconfirmProvider, splitToWorkgroup, assignWorkload,
+    revokeTask, confirmTask, unconfirmProvider, splitToWorkgroup,
     uploadReport, reviewReport, startSettlement, confirmSettlement,
     completeSettlement, uploadPaymentVoucher,
     rollbackStartSettlement, rollbackConfirmSettlement, rollbackCompleteSettlement,
@@ -143,7 +142,6 @@ export function TaskExecution({ addToast, currentRole, navFocus, navigate }: Pro
   const [rollbackConfirmTarget, setRollbackConfirmTarget] = useState<Task | null>(null);
   const [rollbackCompleteTarget, setRollbackCompleteTarget] = useState<Task | null>(null);
   const [splitTask, setSplitTask] = useState<Task | null>(null);
-  const [assignTask, setAssignTask] = useState<Task | null>(null);
   const [settleTask, setSettleTask] = useState<Task | null>(null);
   const [confirmBillTask, setConfirmBillTask] = useState<Task | null>(null);
   const [historyTask, setHistoryTask] = useState<Task | null>(null);
@@ -181,16 +179,14 @@ export function TaskExecution({ addToast, currentRole, navFocus, navigate }: Pro
     setTab(nextTab);
   }
 
-  /** 当前角色的下一步动作（列表只放一个按钮，其余进详情） */
+  /** 操作栏：服务商按执行阶段给出多个并列动作，其余角色保留单一主动作 */
   function renderNextAction(t: Task) {
-    const settleable = settleableMonths(t);
+    const detailBtn = (
+      <Button variant="ghost" size="sm" icon={<Eye size={13} />} onClick={() => openDetail(t)}>查看详情</Button>
+    );
     if (t.taskStatus === '待确认') {
       if (isProvider) {
-        return <Button variant="primary" size="sm" onClick={() => {
-          const r = confirmTask(t.id);
-          if (r.ok) addToast({ type: 'success', title: '任务已确认', description: `${t.taskNo} 进入执行中，计划与价目表快照已锁定` });
-          else addToast({ type: 'error', title: '无法确认', description: r.error });
-        }}>确认任务</Button>;
+        return <Button variant="primary" size="sm" onClick={() => openDetail(t, 'plan')}>确认任务</Button>;
       }
       if (isSales) {
         return <Button variant="outline" size="sm" onClick={() => setRevokeTarget(t)}>撤销任务</Button>;
@@ -212,20 +208,36 @@ export function TaskExecution({ addToast, currentRole, navFocus, navigate }: Pro
       return <Button variant="outline" size="sm" onClick={() => setRollbackCompleteTarget(t)}>回退结算完结</Button>;
     }
     if (t.taskStatus === '执行中' && isProvider) {
-      if (hasPromoItems(t) && t.workgroupSplits.length === 0) {
-        return <Button variant="primary" size="sm" onClick={() => { setSplitTask(t); openDetail(t, 'exec'); }}>拆分任务包</Button>;
+      const actions: React.ReactNode[] = [];
+      if (hasPromoItems(t)) {
+        if (t.workgroupSplits.length === 0) {
+          actions.push(
+            <Button key="split" variant="primary" size="sm" onClick={() => setSplitTask(t)}>拆分任务包</Button>,
+          );
+        } else {
+          // 金额允许分批拆：只要还有剩余可拆金额，就保留继续拆分入口
+          const remainingSplit = t.planAmount - t.workgroupSplits.reduce((s, x) => s + x.amount, 0);
+          if (remainingSplit > 0) {
+            actions.push(
+              <Button key="split-more" variant="outline" size="sm" onClick={() => setSplitTask(t)}>继续拆分</Button>,
+            );
+          }
+          actions.push(
+            <Button key="upload" variant="primary" size="sm" onClick={() => setReportUploadTask(t)}>上传任务成果</Button>,
+          );
+          actions.push(
+            <Button key="settle" variant="outline" size="sm" onClick={() => setSettleTask(t)}>发起结算</Button>,
+          );
+        }
+      } else {
+        actions.push(
+          <Button key="upload" variant="primary" size="sm" onClick={() => setReportUploadTask(t)}>上传任务成果</Button>,
+        );
       }
-      if (hasPromoItems(t) && t.workloadAssigns.length === 0) {
-        return <Button variant="primary" size="sm" onClick={() => { setAssignTask(t); openDetail(t, 'exec'); }}>分配工作量</Button>;
-      }
-      if (settleable.length > 0) {
-        return <Button variant="primary" size="sm" onClick={() => { setSettleTask(t); openDetail(t, 'settle'); }}>发起结算</Button>;
-      }
-      if (hasReportItems(t) && t.reports.length === 0) {
-        return <Button variant="primary" size="sm" onClick={() => { setReportUploadTask(t); openDetail(t, 'report'); }}>上传报告</Button>;
-      }
+      actions.push(detailBtn);
+      return <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{actions}</div>;
     }
-    return <Button variant="ghost" size="sm" icon={<Eye size={13} />} onClick={() => openDetail(t)}>查看</Button>;
+    return detailBtn;
   }
 
   return (
@@ -253,32 +265,29 @@ export function TaskExecution({ addToast, currentRole, navFocus, navigate }: Pro
           onReset={() => { setFilters({}); setApplied({}); setPage(1); }}
         />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'auto' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1380 }}>
             <thead>
               <tr>
-                {['药厂名称', '服务提供商名称', '所属品种', '推广金额', '推广时段', '预算金额', '已结算金额', '剩余可结算金额', '任务状态', '对账状态', '操作'].map((h) => (
+                {['药厂名称', '服务提供商名称', '所属品种', '推广金额', '推广时段', '已结算金额', '剩余可结算金额', '任务状态', '对账状态', '操作'].map((h) => (
                   <th key={h} style={th}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {pageData.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState title="暂无任务" description="药厂销售部门可创建任务；服务商确认后进入执行。" /></td></tr>
+                <tr><td colSpan={10}><EmptyState title="暂无任务" description="药厂销售部门可创建任务；服务商确认后进入执行。" /></td></tr>
               ) : pageData.map((t) => {
                 const focused = highlightId === t.id;
                 const prog = progressCountOf(t);
                 const display = displayStatusOf(t);
                 return (
-                  <tr key={t.id} style={{ background: focused ? '#E8F4F1' : undefined }}>
+                  <tr key={t.id} style={{ background: focused ? 'var(--color-brand-subtle)' : undefined }}>
                     <td style={td}>{DEMO_HOLDER}</td>
                     <td style={td}>{t.provider}</td>
                     <td style={td}>{formatCoverage(t.varieties)}</td>
                     <td style={{ ...td, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{formatCNY(t.planAmount)}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>{t.startDate} ~ {t.endDate}</td>
-                    <td style={{ ...td, fontFamily: "'JetBrains Mono', monospace" }}>
-                      {t.recommendedConfigured ? formatCNY(t.recommendedAmount) : '未配置预算'}
-                    </td>
                     <td style={{ ...td, fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(t.settledAmount)}</td>
                     <td style={{ ...td, fontFamily: "'JetBrains Mono', monospace" }}>
                       {t.remainingVoided ? `${formatCNY(0)}（已作废）` : formatCNY(remainingOfTask(t))}
@@ -309,43 +318,27 @@ export function TaskExecution({ addToast, currentRole, navFocus, navigate }: Pro
         onTab={setTab}
         onClose={() => setDetail(null)}
         isSales={isSales}
-        isProvider={isProvider}
-        isCompliance={isCompliance}
-        navigate={navigate}
-        onSplit={() => detail && setSplitTask(detail)}
-        onAssign={() => detail && setAssignTask(detail)}
-        onSettle={() => detail && setSettleTask(detail)}
-        onConfirmBill={() => detail && setConfirmBillTask(detail)}
         onReview={() => detail && setReviewTask(detail)}
-        onUploadReport={() => detail && setReportUploadTask(detail)}
-        onHistory={() => detail && setHistoryTask(detail)}
-        onVoucher={() => detail && setVoucherTask(detail)}
-        onComplete={() => detail && setCompleteTarget(detail)}
-        onUnconfirm={() => detail && setUnconfirmTarget(detail)}
-        onRollbackStart={() => detail && setRollbackStartTarget(detail)}
-        onRollbackConfirm={() => detail && setRollbackConfirmTarget(detail)}
-        onRollbackComplete={() => detail && setRollbackCompleteTarget(detail)}
+        onConfirmBill={() => detail && setConfirmBillTask(detail)}
+        onConfirmTask={isProvider && detail?.taskStatus === '待确认' ? () => {
+          if (!detail) return;
+          const r = confirmTask(detail.id);
+          if (r.ok) {
+            addToast({ type: 'success', title: '任务已确认', description: `${detail.taskNo} 进入执行中，计划与价目表快照已锁定` });
+            setDetail(null);
+          } else addToast({ type: 'error', title: '无法确认', description: r.error });
+        } : undefined}
       />
 
       <SplitModal
         task={live(splitTask)}
+        addToast={addToast}
         onClose={() => setSplitTask(null)}
         onSave={(splits) => {
           if (!splitTask) return;
           const r = splitToWorkgroup(splitTask.id, splits);
           if (!r.ok) addToast({ type: 'error', title: '拆解失败', description: r.error });
           else { addToast({ type: 'success', title: '已拆分到工作组' }); setSplitTask(null); }
-        }}
-      />
-
-      <AssignModal
-        task={live(assignTask)}
-        onClose={() => setAssignTask(null)}
-        onSave={(rows) => {
-          if (!assignTask) return;
-          const r = assignWorkload(assignTask.id, rows);
-          if (!r.ok) addToast({ type: 'error', title: '分配失败', description: r.error });
-          else { addToast({ type: 'success', title: '已分配工作量到服务专员' }); setAssignTask(null); }
         }}
       />
 
@@ -527,7 +520,7 @@ export function TaskExecution({ addToast, currentRole, navFocus, navigate }: Pro
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>
-      <div style={{ fontSize: 12, color: '#667085', marginBottom: 6, fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6, fontWeight: 500 }}>{label}</div>
       {children}
     </label>
   );
@@ -553,7 +546,7 @@ function ChipSelect({
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
       {options.length === 0 ? (
-        <span style={{ fontSize: 12, color: '#9CA3AF' }}>{placeholder || '无可选项'}</span>
+        <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{placeholder || '无可选项'}</span>
       ) : options.map((opt) => {
         const on = value.includes(opt);
         return (
@@ -562,10 +555,10 @@ function ChipSelect({
             type="button"
             onClick={() => onChange(on ? value.filter((x) => x !== opt) : [...value, opt])}
             style={{
-              padding: '4px 10px', borderRadius: 16, fontSize: 12, cursor: 'pointer',
-              border: on ? '1px solid #176B5B' : '1px solid #E5E7EB',
-              background: on ? '#E8F4F1' : '#fff',
-              color: on ? '#176B5B' : '#344054',
+              padding: '4px 10px', borderRadius: 16, fontSize: 'var(--fs-12)', cursor: 'pointer',
+              border: on ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
+              background: on ? 'var(--color-brand-subtle)' : '#fff',
+              color: on ? 'var(--color-brand)' : '#344054',
             }}
           >
             {opt}
@@ -902,22 +895,37 @@ function CreateTaskModal({
       onClose={onClose}
       width={980}
       footer={
-        <>
-          <Button variant="outline" onClick={onClose}>取消</Button>
-          {step > 0 && <Button variant="outline" onClick={() => { setError(''); setStep((s) => s - 1); }}>上一步</Button>}
-          {step < CREATE_STEPS.length - 1
-            ? <Button variant="primary" onClick={goNext}>下一步：任务详情</Button>
-            : <Button variant="primary" onClick={submit}>创建任务</Button>}
-        </>
+        <div style={{ width: 'calc(100% + 40px)', margin: '-12px -20px', flexShrink: 0 }}>
+          {step === 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, padding: '10px 20px', background: '#F9FAFB', borderBottom: '1px solid var(--color-border)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', fontSize: 'var(--fs-12)', color: 'var(--color-text-2)' }}>
+                <span>市场推广服务 <strong style={{ marginLeft: 4, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#344054' }}>{formatCNY(sectionAmounts.promo)}</strong></span>
+                <span style={{ color: 'var(--color-text-3)' }}>+</span>
+                <span>分析报告服务 <strong style={{ marginLeft: 4, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#344054' }}>{formatCNY(sectionAmounts.analysis)}</strong></span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexShrink: 0 }}>
+                <span style={{ fontSize: 'var(--fs-12)', color: 'var(--color-text-2)' }}>任务合计金额</span>
+                <strong style={{ fontSize: 'var(--fs-18)', fontFamily: "'JetBrains Mono', monospace", color: 'var(--color-warning-fg)' }}>{formatCNY(totalAmount)}</strong>
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', padding: '12px 20px' }}>
+            <Button variant="outline" onClick={onClose}>取消</Button>
+            {step > 0 && <Button variant="outline" onClick={() => { setError(''); setStep((s) => s - 1); }}>上一步</Button>}
+            {step < CREATE_STEPS.length - 1
+              ? <Button variant="primary" onClick={goNext}>下一步：任务详情</Button>
+              : <Button variant="primary" onClick={submit}>创建任务</Button>}
+          </div>
+        </div>
       }
     >
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
         {CREATE_STEPS.map((label, i) => (
           <div key={label} style={{
-            padding: '4px 8px', borderRadius: 12, fontSize: 11, fontWeight: i === step ? 700 : 500,
-            background: i === step ? '#E8F4F1' : i < step ? '#F3F4F6' : '#fff',
-            color: i === step ? '#176B5B' : '#667085',
-            border: i === step ? '1px solid #176B5B' : '1px solid #E5E7EB',
+            padding: '4px 8px', borderRadius: 12, fontSize: 'var(--fs-11)', fontWeight: i === step ? 700 : 500,
+            background: i === step ? 'var(--color-brand-subtle)' : i < step ? '#F3F4F6' : '#fff',
+            color: i === step ? 'var(--color-brand)' : '#667085',
+            border: i === step ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
           }}>
             {i + 1}. {label}
           </div>
@@ -946,7 +954,7 @@ function CreateTaskModal({
             <Field label="所属品种（可多选，同一价目表）">
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minHeight: 36, alignItems: 'center' }}>
                 {varietyOpts.length === 0 ? (
-                  <span style={{ fontSize: 12, color: '#9CA3AF' }}>{provider ? '该服务商暂无授权品种' : '请先选择服务提供商'}</span>
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{provider ? '该服务商暂无授权品种' : '请先选择服务提供商'}</span>
                 ) : varietyOpts.map((name) => {
                   const variety = varieties.find((item) => item.tradeName === name);
                   const book = varietyPriceBook(variety, priceBooks);
@@ -962,10 +970,10 @@ function CreateTaskModal({
                       disabled={disabled && !selected}
                       onClick={() => toggleVariety(name)}
                       style={{
-                        padding: '4px 9px', borderRadius: 14, fontSize: 12,
-                        border: selected ? '1px solid #176B5B' : '1px solid #E5E7EB',
-                        background: selected ? '#E8F4F1' : '#fff',
-                        color: disabled && !selected ? '#98A2B3' : selected ? '#176B5B' : '#344054',
+                        padding: '4px 9px', borderRadius: 14, fontSize: 'var(--fs-12)',
+                        border: selected ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
+                        background: selected ? 'var(--color-brand-subtle)' : '#fff',
+                        color: disabled && !selected ? '#98A2B3' : selected ? 'var(--color-brand)' : '#344054',
                         cursor: disabled && !selected ? 'not-allowed' : 'pointer',
                       }}
                     >
@@ -983,7 +991,7 @@ function CreateTaskModal({
               </div>
             </Field>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-13)', marginTop: 10 }}>
             <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
             记住选项（下次创建自动带出服务商、品种与推广时间）
           </label>
@@ -1025,7 +1033,7 @@ function CreateTaskModal({
                   <td style={td}>{vn}</td>
                   {pickedRegions.map((rg) => {
                     const ok = auths.some((a) => a.provider === provider && a.varietyName === vn && (a.regions.includes('全国') || a.regions.includes(rg)));
-                    return <td key={rg} style={{ ...td, color: ok ? '#176B5B' : '#C73A3A' }}>{ok ? '已授权' : '未授权'}</td>;
+                    return <td key={rg} style={{ ...td, color: ok ? 'var(--color-brand)' : '#C73A3A' }}>{ok ? '已授权' : '未授权'}</td>;
                   })}
                 </tr>
               ))}
@@ -1041,7 +1049,7 @@ function CreateTaskModal({
             <Info label="计划总金额" value={formatCNY(planTotal)} />
             <Info label="差额（计划 − 推荐）" value={rec.configured ? formatCNY(budgetDiff) : '—'} />
           </div>
-          <div style={{ fontSize: 12, color: '#667085', marginTop: 10 }}>{rec.detail}</div>
+          <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 10 }}>{rec.detail}</div>
           {rec.configured && budgetDiff > 0 && (
             <Banner color="warning">计划总金额高于预算推荐，仅提示，允许创建。</Banner>
           )}
@@ -1072,7 +1080,7 @@ function CreateTaskModal({
               />
             </Section>
           )))}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: 14, fontWeight: 700 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: 'var(--fs-14)', fontWeight: 700 }}>
             预算推荐 {rec.configured ? formatCNY(rec.amount) : '未配置'} · 计划总金额 {formatCNY(planTotal)} · 差额 {rec.configured ? formatCNY(budgetDiff) : '—'}
           </div>
         </div>
@@ -1080,7 +1088,7 @@ function CreateTaskModal({
 
       {step === 5 && (
         <Section title="药厂预设结算周期">
-          <div style={{ fontSize: 12, color: '#667085', marginBottom: 10 }}>
+          <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 10 }}>
             必须连续覆盖整个推广期（{startDate} ~ {endDate}），不得重叠、不得空档。服务商只能针对这些周期发起结算。
           </div>
           {periods.map((p, i) => (
@@ -1136,7 +1144,7 @@ function TaskDetailsEditor({
           </Field>
           <Info label="预算推荐金额" value={recommendedAmount == null ? '未配置预算' : formatCNY(recommendedAmount)} />
         </div>
-        <div style={{ marginTop: 10, fontSize: 12, color: '#667085' }}>
+        <div style={{ marginTop: 10, fontSize: 'var(--fs-12)', color: '#667085' }}>
           标准价目表：{priceBookName}。系统按价目表比例自动分配金额并换算数量；金额无法整除时按最近档位取整。
         </div>
       </Section>
@@ -1154,7 +1162,7 @@ function TaskDetailsEditor({
         return (
           <Section key={group.key} title={group.title}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: 16, marginBottom: 12 }}>
-              <div style={{ color: '#667085', fontSize: 12 }}>可按分项总金额二次调整，系统将按本服务组的价目比例重新换算数量与明细金额。</div>
+              <div style={{ color: '#667085', fontSize: 'var(--fs-12)' }}>可按分项总金额二次调整，系统将按本服务组的价目比例重新换算数量与明细金额。</div>
               <Field label="分项总金额（￥）">
                 <input
                   type="number"
@@ -1189,11 +1197,6 @@ function TaskDetailsEditor({
         );
       })}
 
-      <div style={{ position: 'sticky', bottom: 0, zIndex: 2, display: 'grid', gridTemplateColumns: '1fr 1fr 1.25fr', gap: 1, background: '#DCE5EF', border: '1px solid #DCE5EF', borderRadius: 8, overflow: 'hidden', boxShadow: '0 -8px 20px rgba(16, 24, 40, 0.08)' }}>
-        <div style={{ background: '#F8FAFC', padding: '12px 16px' }}><div style={{ fontSize: 12, color: '#667085' }}>市场推广服务分项金额</div><strong style={{ display: 'block', marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(sectionAmounts.promo)}</strong></div>
-        <div style={{ background: '#F8FAFC', padding: '12px 16px' }}><div style={{ fontSize: 12, color: '#667085' }}>分析报告服务分项金额</div><strong style={{ display: 'block', marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(sectionAmounts.analysis)}</strong></div>
-        <div style={{ background: '#176B5B', color: '#fff', padding: '12px 16px', textAlign: 'right' }}><div style={{ fontSize: 12, opacity: 0.78 }}>任务合计金额</div><strong style={{ display: 'block', marginTop: 4, fontSize: 18, fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(totalAmount)}</strong></div>
-      </div>
     </div>
   );
 }
@@ -1217,7 +1220,7 @@ function ItemEditorTable({
         const sum = items.reduce((s, x) => s + x.d.amount, 0);
         return (
           <div key={g.title} style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 650, color: '#667085', margin: '8px 0' }}>{g.title}</div>
+            <div style={{ fontSize: 'var(--fs-12)', fontWeight: 650, color: '#667085', margin: '8px 0' }}>{g.title}</div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>{['服务项目', '建议单价', '单价', '数量', '金额', '调整原因'].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
@@ -1290,31 +1293,16 @@ function stepStateOf(task: Task): { steps: { label: string; owner: string; statu
 }
 
 export function TaskDetailModal({
-  task, tab, onTab, onClose, isSales, isProvider, isCompliance, navigate,
-  onSplit, onAssign, onSettle, onConfirmBill, onReview, onUploadReport, onHistory, onVoucher, onComplete,
-  onUnconfirm, onRollbackStart, onRollbackConfirm, onRollbackComplete,
+  task, tab, onTab, onClose, isSales, onReview, onConfirmBill, onConfirmTask,
 }: {
   task: Task | null;
   tab: DetailTab;
   onTab: (t: DetailTab) => void;
   onClose: () => void;
   isSales: boolean;
-  isProvider: boolean;
-  isCompliance: boolean;
-  navigate: NavigateFn;
-  onSplit: () => void;
-  onAssign: () => void;
-  onSettle: () => void;
-  onConfirmBill: () => void;
   onReview: () => void;
-  onUploadReport: () => void;
-  onHistory: () => void;
-  onVoucher: () => void;
-  onComplete: () => void;
-  onUnconfirm?: () => void;
-  onRollbackStart?: () => void;
-  onRollbackConfirm?: () => void;
-  onRollbackComplete?: () => void;
+  onConfirmBill: () => void;
+  onConfirmTask?: () => void;
 }) {
   if (!task) return null;
   return (
@@ -1326,6 +1314,7 @@ export function TaskDetailModal({
       isSales={isSales}
       onReview={onReview}
       onConfirmBill={onConfirmBill}
+      onConfirmTask={onConfirmTask}
     />
   );
 }
@@ -1337,8 +1326,8 @@ function CompactValue({ items, limit = 1 }: { items: string[]; limit?: number })
   return (
     <div>
       <span>{visible.join('、') || '—'}</span>
-      {more > 0 && <button type="button" onClick={() => setOpen((value) => !value)} style={{ marginLeft: 6, border: 'none', background: '#EBF2FE', color: '#2F6BCE', borderRadius: 10, padding: '1px 7px', cursor: 'pointer', fontSize: 11 }}>+{more}</button>}
-      {open && <div style={{ marginTop: 7, padding: '8px 10px', borderRadius: 6, background: '#F9FAFB', color: '#475467', fontSize: 12, lineHeight: 1.7 }}>{items.join('、')}</div>}
+      {more > 0 && <button type="button" onClick={() => setOpen((value) => !value)} style={{ marginLeft: 6, border: 'none', background: '#EBF2FE', color: '#2F6BCE', borderRadius: 10, padding: '1px 7px', cursor: 'pointer', fontSize: 'var(--fs-11)' }}>+{more}</button>}
+      {open && <div style={{ marginTop: 7, padding: '8px 10px', borderRadius: 6, background: '#F9FAFB', color: '#475467', fontSize: 'var(--fs-12)', lineHeight: 1.7 }}>{items.join('、')}</div>}
     </div>
   );
 }
@@ -1353,7 +1342,7 @@ function DetailStatus({ label }: { label: string }) {
 }
 
 function TaskDetailV5({
-  task, tab, onTab, onClose, isSales, onReview, onConfirmBill,
+  task, tab, onTab, onClose, isSales, onReview, onConfirmBill, onConfirmTask,
 }: {
   task: Task;
   tab: DetailTab;
@@ -1362,17 +1351,29 @@ function TaskDetailV5({
   isSales: boolean;
   onReview: () => void;
   onConfirmBill: () => void;
+  onConfirmTask?: () => void;
 }) {
-  const [allocationSplitId, setAllocationSplitId] = useState<string | null>(null);
+  const [allocationWorkGroup, setAllocationWorkGroup] = useState<string | null>(null);
+  const [expandedWg, setExpandedWg] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   const [selectedBill, setSelectedBill] = useState<string | null>(null);
   const remain = remainingOfTask(task);
   const pendingReports = 3;
-  const baseSplits = task.workgroupSplits.length ? task.workgroupSplits : [
-    { id: `${task.id}-demo-1`, workGroup: '陕西一组', variety: task.varieties[0] ?? '阿托伐他汀钙片（20mg）', region: task.regions[0] ?? '陕西省', amount: Math.round(task.planAmount * 0.42), startDate: task.startDate, endDate: task.endDate },
-    { id: `${task.id}-demo-2`, workGroup: '陕西二组', variety: task.varieties[1] ?? task.varieties[0] ?? '阿托伐他汀钙片（20mg）', region: task.regions[1] ?? task.regions[0] ?? '陕西省', amount: Math.round(task.planAmount * 0.33), startDate: task.startDate, endDate: task.endDate },
-    { id: `${task.id}-demo-3`, workGroup: '区域支持组', variety: task.varieties[0] ?? '阿托伐他汀钙片（20mg）', region: task.regions[0] ?? '陕西省', amount: Math.max(0, task.planAmount - Math.round(task.planAmount * 0.75)), startDate: task.startDate, endDate: task.endDate },
-  ];
+  const baseSplits = task.workgroupSplits.length ? task.workgroupSplits : (() => {
+    // demo 兜底：按任务计划明细重造新结构拆分（工作组 × 品种 × 地区 × 业务）
+    const demoGroups = ['工作组一', '工作组二', '工作组三'];
+    return task.serviceItems.map((item, index) => ({
+      id: `${task.id}-demo-${index + 1}`,
+      workGroup: demoGroups[index % demoGroups.length],
+      variety: item.variety,
+      region: item.region,
+      category: item.category,
+      itemName: item.name,
+      unitPrice: item.unitPrice,
+      qty: item.qty,
+      amount: item.amount,
+    }));
+  })();
   const periods = task.settlementPeriods.length ? task.settlementPeriods : [{ id: `${task.id}-period-1`, name: '2026年8月', startDate: task.startDate, endDate: task.endDate }];
   const reportRows = [
     ...task.reports.map((report, index) => ({ id: report.id, name: report.name, variety: task.varieties[index % Math.max(1, task.varieties.length)] ?? '—', region: task.regions[index % Math.max(1, task.regions.length)] ?? '—', submitter: report.uploadedBy, time: report.uploadedAt, status: report.status === '通过' ? '审核通过' : report.status === '驳回' ? '已退回' : '待审核', opinion: report.comment || '资料完整性待核验' })),
@@ -1404,8 +1405,14 @@ function TaskDetailV5({
       { id: `${split.id}-work-4`, specialist: '赵敏', itemName: '药房拜访', category: '市场推广服务', workload: 80, amount: Math.round(split.amount * 0.25), done: 80, progress: '已完成', completedAt: '2026-08-19 18:00' },
     ];
   };
-  const allocationSplit = baseSplits.find((split) => split.id === allocationSplitId) ?? null;
+  const allocationSplit = baseSplits.find((split) => split.workGroup === allocationWorkGroup) ?? null;
   const allocationRows = allocationSplit ? splitWorkloads(allocationSplit) : [];
+  const execGroups = baseSplits.reduce<{ workGroup: string; splits: WorkgroupSplit[]; amount: number; varieties: string[]; regions: string[] }[]>((acc, s) => {
+    const g = acc.find((x) => x.workGroup === s.workGroup);
+    if (g) { g.splits.push(s); g.amount += s.amount; }
+    else acc.push({ workGroup: s.workGroup, splits: [s], amount: s.amount, varieties: [s.variety], regions: [s.region] });
+    return acc;
+  }, []).map((g) => ({ ...g, varieties: [...new Set(g.splits.map((s) => s.variety))], regions: [...new Set(g.splits.map((s) => s.region))] }));
   const displayBills = periods.flatMap((period, index) => {
     const real = task.settlements.filter((bill) => bill.settlementPeriodId === period.id).map((bill) => ({ id: bill.id, no: bill.billNo, period: period.name, amount: bill.finalAmount, status: bill.voided ? '已驳回' : bill.confirmed ? '待开票' : '对账中', invoice: bill.confirmed ? '待开票' : '—', payment: bill.paymentVoucher ? '已完成' : '待付款', createdAt: bill.madeAt, lines: bill.lines }));
     if (real.length) return real;
@@ -1449,11 +1456,25 @@ function TaskDetailV5({
       title={allocationSplit ? '个人分配任务明细' : `任务详情 · ${task.taskNo}`}
       onClose={onClose}
       width={1180}
-      footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><Button variant="outline" onClick={onClose}>关闭</Button></div>}
+      footer={(
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {onConfirmTask && task.taskStatus === '待确认' && (
+            <span style={{ marginRight: 'auto', fontSize: 'var(--fs-12)', color: '#667085' }}>确认后任务进入执行中，任务计划与价目表快照将锁定</span>
+          )}
+          {onConfirmTask && task.taskStatus === '待确认' ? (
+            <>
+              <Button variant="outline" onClick={onClose}>取消</Button>
+              <Button variant="primary" onClick={onConfirmTask}>确认任务</Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={onClose}>关闭</Button>
+          )}
+        </div>
+      )}
     >
-      {allocationSplit ? <PersonalAllocationDetail split={allocationSplit} task={task} rows={allocationRows} onBack={() => setAllocationSplitId(null)} /> : <>
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #E5E7EB', marginBottom: 16 }}>
-        {tabs.map((item) => <button key={item.id} type="button" onClick={() => onTab(item.id)} style={{ position: 'relative', padding: '10px 15px', border: 'none', borderBottom: tab === item.id ? '2px solid #176B5B' : '2px solid transparent', background: 'none', color: tab === item.id ? '#176B5B' : '#667085', fontWeight: tab === item.id ? 650 : 500, cursor: 'pointer' }}>{item.label}{item.badge ? <span style={{ marginLeft: 5, minWidth: 17, height: 17, lineHeight: '17px', display: 'inline-block', borderRadius: 9, background: '#FEECEC', color: '#C73A3A', fontSize: 11 }}>{item.badge}</span> : null}</button>)}
+      {allocationSplit ? <PersonalAllocationDetail split={allocationSplit} task={task} rows={allocationRows} onBack={() => setAllocationWorkGroup(null)} /> : <>
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--color-border)', marginBottom: 16 }}>
+        {tabs.map((item) => <button key={item.id} type="button" onClick={() => onTab(item.id)} style={{ position: 'relative', padding: '10px 15px', border: 'none', borderBottom: tab === item.id ? '2px solid var(--color-brand)' : '2px solid transparent', background: 'none', color: tab === item.id ? 'var(--color-brand)' : '#667085', fontWeight: tab === item.id ? 650 : 500, cursor: 'pointer' }}>{item.label}{item.badge ? <span style={{ marginLeft: 5, minWidth: 17, height: 17, lineHeight: '17px', display: 'inline-block', borderRadius: 9, background: '#FEECEC', color: '#C73A3A', fontSize: 'var(--fs-11)' }}>{item.badge}</span> : null}</button>)}
       </div>
 
       {tab === 'plan' && <>
@@ -1461,8 +1482,8 @@ function TaskDetailV5({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
             <Info label="任务编号" value={task.taskNo} /><Info label="品种" value={<CompactValue items={task.varieties} />} /><Info label="服务提供方" value={task.provider} />
             <Info label="服务地区" value={<CompactValue items={task.regions} limit={2} />} /><Info label="推广时间" value={`${task.startDate} ~ ${task.endDate}`} /><Info label="任务状态" value={<DetailStatus label={taskStatusLabel(task)} />} />
-            <Info label="对账状态" value={<DetailStatus label={reconStatusLabel(task)} />} /><Info label="预算金额" value={<strong style={{ fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(task.planAmount)}</strong>} /><Info label="已结算金额" value={<strong style={{ fontFamily: "'JetBrains Mono', monospace", color: '#176B5B' }}>{formatCNY(task.settledAmount)}</strong>} />
-            <Info label="剩余可结算金额" value={<strong style={{ fontFamily: "'JetBrains Mono', monospace", color: remain > 0 ? '#2F6BCE' : '#176B5B' }}>{formatCNY(remain)}</strong>} /><Info label="创建人 / 创建时间" value={`${task.createdBy} · ${task.createdAt}`} /><Info label="金额关系" value="剩余 = 预算 − 已结算" />
+            <Info label="对账状态" value={<DetailStatus label={reconStatusLabel(task)} />} /><Info label="预算金额" value={<strong style={{ fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(task.planAmount)}</strong>} /><Info label="已结算金额" value={<strong style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--color-brand)' }}>{formatCNY(task.settledAmount)}</strong>} />
+            <Info label="剩余可结算金额" value={<strong style={{ fontFamily: "'JetBrains Mono', monospace", color: remain > 0 ? '#2F6BCE' : 'var(--color-brand)' }}>{formatCNY(remain)}</strong>} /><Info label="创建人 / 创建时间" value={`${task.createdBy} · ${task.createdAt}`} /><Info label="金额关系" value="剩余 = 预算 − 已结算" />
           </div>
         </Section>
         <div style={{ height: 12 }} />
@@ -1476,11 +1497,16 @@ function TaskDetailV5({
         ))}
       </>}
 
-      {tab === 'exec' && <Section title="任务拆解" subtitle="拆解记录">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['工作组', '品种', '推广金额', '区域', '操作'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>
-          {baseSplits.map((split) => {
-            return <tr key={split.id}><td style={td}>{split.workGroup}</td><td style={td}><CompactValue items={[split.variety]} /></td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{formatCNY(split.amount)}</td><td style={td}><CompactValue items={[split.region]} /></td><td style={td}><Button variant="soft" size="sm" onClick={() => setAllocationSplitId(split.id)}>个人分配任务明细</Button></td></tr>;
+      {tab === 'exec' && <Section title="任务拆解" subtitle="按工作组聚合展示拆解记录">
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['工作组', '品种', '地区', '金额合计', '操作'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>
+          {execGroups.map((group) => {
+            const open = expandedWg === group.workGroup;
+            return <Fragment key={group.workGroup}>
+              <tr><td style={td}><strong>{group.workGroup}</strong><div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3', marginTop: 2 }}>{group.splits.length} 条业务明细</div></td><td style={td}><CompactValue items={group.varieties} /></td><td style={td}><CompactValue items={group.regions} /></td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{formatCNY(group.amount)}</td><td style={td}><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}><Button variant="ghost" size="sm" onClick={() => setExpandedWg(open ? null : group.workGroup)}>{open ? '收起明细' : '展开明细'}</Button><Button variant="soft" size="sm" onClick={() => setAllocationWorkGroup(group.workGroup)}>个人分配任务明细</Button></div></td></tr>
+              {open && <tr><td colSpan={5} style={{ padding: 0 }}><div style={{ padding: '12px 16px 16px', background: '#F8FAFC', borderTop: '1px solid var(--color-border)' }}><div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 8 }}>{group.workGroup} 业务明细</div><table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}><thead><tr>{['品种', '地区', '服务项目', '单价', '次数', '分项金额'].map((heading) => <th key={heading} style={heading === '单价' || heading === '次数' || heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>{group.splits.map((s) => <tr key={s.id}><td style={td}>{s.variety}</td><td style={td}>{s.region}</td><td style={td}>{s.itemName}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(s.unitPrice)}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{s.qty}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{formatCNY(s.amount)}</td></tr>)}</tbody></table></div></td></tr>}
+            </Fragment>;
           })}
+          {!execGroups.length && <tr><td colSpan={5} style={td}>尚未拆分任务包</td></tr>}
         </tbody></table>
       </Section>}
 
@@ -1489,7 +1515,7 @@ function TaskDetailV5({
       </Section>}
 
       {tab === 'settle' && <Section title="结算周期与结算单" subtitle="点击结算周期，在当前页面查看该周期对应结算单">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['结算周期', '周期状态', '应结算金额', '已结算金额', '待结算金额', '对账状态', '结算单数量', '操作'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>{periods.map((period, index) => { const bills = displayBills.filter((bill) => bill.period === period.name); const due = Math.round(task.planAmount / periods.length); const settled = bills.filter((bill) => ['已确认', '待开票', '待付款', '已完成'].includes(bill.status)).reduce((sum, bill) => sum + bill.amount, 0); const active = selectedPeriod === period.id; const chosen = bills.find((bill) => bill.id === selectedBill); return <Fragment key={period.id}><tr><td style={td}>{period.name}<div style={{ fontSize: 11, color: '#98A2B3', marginTop: 2 }}>{period.startDate} ~ {period.endDate}</div></td><td style={td}><DetailStatus label={settled >= due ? '已完成' : index === 0 ? '对账中' : '待对账'} /></td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(due)}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(Math.min(due, settled))}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(Math.max(0, due - settled))}</td><td style={td}><DetailStatus label={index === 0 ? '对账中' : settled ? '已对账' : '待对账'} /></td><td style={td}>{bills.length}</td><td style={td}><Button variant="ghost" size="sm" onClick={() => { setSelectedPeriod(active ? null : period.id); if (active) setSelectedBill(null); }}>{active ? '收起结算单' : '查看结算单'}</Button></td></tr>{active && <tr><td colSpan={8} style={{ padding: 0 }}><div style={{ padding: '12px 16px 16px', background: '#F8FAFC', borderTop: '1px solid #E5E7EB' }}><div style={{ fontSize: 12, color: '#667085', marginBottom: 8 }}>当前查看：{period.name} 下的结算单</div><table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}><thead><tr>{['结算单编号', '服务提供方', '结算金额', '对账状态', '开票状态', '付款状态', '创建时间', '操作'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>{bills.map((bill) => <tr key={bill.id} style={{ background: selectedBill === bill.id ? '#F0F9F7' : undefined }}><td style={td}><strong>{bill.no}</strong></td><td style={td}>{task.provider}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{formatCNY(bill.amount)}</td><td style={td}><DetailStatus label={bill.status} /></td><td style={td}><DetailStatus label={bill.invoice} /></td><td style={td}><DetailStatus label={bill.payment} /></td><td style={td}>{bill.createdAt}</td><td style={td}><Button variant="ghost" size="sm" onClick={() => setSelectedBill(selectedBill === bill.id ? null : bill.id)}>{selectedBill === bill.id ? '收起单据' : '查看单据'}</Button></td></tr>)}</tbody></table>{chosen && <SettlementReceipt task={task} bill={chosen} isSales={isSales} onConfirm={onConfirmBill} />}</div></td></tr>}</Fragment>; })}</tbody></table>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['结算周期', '周期状态', '应结算金额', '已结算金额', '待结算金额', '对账状态', '结算单数量', '操作'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>{periods.map((period, index) => { const bills = displayBills.filter((bill) => bill.period === period.name); const due = Math.round(task.planAmount / periods.length); const settled = bills.filter((bill) => ['已确认', '待开票', '待付款', '已完成'].includes(bill.status)).reduce((sum, bill) => sum + bill.amount, 0); const active = selectedPeriod === period.id; const chosen = bills.find((bill) => bill.id === selectedBill); return <Fragment key={period.id}><tr><td style={td}>{period.name}<div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3', marginTop: 2 }}>{period.startDate} ~ {period.endDate}</div></td><td style={td}><DetailStatus label={settled >= due ? '已完成' : index === 0 ? '对账中' : '待对账'} /></td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(due)}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(Math.min(due, settled))}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(Math.max(0, due - settled))}</td><td style={td}><DetailStatus label={index === 0 ? '对账中' : settled ? '已对账' : '待对账'} /></td><td style={td}>{bills.length}</td><td style={td}><Button variant="ghost" size="sm" onClick={() => { setSelectedPeriod(active ? null : period.id); if (active) setSelectedBill(null); }}>{active ? '收起结算单' : '查看结算单'}</Button></td></tr>{active && <tr><td colSpan={8} style={{ padding: 0 }}><div style={{ padding: '12px 16px 16px', background: '#F8FAFC', borderTop: '1px solid var(--color-border)' }}><div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 8 }}>当前查看：{period.name} 下的结算单</div><table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}><thead><tr>{['结算单编号', '服务提供方', '结算金额', '对账状态', '开票状态', '付款状态', '创建时间', '操作'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>{bills.map((bill) => <tr key={bill.id} style={{ background: selectedBill === bill.id ? '#F0F9F7' : undefined }}><td style={td}><strong>{bill.no}</strong></td><td style={td}>{task.provider}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{formatCNY(bill.amount)}</td><td style={td}><DetailStatus label={bill.status} /></td><td style={td}><DetailStatus label={bill.invoice} /></td><td style={td}><DetailStatus label={bill.payment} /></td><td style={td}>{bill.createdAt}</td><td style={td}><Button variant="ghost" size="sm" onClick={() => setSelectedBill(selectedBill === bill.id ? null : bill.id)}>{selectedBill === bill.id ? '收起单据' : '查看单据'}</Button></td></tr>)}</tbody></table>{chosen && <SettlementReceipt task={task} bill={chosen} isSales={isSales} onConfirm={onConfirmBill} />}</div></td></tr>}</Fragment>; })}</tbody></table>
       </Section>}
 
       {tab === 'log' && <Section title="操作记录"><table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['时间', '操作人', '角色', '动作', '说明'].map((heading) => <th key={heading} style={th}>{heading}</th>)}</tr></thead><tbody>{task.opsLogs.slice().reverse().map((log) => <tr key={log.id}><td style={td}>{log.time}</td><td style={td}>{log.operator}</td><td style={td}>{log.role}</td><td style={td}>{log.action}</td><td style={td}>{log.detail}</td></tr>)}</tbody></table></Section>}
@@ -1529,12 +1555,12 @@ function PersonalAllocationDetail({
 
   if (detailRow) return <AllocationDetailPreview row={detailRow} workGroup={split.workGroup} onBack={() => setDetailRow(null)} />;
 
-  const mergedTd: React.CSSProperties = { ...td, verticalAlign: 'middle', fontWeight: 600, color: '#176B5B' };
+  const mergedTd: React.CSSProperties = { ...td, verticalAlign: 'middle', fontWeight: 600, color: 'var(--color-brand)' };
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #E5E7EB', paddingBottom: 12, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--color-border)', paddingBottom: 12, marginBottom: 16 }}>
         <Button variant="ghost" size="sm" onClick={onBack}>← 返回任务详情</Button>
-        <span style={{ color: '#98A2B3', fontSize: 12 }}>任务拆解 / {split.workGroup} · 个人分配任务明细</span>
+        <span style={{ color: '#98A2B3', fontSize: 'var(--fs-12)' }}>任务拆解 / {split.workGroup} · 个人分配任务明细</span>
       </div>
       <Section title="个人分配任务明细" subtitle={`${rows.length} 条业务明细 · ${new Set(rows.map((row) => row.specialist)).size} 位服务专员`}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1543,9 +1569,9 @@ function PersonalAllocationDetail({
             const completed = row.done ?? (row.progress === '已完成' ? row.workload : 0);
             const amount = row.amount ?? 0;
             const completedAt = row.completedAt ?? (row.progress === '已完成' ? `${task.startDate.slice(0, 7)}-25 18:00` : '—');
-            const groupEdge = groupStart ? { borderTop: '2px solid #E5E7EB' } : {};
+            const groupEdge = groupStart ? { borderTop: '2px solid var(--color-border)' } : {};
             return <tr key={row.id}>
-              {showSpecialist && <td rowSpan={specialistSpan} style={{ ...mergedTd, ...groupEdge, background: '#F5FAF8' }}><strong>{row.specialist}</strong><div style={{ color: '#98A2B3', fontSize: 11, fontWeight: 400, marginTop: 2 }}>{specialistSpan} 条业务</div></td>}
+              {showSpecialist && <td rowSpan={specialistSpan} style={{ ...mergedTd, ...groupEdge, background: '#F5FAF8' }}><strong>{row.specialist}</strong><div style={{ color: '#98A2B3', fontSize: 'var(--fs-11)', fontWeight: 400, marginTop: 2 }}>{specialistSpan} 条业务</div></td>}
               {showCategory && <td rowSpan={categorySpan} style={{ ...td, verticalAlign: 'middle', ...groupEdge }}>{row.category ?? '市场推广服务'}</td>}
               <td style={{ ...td, ...groupEdge }}>{row.itemName}</td>
               <td style={{ ...td, ...groupEdge }}>{row.workload}</td>
@@ -1567,9 +1593,9 @@ function AllocationDetailPreview({ row, workGroup, onBack }: { row: PersonalAllo
   const completed = row.done ?? (row.progress === '已完成' ? row.workload : 0);
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #E5E7EB', paddingBottom: 12, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--color-border)', paddingBottom: 12, marginBottom: 16 }}>
         <Button variant="outline" size="sm" onClick={onBack}>← 返回个人分配明细</Button>
-        <span style={{ color: '#98A2B3', fontSize: 12 }}>任务拆解 / {workGroup} · 个人分配任务明细 / 明细详情</span>
+        <span style={{ color: '#98A2B3', fontSize: 'var(--fs-12)' }}>任务拆解 / {workGroup} · 个人分配任务明细 / 明细详情</span>
       </div>
       <Section title="明细详情" subtitle={`${row.specialist} · ${row.category ?? '市场推广服务'} · ${row.itemName}`}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
@@ -1583,9 +1609,9 @@ function AllocationDetailPreview({ row, workGroup, onBack }: { row: PersonalAllo
           <Info label="完成时间" value={row.completedAt ?? '—'} />
         </div>
         <div style={{ marginTop: 16, border: '1px dashed #B9CFC9', background: '#F5FAF8', borderRadius: 10, padding: '26px 24px', textAlign: 'center' }}>
-          <div style={{ width: 44, height: 44, margin: '0 auto 12px', borderRadius: '50%', background: '#E8F4F1', color: '#176B5B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Wrench size={20} /></div>
-          <div style={{ fontSize: 15, fontWeight: 650, color: '#1F2937' }}>逐条执行明细正在建设中</div>
-          <div style={{ fontSize: 13, color: '#667085', marginTop: 6, lineHeight: 1.7 }}>该服务项目下的拜访签到、定位轨迹、报告附件与审核轨迹将在下一迭代开放。</div>
+          <div style={{ width: 44, height: 44, margin: '0 auto 12px', borderRadius: '50%', background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Wrench size={20} /></div>
+          <div style={{ fontSize: 'var(--fs-15)', fontWeight: 650, color: 'var(--color-text-1)' }}>逐条执行明细正在建设中</div>
+          <div style={{ fontSize: 'var(--fs-13)', color: '#667085', marginTop: 6, lineHeight: 1.7 }}>该服务项目下的拜访签到、定位轨迹、报告附件与审核轨迹将在下一迭代开放。</div>
           <div style={{ display: 'inline-flex', gap: 8, marginTop: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
             {['拜访签到记录', '定位轨迹核验', '报告附件清单', '审核轨迹'].map((item) => <Tag key={item} label={item} color="brand" />)}
           </div>
@@ -1615,153 +1641,406 @@ function SettlementReceipt({ task, bill, isSales, onConfirm }: {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: '#BFE6E8', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
           {[
             ['结算单编号', bill.no], ['服务品种', task.varieties.join('、')], ['推广时段', `${task.startDate} ~ ${task.endDate}`], ['制单日', bill.createdAt], ['服务委托方', DEMO_HOLDER], ['服务提供方', task.provider],
-          ].map(([label, value]) => <div key={label} style={{ display: 'grid', gridTemplateColumns: '92px 1fr', padding: '9px 12px', background: '#E1F7F7', fontSize: 13 }}><span style={{ color: '#344054' }}>{label}：</span><span>{value}</span></div>)}
+          ].map(([label, value]) => <div key={label} style={{ display: 'grid', gridTemplateColumns: '92px 1fr', padding: '9px 12px', background: '#E1F7F7', fontSize: 'var(--fs-13)' }}><span style={{ color: '#344054' }}>{label}：</span><span>{value}</span></div>)}
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['序号', '服务类型', '服务项目', '服务金额', '实际结算金额', '备注'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>{groupedLines.flatMap(([type, lines]) => lines.map((line, index) => <tr key={line.id}><td style={td}>{index === 0 ? bill.lines.indexOf(line) + 1 : bill.lines.indexOf(line) + 1}</td><td style={td}>{index === 0 ? type : ''}</td><td style={td}>{line.serviceItem}<div style={{ color: '#98A2B3', fontSize: 11, marginTop: 2 }}>{line.variety} · {line.region}</div></td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(line.serviceAmount)}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{formatCNY(line.actualAmount)}</td><td style={td}>{line.remark || '—'}</td></tr>))}</tbody></table>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #D7E2F0', marginTop: 26, padding: '18px 28px' }}><strong>最终结算金额（大写）：{formatCNYUpper(actual)}</strong><strong style={{ fontSize: 18, fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(actual)}</strong></div>
-        <div style={{ background: '#F7F8FA', padding: '10px 12px', color: '#475467', fontSize: 12, lineHeight: 1.7 }}><strong>声明：</strong>{SETTLEMENT_DECLARATION_TEXT}</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['序号', '服务类型', '服务项目', '服务金额', '实际结算金额', '备注'].map((heading) => <th key={heading} style={heading.includes('金额') ? { ...th, textAlign: 'right' } : th}>{heading}</th>)}</tr></thead><tbody>{groupedLines.flatMap(([type, lines]) => lines.map((line, index) => <tr key={line.id}><td style={td}>{index === 0 ? bill.lines.indexOf(line) + 1 : bill.lines.indexOf(line) + 1}</td><td style={td}>{index === 0 ? type : ''}</td><td style={td}>{line.serviceItem}<div style={{ color: '#98A2B3', fontSize: 'var(--fs-11)', marginTop: 2 }}>{line.variety} · {line.region}</div></td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(line.serviceAmount)}</td><td style={{ ...td, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{formatCNY(line.actualAmount)}</td><td style={td}>{line.remark || '—'}</td></tr>))}</tbody></table>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #D7E2F0', marginTop: 26, padding: '18px 28px' }}><strong>最终结算金额（大写）：{formatCNYUpper(actual)}</strong><strong style={{ fontSize: 'var(--fs-18)', fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(actual)}</strong></div>
+        <div style={{ background: '#F7F8FA', padding: '10px 12px', color: '#475467', fontSize: 'var(--fs-12)', lineHeight: 1.7 }}><strong>声明：</strong>{SETTLEMENT_DECLARATION_TEXT}</div>
         {isSales && ['待对账', '对账中'].includes(bill.status) && <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}><Button variant="primary" onClick={onConfirm}>确认结算单</Button></div>}
       </div>
     </div>
   );
 }
 
-function SplitModal({ task, onClose, onSave }: { task: Task | null; onClose: () => void; onSave: (rows: Omit<WorkgroupSplit, 'id'>[]) => void }) {
-  const [rows, setRows] = useState<Omit<WorkgroupSplit, 'id'>[]>([]);
+type GroupDraft = { workGroup: string; varieties: string[]; regions: string[]; qty: Record<string, number>; /** 组总金额输入值（用于反推次数） */ target?: string; /** 折算说明（灰色小字提示） */ note?: string };
+
+function daysOfPeriod(start: string, end: string): number {
+  const s = new Date(`${start}T00:00:00`).getTime();
+  const e = new Date(`${end}T00:00:00`).getTime();
+  const d = Math.round((e - s) / 86400000) + 1;
+  return Number.isFinite(d) && d > 0 ? d : 1;
+}
+
+/** 日均速率整量化：≥1 向上取整为「N 单位/天」；<1 表述为「每 N 日 1 单位」，不出现小数 */
+function fmtRate(n: number, unit: string, suffix = '/天'): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 1) return `${Math.ceil(n)} ${unit}${suffix}`;
+  return `每 ${Math.ceil(1 / n)} 日 1 ${unit}`;
+}
+
+/** 人力数：保留 1 位小数，整数不带小数；不足 0.1 人按「＜0.1 人」显示 */
+function fmtPersons(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  const r = Math.round(n * 10) / 10;
+  if (r === 0) return '＜0.1 人';
+  return Number.isInteger(r) ? `${r} 人` : `${r.toFixed(1)} 人`;
+}
+
+/** 工作量测算：把分配的业务次数按推广时段折算成「需要多少名专员」，与组内实际人数对比给出人力饱和度 */
+function WorkloadForecast({ task, group, days }: { task: Task; group: GroupDraft; days: number }) {
+  const members = workGroupMembers[group.workGroup] ?? 0;
+  const rows = task.serviceItems
+    .filter((i) => group.varieties.includes(i.variety) && group.regions.includes(i.region))
+    .filter((i) => (Number(group.qty[i.id]) || 0) > 0)
+    .map((i) => {
+      const qty = Number(group.qty[i.id]) || 0;
+      const daily = qty / days;
+      const base = SERVICE_DAILY_CAPACITY[i.name];
+      const need = base ? daily / base : null;
+      return { item: i, qty, daily, base, need };
+    });
+  if (rows.length === 0) {
+    return <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 6, background: '#F9FAFB', fontSize: 'var(--fs-12)', color: '#98A2B3' }}>分配业务次数后显示工作量测算。</div>;
+  }
+  const needTotal = rows.reduce((s, r) => s + (r.need ?? 0), 0);
+  const missingBase = rows.some((r) => !r.base);
+  const saturation = members > 0 ? needTotal / members : 0;
+  const pct = Math.round(saturation * 100);
+  const level = saturation >= 1 ? 'over' : saturation >= 0.6 ? 'ok' : 'low';
+  const levelMeta = {
+    over: { color: '#C73A3A', bg: '#FEECEC' },
+    ok: { color: '#1F7A4D', bg: '#EDF9F3' },
+    low: { color: '#B45309', bg: '#FEF6E7' },
+  }[level];
+  return (
+    <div style={{ marginTop: 10, border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ padding: '9px 12px', background: '#F9FAFB', display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 'var(--fs-12)', color: '#475467' }}>
+        <strong style={{ color: 'var(--color-text-1)' }}>工作量测算</strong>
+        <span>推广时段 {days} 天（按整段自然日折算） · {group.workGroup} {members} 名专员</span>
+      </div>
+      <div style={{ padding: '10px 12px', background: levelMeta.bg }}>
+        <span style={{ fontSize: 'var(--fs-14)', fontWeight: 700, color: levelMeta.color, fontFamily: "'JetBrains Mono', monospace" }}>约需 {fmtPersons(needTotal)} · 人力饱和度 {pct}%{missingBase ? '（部分业务未配置基准，未计入）' : ''}</span>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead><tr>{['服务项目', '分配次数', '每天需完成', '需要人力', '单人日基准'].map((h) => <th key={h} style={{ ...th, borderBottom: '1px solid #F3F4F6' }}>{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.item.id}>
+              <td style={{ ...td, padding: '8px 12px' }}>{r.item.name}<span style={{ color: '#98A2B3', marginLeft: 6, fontSize: 'var(--fs-11)' }}>{r.item.variety} · {r.item.region}</span></td>
+              <td style={{ ...td, padding: '8px 12px', fontFamily: "'JetBrains Mono', monospace" }}>{r.qty} {r.item.unit}</td>
+              <td style={{ ...td, padding: '8px 12px', fontFamily: "'JetBrains Mono', monospace" }}>{fmtRate(r.daily, r.item.unit)}</td>
+              <td style={{ ...td, padding: '8px 12px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650 }}>{r.need == null ? '未配置基准' : fmtPersons(r.need)}</td>
+              <td style={{ ...td, padding: '8px 12px', color: '#667085' }}>{r.base ? fmtRate(r.base, r.item.unit, '/日') : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SplitModal({ task, onClose, onSave, addToast }: { task: Task | null; onClose: () => void; onSave: (rows: Omit<WorkgroupSplit, 'id'>[]) => void; addToast: (msg: Omit<ToastMessage, 'id'>) => void }) {
+  const [groups, setGroups] = useState<GroupDraft[]>([]);
+  const [active, setActive] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   useEffect(() => {
-    if (task) {
-      setRows(task.workgroupSplits.length
-        ? task.workgroupSplits.map(({ id: _id, ...rest }) => rest)
-        : [{ workGroup: workGroups[0], variety: task.varieties[0] ?? '', region: task.regions[0] ?? '', amount: 0, startDate: task.startDate, endDate: task.endDate }]);
-    }
+    if (!task) { setGroups([]); setActive(null); return; }
+    const byGroup = new Map<string, GroupDraft>();
+    task.workgroupSplits.forEach((s) => {
+      const g = byGroup.get(s.workGroup) ?? { workGroup: s.workGroup, varieties: [], regions: [], qty: {} };
+      if (!g.varieties.includes(s.variety)) g.varieties.push(s.variety);
+      if (!g.regions.includes(s.region)) g.regions.push(s.region);
+      const plan = task.serviceItems.find((i) => i.variety === s.variety && i.region === s.region && i.name === s.itemName && i.unitPrice === s.unitPrice);
+      if (plan) g.qty[plan.id] = (Number(g.qty[plan.id]) || 0) + s.qty;
+      byGroup.set(s.workGroup, g);
+    });
+    setGroups([...byGroup.values()]);
+    setActive(null);
   }, [task]);
   if (!task) return null;
-  const used = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const left = task.planAmount - used;
+
+  const planOf = (id: string) => task.serviceItems.find((i) => i.id === id);
+  const groupAmount = (g: GroupDraft) => Object.entries(g.qty).reduce((sum, [id, q]) => {
+    const p = planOf(id);
+    return sum + (p ? p.unitPrice * (Number(q) || 0) : 0);
+  }, 0);
+  const total = groups.reduce((s, g) => s + groupAmount(g), 0);
+  const remain = task.planAmount - total;
+  const days = daysOfPeriod(task.startDate, task.endDate);
+  const othersQty = (list: GroupDraft[], planId: string, self: string) => list.reduce(
+    (s, g) => (g.workGroup === self ? s : s + (Number(g.qty[planId]) || 0)), 0);
+  const usedByOthers = (id: string, self: string) => othersQty(groups, id, self);
+  /** 本组可分配区间：下限 = 可用业务最低单价；上限 = min(剩余次数容量金额, 计划总金额 − 其他组已拆金额) */
+  const boundsOf = (g: GroupDraft) => {
+    const caps = task.serviceItems
+      .filter((it) => g.varieties.includes(it.variety) && g.regions.includes(it.region))
+      .map((it) => ({ price: it.unitPrice, cap: it.qty - othersQty(groups, it.id, g.workGroup) }))
+      .filter((x) => x.cap > 0);
+    if (caps.length === 0) return { min: 0, max: 0, hasCapacity: false };
+    const othersTotal = groups.filter((x) => x.workGroup !== g.workGroup).reduce((s, x) => s + groupAmount(x), 0);
+    const min = Math.min(...caps.map((x) => x.price));
+    const max = Math.max(min, Math.min(caps.reduce((s, x) => s + x.cap * x.price, 0), Math.max(0, task.planAmount - othersTotal)));
+    return { min, max, hasCapacity: true };
+  };
+
+  const activeGroup = groups.find((g) => g.workGroup === active) ?? groups[0] ?? null;
+  const gi = activeGroup ? groups.indexOf(activeGroup) : -1;
+  const unassigned = groups.filter((g) => groupAmount(g) <= 0).map((g) => g.workGroup);
+  const filteredGroups = workGroups.filter((wg) => wg.includes(search.trim()));
+
+  const toggleGroup = (wg: string) => setGroups((prev) => (
+    prev.some((g) => g.workGroup === wg)
+      ? prev.filter((g) => g.workGroup !== wg)
+      : [...prev, { workGroup: wg, varieties: [...task.varieties], regions: [...task.regions], qty: {} }]
+  ));
+  const patchDims = (idx: number, part: Partial<GroupDraft>) => setGroups((prev) => prev.map((g, i) => {
+    if (i !== idx) return g;
+    const next = { ...g, ...part };
+    const qty = Object.fromEntries(Object.entries(next.qty).filter(([id]) => {
+      const p = planOf(id);
+      return p && next.varieties.includes(p.variety) && next.regions.includes(p.region);
+    }));
+    return { ...next, qty, target: '', note: '' };
+  }));
+  const setQty = (idx: number, planId: string, value: number) => setGroups((prev) => (
+    prev.map((g, i) => (i === idx ? { ...g, qty: { ...g.qty, [planId]: Math.max(0, Math.floor(value || 0)) }, target: '', note: '' } : g))
+  ));
+  /** 输入组总金额：先钳制到可分配区间，再按各业务计划金额占比反推次数（取整）；调整行为用小字说明，不再静默 */
+  const applyGroupAmount = (idx: number, input: number) => setGroups((prev) => prev.map((g, i) => {
+    if (i !== idx) return g;
+    const caps = task.serviceItems
+      .filter((it) => g.varieties.includes(it.variety) && g.regions.includes(it.region))
+      .map((it) => ({ it, cap: it.qty - othersQty(prev, it.id, g.workGroup) }))
+      .filter((x) => x.cap > 0);
+    if (caps.length === 0) return { ...g, qty: {}, target: '', note: '本组范围内各业务剩余次数已被其他组占满' };
+    const amountOf = (list: GroupDraft[]) => list.reduce((s, x) => s + Object.entries(x.qty).reduce((sum, [id, q]) => {
+      const p = planOf(id);
+      return sum + (p ? p.unitPrice * (Number(q) || 0) : 0);
+    }, 0), 0);
+    const min = Math.min(...caps.map((x) => x.it.unitPrice));
+    const othersTotal = amountOf(prev.filter((x) => x.workGroup !== g.workGroup));
+    const max = Math.max(min, Math.min(caps.reduce((s, x) => s + x.cap * x.it.unitPrice, 0), Math.max(0, task.planAmount - othersTotal)));
+    const notes: string[] = [];
+    let target = input;
+    if (input < min) {
+      notes.push(`￥${input.toLocaleString()} 不足以分配任何业务（最低单价 ${formatCNY(min)}），已按 ${formatCNY(min)} 折算`);
+      target = min;
+    } else if (input > max) {
+      notes.push(`最多还可分配 ${formatCNY(max)}，已按上限折算`);
+      target = max;
+    }
+    const planSum = caps.reduce((s, x) => s + x.it.amount, 0);
+    const qty: Record<string, number> = {};
+    let rest = target;
+    const fracs: { id: string; frac: number; cap: number; price: number }[] = [];
+    caps.forEach(({ it, cap }) => {
+      const share = planSum > 0 ? (target * it.amount) / planSum : target / caps.length;
+      const raw = share / it.unitPrice;
+      const q = Math.min(cap, Math.floor(raw));
+      if (q > 0) { qty[it.id] = q; rest -= q * it.unitPrice; }
+      fracs.push({ id: it.id, frac: raw - Math.floor(raw), cap, price: it.unitPrice });
+    });
+    fracs.sort((a, b) => b.frac - a.frac);
+    fracs.forEach((f) => {
+      const cur = qty[f.id] ?? 0;
+      if (rest >= f.price && cur < f.cap) { qty[f.id] = cur + 1; rest -= f.price; }
+    });
+    const actual = Object.entries(qty).reduce((s, [id, q]) => {
+      const p = planOf(id);
+      return s + (p ? p.unitPrice * (Number(q) || 0) : 0);
+    }, 0);
+    if (actual !== target) {
+      notes.push(`输入 ${formatCNY(target)}，次数须为整数，已按 ${formatCNY(actual)} 折算（${actual < target ? '少' : '多'} ${formatCNY(Math.abs(target - actual))}）`);
+    }
+    // 输入框始终归位为系统实际采用的金额，保证输入值与分配合计一致
+    return { ...g, qty, target: String(actual), note: notes.join('；') };
+  }));
+  const flatten = (): Omit<WorkgroupSplit, 'id'>[] => groups.flatMap((g) => Object.entries(g.qty)
+    .map(([id, q]) => ({ plan: planOf(id), qty: Number(q) || 0 }))
+    .filter((x): x is { plan: ServiceItem; qty: number } => !!x.plan && x.qty > 0)
+    .map((x) => ({
+      workGroup: g.workGroup, variety: x.plan.variety, region: x.plan.region,
+      category: x.plan.category, itemName: x.plan.name, unitPrice: x.plan.unitPrice,
+      qty: x.qty, amount: x.plan.unitPrice * x.qty,
+    })));
+
   return (
     <Modal
       open={!!task}
       title="拆分任务包到工作组"
       onClose={onClose}
-      width={880}
+      width={1240}
       footer={
-        <>
-          <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button variant="primary" onClick={() => onSave(rows)}>保存</Button>
-        </>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 18, fontSize: 'var(--fs-12)', color: '#667085', flexWrap: 'wrap' }}>
+            <span>总拆分金额 <strong style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-14)' }}>{formatCNY(total)}</strong></span>
+            <span>计划总金额 <strong style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-14)' }}>{formatCNY(task.planAmount)}</strong></span>
+            <span>剩余可拆金额 <strong style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-14)', color: remain < 0 ? '#C73A3A' : 'var(--color-brand)' }}>{formatCNY(remain)}</strong></span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="outline" onClick={onClose}>取消</Button>
+            <Button variant="primary" onClick={() => {
+              if (groups.length === 0) {
+                addToast({ type: 'warning', title: '请先选择工作组', description: '在左侧勾选需要承接任务包的工作组' });
+                return;
+              }
+              if (unassigned.length > 0) {
+                addToast({ type: 'error', title: '存在未分配的工作组', description: `请为「${unassigned.join('、')}」分配业务次数，或取消勾选` });
+                return;
+              }
+              onSave(flatten());
+            }}>保存</Button>
+          </div>
+        </div>
       }
     >
-      <Banner color="info">剩余可拆金额 {formatCNY(left)}（累计 ≤ 计划总金额 {formatCNY(task.planAmount)}）</Banner>
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 0.8fr 1fr 1fr 1fr auto', gap: 8, marginTop: 8 }}>
-          <select value={r.workGroup} onChange={(e) => setRows(patch(rows, i, { workGroup: e.target.value }))} style={inputStyle}>
-            {workGroups.map((w) => <option key={w}>{w}</option>)}
-          </select>
-          <select value={r.variety} onChange={(e) => setRows(patch(rows, i, { variety: e.target.value }))} style={inputStyle}>
-            {task.varieties.map((v) => <option key={v}>{v}</option>)}
-          </select>
-          <select value={r.region} onChange={(e) => setRows(patch(rows, i, { region: e.target.value }))} style={inputStyle}>
-            {task.regions.map((rg) => <option key={rg}>{rg}</option>)}
-          </select>
-          <input type="number" value={r.amount} onChange={(e) => setRows(patch(rows, i, { amount: Number(e.target.value) || 0 }))} style={inputStyle} placeholder="推广金额" />
-          <input type="date" value={r.startDate} onChange={(e) => setRows(patch(rows, i, { startDate: e.target.value }))} style={inputStyle} />
-          <input type="date" value={r.endDate} onChange={(e) => setRows(patch(rows, i, { endDate: e.target.value }))} style={inputStyle} />
-          <Button variant="ghost" size="sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>删</Button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '12px 16px', borderRadius: 8, marginBottom: 14, border: `1px solid ${remain < 0 ? '#FECACA' : 'var(--color-border)'}`, background: remain < 0 ? '#FEECEC' : 'var(--color-brand-subtle)' }}>
+        <div>
+          <div style={{ fontSize: 'var(--fs-12)', color: remain < 0 ? '#C73A3A' : '#667085' }}>剩余可拆金额</div>
+          <div style={{ fontSize: 'var(--fs-18)', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: remain < 0 ? '#C73A3A' : 'var(--color-brand)' }}>{formatCNY(remain)}</div>
         </div>
-      ))}
-      <div style={{ marginTop: 10 }}>
-        <Button variant="outline" size="sm" onClick={() => setRows([...rows, { workGroup: workGroups[0], variety: task.varieties[0] ?? '', region: task.regions[0] ?? '', amount: 0, startDate: task.startDate, endDate: task.endDate }])}>新增一行</Button>
+        <div style={{ fontSize: 'var(--fs-12)', color: '#667085', lineHeight: 1.9, textAlign: 'right' }}>
+          <div>计划总金额 {formatCNY(task.planAmount)} · 已拆分 {formatCNY(total)}{remain < 0 ? ' · 已超出计划总金额，请下调次数' : ''}</div>
+        </div>
       </div>
-    </Modal>
-  );
-}
 
-function AssignModal({ task, onClose, onSave }: { task: Task | null; onClose: () => void; onSave: (rows: Omit<WorkloadAssign, 'id'>[]) => void }) {
-  const [rows, setRows] = useState<Omit<WorkloadAssign, 'id'>[]>([]);
-  useEffect(() => {
-    if (task) {
-      setRows(task.workloadAssigns.length
-        ? task.workloadAssigns.map(({ id: _id, ...rest }) => rest)
-        : [{
-            workGroup: task.workgroupSplits[0]?.workGroup || workGroups[0],
-            specialist: specialists[0],
-            variety: task.workgroupSplits[0]?.variety || task.varieties[0] || '',
-            region: task.workgroupSplits[0]?.region || task.regions[0] || '',
-            category: '市场推广服务',
-            itemName: task.serviceItems.find((it) => it.category === '市场推广服务')?.name ?? '',
-            workload: 1, amount: 0, progress: '未完成',
-            serviceMonth: task.startDate.slice(0, 7),
-          }]);
-    }
-  }, [task]);
-  if (!task) return null;
-  const progressOpts: WorkloadProgress[] = ['未完成', '待审核', '已完成'];
-  const promoItems = task.serviceItems.filter((it) => it.category === '市场推广服务');
-  return (
-    <Modal
-      open={!!task}
-      title="分配工作量到服务专员"
-      onClose={onClose}
-      width={1120}
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button variant="primary" onClick={() => onSave(rows)}>保存</Button>
-        </>
-      }
-    >
-      <Banner color="info">每条任务量需填「服务月份」（执行发生的月份，结算按它归属）；「已完成」= 已审核，可被选入结算单。</Banner>
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '0.9fr 0.8fr 1.2fr 0.7fr 1.1fr 100px 70px 100px 80px auto', gap: 8, marginTop: 8, alignItems: 'center' }}>
-          <select value={r.workGroup} onChange={(e) => setRows(patch(rows, i, { workGroup: e.target.value }))} style={inputStyle}>
-            {task.workgroupSplits.map((w) => <option key={w.id}>{w.workGroup}</option>)}
-          </select>
-          <select value={r.specialist} onChange={(e) => setRows(patch(rows, i, { specialist: e.target.value }))} style={inputStyle}>
-            {specialists.map((s) => <option key={s}>{s}</option>)}
-          </select>
-          <select value={r.variety} onChange={(e) => setRows(patch(rows, i, { variety: e.target.value }))} style={inputStyle}>
-            {task.varieties.map((v) => <option key={v}>{v}</option>)}
-          </select>
-          <select value={r.region} onChange={(e) => setRows(patch(rows, i, { region: e.target.value }))} style={inputStyle}>
-            {task.regions.map((rg) => <option key={rg}>{rg}</option>)}
-          </select>
-          <select
-            value={r.itemName}
-            onChange={(e) => {
-              const item = promoItems.find((p) => p.name === e.target.value);
-              setRows(patch(rows, i, { itemName: e.target.value, category: item?.category ?? '市场推广服务' }));
-            }}
-            style={inputStyle}
-          >
-            <option value="">选服务项目</option>
-            {promoItems.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
-          </select>
-          <input type="month" value={r.serviceMonth} onChange={(e) => setRows(patch(rows, i, { serviceMonth: e.target.value }))} style={inputStyle} />
-          <input type="number" value={r.workload} onChange={(e) => setRows(patch(rows, i, { workload: Number(e.target.value) || 0 }))} style={inputStyle} placeholder="工作量" />
-          <input type="number" value={r.amount} onChange={(e) => setRows(patch(rows, i, { amount: Number(e.target.value) || 0 }))} style={inputStyle} placeholder="金额" />
-          <select value={r.progress} onChange={(e) => setRows(patch(rows, i, { progress: e.target.value as WorkloadProgress }))} style={inputStyle}>
-            {progressOpts.map((p) => <option key={p}>{p}</option>)}
-          </select>
-          <Button variant="ghost" size="sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>删</Button>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
+        <div style={{ width: 272, flexShrink: 0, border: '1px solid var(--color-border)', borderRadius: 8, display: 'flex', flexDirection: 'column', maxHeight: 480 }}>
+          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--color-border)' }}>
+            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 650, marginBottom: 8 }}>选择工作组（可多选）</div>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索工作组" style={{ ...inputStyle, height: 30 }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 'var(--fs-12)', color: '#667085' }}>
+              <span>已选 {groups.length} / {workGroups.length}</span>
+              <span style={{ display: 'flex', gap: 10 }}>
+                <button type="button" onClick={() => setGroups((prev) => {
+                  const has = new Set(prev.map((g) => g.workGroup));
+                  return [...prev, ...filteredGroups.filter((wg) => !has.has(wg)).map((wg) => ({ workGroup: wg, varieties: [...task.varieties], regions: [...task.regions], qty: {} }))];
+                })} style={{ border: 'none', background: 'none', color: 'var(--color-brand)', cursor: 'pointer', padding: 0, fontSize: 'var(--fs-12)' }}>全选</button>
+                <button type="button" onClick={() => setGroups([])} style={{ border: 'none', background: 'none', color: '#667085', cursor: 'pointer', padding: 0, fontSize: 'var(--fs-12)' }}>清空</button>
+              </span>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {filteredGroups.map((wg) => {
+              const g = groups.find((x) => x.workGroup === wg);
+              const on = !!g;
+              const amt = g ? groupAmount(g) : 0;
+              const isEmpty = on && amt <= 0;
+              const isActive = activeGroup?.workGroup === wg;
+              return (
+                <div
+                  key={wg}
+                  onClick={() => on && setActive(wg)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', cursor: on ? 'pointer' : 'default', background: isActive ? 'var(--color-brand-subtle)' : undefined, borderBottom: '1px solid #F3F4F6' }}
+                >
+                  <input
+                    type="checkbox" checked={on}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => toggleGroup(wg)}
+                    style={{ flexShrink: 0 }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 'var(--fs-13)', fontWeight: isActive ? 650 : 500, color: isEmpty ? '#C73A3A' : 'var(--color-text-1)' }}>{wg}</div>
+                    <div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>{workGroupMembers[wg] ?? 0} 位专员{on ? ` · ${formatCNY(amt)}` : ''}</div>
+                  </div>
+                  {isEmpty && <Tag label="未分配" color="danger" />}
+                </div>
+              );
+            })}
+            {filteredGroups.length === 0 && <div style={{ padding: 14, fontSize: 'var(--fs-12)', color: '#98A2B3' }}>没有匹配的工作组</div>}
+          </div>
         </div>
-      ))}
-      <div style={{ marginTop: 10 }}>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setRows([...rows, {
-            workGroup: task.workgroupSplits[0]?.workGroup || workGroups[0],
-            specialist: specialists[0],
-            variety: task.varieties[0] ?? '',
-            region: task.regions[0] ?? '',
-            category: '市场推广服务',
-            itemName: promoItems[0]?.name ?? '',
-            workload: 1, amount: 0, progress: '未完成',
-            serviceMonth: task.startDate.slice(0, 7),
-          }])}
-        >
-          新增一行
-        </Button>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {!activeGroup ? (
+            <div style={{ padding: '48px 0', textAlign: 'center', color: '#98A2B3', fontSize: 'var(--fs-13)', border: '1px dashed var(--color-border)', borderRadius: 8 }}>
+              请先在左侧勾选工作组
+            </div>
+          ) : (
+            <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 'var(--fs-14)' }}>{activeGroup.workGroup}</strong>
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>
+                    分项金额合计 <strong style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--color-brand)' }}>{formatCNY(groupAmount(activeGroup))}</strong>
+                  </span>
+                  <input
+                    type="number" min={0} value={activeGroup.target ?? ''}
+                    placeholder="输入本组总金额，自动折算次数"
+                    onChange={(e) => setGroups((prev) => prev.map((x, i) => (i === gi ? { ...x, target: e.target.value } : x)))}
+                    onBlur={(e) => {
+                      const v = Math.floor(Number(e.target.value) || 0);
+                      if (v > 0) applyGroupAmount(gi, v);
+                      else setGroups((prev) => prev.map((x, i) => (i === gi ? { ...x, target: '', note: '' } : x)));
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    style={{ ...inputStyle, width: 216, height: 30 }}
+                  />
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setGroups((prev) => prev.filter((_, i) => i !== gi))}>移除</Button>
+              </div>
+
+              {(() => {
+                const b = boundsOf(activeGroup);
+                return (
+                  <div style={{ fontSize: 'var(--fs-12)', color: activeGroup.note ? '#B45309' : '#98A2B3', marginBottom: 10, lineHeight: 1.6 }}>
+                    可分配区间：{b.hasCapacity ? `${formatCNY(b.min)} ~ ${formatCNY(b.max)}` : '无可分配容量（各业务剩余次数已被其他组占满）'}
+                    {activeGroup.note ? ` · ${activeGroup.note}` : ''}
+                  </div>
+                );
+              })()}
+
+              {groupAmount(activeGroup) <= 0 && (
+                <div style={{ marginBottom: 12 }}><Banner color="warning">已勾选「{activeGroup.workGroup}」但未分配业务次数，请分配或取消勾选。</Banner></div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginBottom: 6 }}>品种</div>
+                  <ChipSelect options={task.varieties} value={activeGroup.varieties} onChange={(v) => patchDims(gi, { varieties: v })} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginBottom: 6 }}>地区</div>
+                  <ChipSelect options={task.regions} value={activeGroup.regions} onChange={(v) => patchDims(gi, { regions: v })} />
+                </div>
+              </div>
+
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['品种', '地区', '服务项目', '单价', '计划次数', '剩余可分配', '次数', '分项金额'].map((h) => (
+                  <th key={h} style={{ ...th, textAlign: ['单价', '计划次数', '剩余可分配', '次数', '分项金额'].includes(h) ? 'right' : 'left' }}>{h}</th>
+                ))}</tr></thead>
+                <tbody>
+                  {(() => {
+                    const rows = task.serviceItems.filter((i) => activeGroup.varieties.includes(i.variety) && activeGroup.regions.includes(i.region));
+                    if (rows.length === 0) return <tr><td colSpan={8} style={{ ...td, color: '#9CA3AF' }}>请勾选品种与地区以载入业务明细</td></tr>;
+                    return (<>
+                      {rows.map((item) => {
+                        const others = usedByOthers(item.id, activeGroup.workGroup);
+                        const left = item.qty - others;
+                        const qty = Number(activeGroup.qty[item.id]) || 0;
+                        const over = qty > left;
+                        return (
+                          <tr key={item.id}>
+                            <td style={{ ...td, padding: '8px 10px', fontSize: 'var(--fs-12)' }}>{item.variety}</td>
+                            <td style={{ ...td, padding: '8px 10px', fontSize: 'var(--fs-12)' }}>{item.region}</td>
+                            <td style={{ ...td, padding: '8px 10px' }}>{item.name}</td>
+                            <td style={{ ...td, padding: '8px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: '#667085' }}>{formatCNY(item.unitPrice)}</td>
+                            <td style={{ ...td, padding: '8px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{item.qty} {item.unit}</td>
+                            <td style={{ ...td, padding: '8px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: left <= 0 ? '#C73A3A' : '#667085' }}>{left}</td>
+                            <td style={{ ...td, padding: '4px 6px', textAlign: 'right' }}>
+                              <input
+                                type="number" min={0} value={qty === 0 ? '' : qty}
+                                onChange={(e) => setQty(gi, item.id, Number(e.target.value))}
+                                style={{ ...inputStyle, height: 30, width: 78, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", borderColor: over ? '#C73A3A' : 'var(--color-border)' }}
+                              />
+                            </td>
+                            <td style={{ ...td, padding: '8px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 650, color: over ? '#C73A3A' : 'var(--color-text-1)' }}>{formatCNY(item.unitPrice * qty)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr style={{ background: '#F9FAFB' }}>
+                        <td colSpan={7} style={{ ...td, padding: '8px 10px', textAlign: 'right', color: '#667085' }}>{activeGroup.workGroup} 小计</td>
+                        <td style={{ ...td, padding: '8px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: 'var(--color-brand)' }}>{formatCNY(groupAmount(activeGroup))}</td>
+                      </tr>
+                    </>);
+                  })()}
+                </tbody>
+              </table>
+
+              <WorkloadForecast task={task} group={activeGroup} days={days} />
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   );
@@ -1800,7 +2079,7 @@ function SettleModal({ task, onClose, onSave }: { task: Task | null; onClose: ()
       }
     >
       {months.length === 0 ? (
-        <div style={{ fontSize: 13, color: '#667085' }}>当前没有已审核且未结算的任务量。请先在「执行与工作量」中把任务量标记为已完成（已审核）。</div>
+        <div style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>当前没有已审核且未结算的任务量。请先在「执行与工作量」中把任务量标记为已完成（已审核）。</div>
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: '180px 180px 1fr', gap: 12, alignItems: 'center', marginBottom: 12 }}>
@@ -1874,7 +2153,7 @@ function ConfirmBillModal({ task, onClose, onSave }: {
   if (!task || !bill) {
     return (
       <Modal open={!!task} title="确认结算单" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
-        <div style={{ fontSize: 13, color: '#667085' }}>没有待确认的结算单。</div>
+        <div style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>没有待确认的结算单。</div>
       </Modal>
     );
   }
@@ -1894,7 +2173,7 @@ function ConfirmBillModal({ task, onClose, onSave }: {
         </>
       }
     >
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 13, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 12 }}>
         <Info label="合同编号" value={bill.contractNo} />
         <Info label="结算周期" value={period ? `${period.name}（${period.startDate} ~ ${period.endDate}）` : bill.serviceMonth} />
         <Info label="服务时间" value={bill.servicePeriod} />
@@ -1909,7 +2188,7 @@ function ConfirmBillModal({ task, onClose, onSave }: {
         const out = l.actualAmount < min || l.actualAmount > max;
         return (
           <div key={l.id} style={{ display: 'grid', gridTemplateColumns: '32px 1.1fr 70px 110px 1fr 90px 90px 1.4fr', gap: 8, marginTop: 8, alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: '#9CA3AF' }}>{i + 1}</span>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{i + 1}</span>
             <input value={l.variety} readOnly style={{ ...inputStyle, background: '#F9FAFB' }} />
             <input value={l.region} readOnly style={{ ...inputStyle, background: '#F9FAFB' }} />
             <input value={l.serviceType} readOnly style={{ ...inputStyle, background: '#F9FAFB' }} />
@@ -1919,16 +2198,16 @@ function ConfirmBillModal({ task, onClose, onSave }: {
               type="number"
               value={l.actualAmount}
               onChange={(e) => setLines(patch(lines, i, { actualAmount: Number(e.target.value) || 0 }))}
-              style={{ ...inputStyle, borderColor: out ? '#C73A3A' : '#E5E7EB' }}
+              style={{ ...inputStyle, borderColor: out ? '#C73A3A' : 'var(--color-border)' }}
             />
             <input value={l.remark} onChange={(e) => setLines(patch(lines, i, { remark: e.target.value }))} style={inputStyle} placeholder="调整时必填" />
           </div>
         );
       })}
-      <div style={{ marginTop: 14, fontSize: 14, fontWeight: 600 }}>
+      <div style={{ marginTop: 14, fontSize: 'var(--fs-14)', fontWeight: 600 }}>
         申请 {formatCNY(applied)} · 调整 {formatCNY(finalAmount - applied)} · 最终 {formatCNYUpper(finalAmount)}（{formatCNY(finalAmount)}）
       </div>
-      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 14, fontSize: 13, color: '#344054' }}>
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 14, fontSize: 'var(--fs-13)', color: '#344054' }}>
         <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} style={{ marginTop: 3 }} />
         <span>
           <strong>确认声明（{SETTLEMENT_DECLARATION_VERSION}）</strong>
@@ -1944,7 +2223,7 @@ function HistoryModal({ task, onClose }: { task: Task | null; onClose: () => voi
   return (
     <Modal open={!!task} title="结算历史记录" onClose={onClose} width={780} footer={<Button variant="outline" onClick={onClose}>关闭</Button>}>
       {task.settlements.filter((b) => b.confirmed && !b.voided).map((b) => (
-        <div key={b.id} style={{ borderBottom: '1px solid #F3F4F6', padding: '10px 0', fontSize: 13 }}>
+        <div key={b.id} style={{ borderBottom: '1px solid #F3F4F6', padding: '10px 0', fontSize: 'var(--fs-13)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <strong>{b.billNo}</strong>
             <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{formatCNY(b.finalAmount)}</span>
@@ -1982,7 +2261,7 @@ function VoucherModal({ task, onClose, onSave }: { task: Task | null; onClose: (
       <Field label="凭证文件名">
         <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
       </Field>
-      <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 8 }}>原型不真正上传文件，填写名称即可演示。</div>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 8 }}>原型不真正上传文件，填写名称即可演示。</div>
     </Modal>
   );
 }
@@ -1993,7 +2272,7 @@ function ReportUploadModal({ task, onClose, onSave }: { task: Task | null; onClo
   return (
     <Modal
       open={!!task}
-      title="上传报告"
+      title="上传任务成果"
       onClose={onClose}
       width={480}
       footer={
@@ -2028,7 +2307,7 @@ function ReviewModal({ task, onClose, onSave }: { task: Task | null; onClose: ()
         </>
       }
     >
-      {!pending ? <div style={{ fontSize: 13 }}>没有待审核报告。</div> : (
+      {!pending ? <div style={{ fontSize: 'var(--fs-13)' }}>没有待审核报告。</div> : (
         <>
           <Info label="报告名称" value={pending.name} />
           <div style={{ height: 10 }} />
@@ -2043,8 +2322,8 @@ function ReviewModal({ task, onClose, onSave }: { task: Task | null; onClose: ()
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}><div style={{ fontSize: 13, fontWeight: 650, color: '#1F2937' }}>{title}</div>{subtitle && <div style={{ fontSize: 12, color: '#667085' }}>{subtitle}</div>}</div>
+    <section style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}><div style={{ fontSize: 'var(--fs-13)', fontWeight: 650, color: 'var(--color-text-1)' }}>{title}</div>{subtitle && <div style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>{subtitle}</div>}</div>
       {children}
     </section>
   );
@@ -2053,8 +2332,8 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, color: '#1F2937' }}>{value}</div>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)' }}>{value}</div>
     </div>
   );
 }
@@ -2066,7 +2345,7 @@ function Banner({ color, children }: { color: 'danger' | 'warning' | 'info'; chi
     info: { bg: '#EBF2FE', bd: '#BFDBFE', fg: '#2F6BCE' },
   }[color];
   return (
-    <div style={{ padding: '10px 12px', background: map.bg, border: `1px solid ${map.bd}`, borderRadius: 6, fontSize: 13, color: map.fg, marginBottom: 8 }}>
+    <div style={{ padding: '10px 12px', background: map.bg, border: `1px solid ${map.bd}`, borderRadius: 6, fontSize: 'var(--fs-13)', color: map.fg, marginBottom: 8 }}>
       {children}
     </div>
   );

@@ -143,8 +143,8 @@ export function UserGrantManage({ addToast }: Props) {
           onSearch={() => { setApplied(filters); setPage(1); }}
           onReset={() => { setFilters({ status: 'active' }); setApplied({ status: 'active' }); setPage(1); }}
           stats={
-            <span style={{ fontSize: 13, color: '#667085' }}>
-              共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条
+            <span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>
+              共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条
               {selected.size > 0 ? ` · 已选 ${selected.size}` : ''}
             </span>
           }
@@ -157,7 +157,7 @@ export function UserGrantManage({ addToast }: Props) {
           ) : undefined}
         />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1080 }}>
               <thead>
@@ -195,7 +195,7 @@ export function UserGrantManage({ addToast }: Props) {
                       </td>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{user?.name}</div>
-                        <div style={{ fontSize: 12, color: '#9CA3AF' }}>{user?.account}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{user?.account}</div>
                       </td>
                       <td style={tdStyle}><StatusTag status={user?.accountStatus === 'enabled' ? '启用' : '停用'} /></td>
                       <td style={tdStyle}>{role?.name}</td>
@@ -242,7 +242,7 @@ export function UserGrantManage({ addToast }: Props) {
           <InfoBanner>
             授权人不得修改自己的角色，也不得授予超出自身管理边界的角色。系统管理员、平台运营的授予需双人复核（本期以拦截演示）。
           </InfoBanner>
-          {error && <div style={{ color: '#C73A3A', fontSize: 13 }}>{error}</div>}
+          {error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{error}</div>}
           <Field label="用户" required>
             <select value={form.userId} onChange={e => setForm(f => ({ ...f, userId: e.target.value }))} style={inputStyle}>
               <option value="">选择用户</option>
@@ -320,10 +320,10 @@ export function UserGrantManage({ addToast }: Props) {
                     style={{
                       padding: '4px 10px',
                       borderRadius: 999,
-                      fontSize: 12,
-                      border: on ? '1px solid #176B5B' : '1px solid #E5E7EB',
-                      background: on ? '#E8F4F1' : '#fff',
-                      color: on ? '#176B5B' : '#374151',
+                      fontSize: 'var(--fs-12)',
+                      border: on ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
+                      background: on ? 'var(--color-brand-subtle)' : '#fff',
+                      color: on ? 'var(--color-brand)' : '#374151',
                       cursor: 'pointer',
                     }}
                   >

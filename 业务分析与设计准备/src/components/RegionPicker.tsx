@@ -68,7 +68,7 @@ export function RegionPicker({
         }}
       >
         <span>{value.length ? `${value.slice(0, 3).join('、')}${value.length > 3 ? ` 等 ${value.length} 个区域` : ''}` : '请选择省级行政区'}</span>
-        <span style={{ fontSize: 12 }}>⌄</span>
+        <span style={{ fontSize: 'var(--fs-12)' }}>⌄</span>
       </button>
 
       {value.length > 0 && (
@@ -82,12 +82,12 @@ export function RegionPicker({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 padding: '3px 8px',
                 borderRadius: 999,
                 border: '1px solid #A7F3D0',
-                background: '#E8F4F1',
-                color: '#176B5B',
+                background: 'var(--color-brand-subtle)',
+                color: 'var(--color-brand)',
                 cursor: 'pointer',
               }}
             >
@@ -110,7 +110,7 @@ export function RegionPicker({
             minWidth: 300,
             padding: 10,
             background: '#fff',
-            border: '1px solid #E5E7EB',
+            border: '1px solid var(--color-border)',
             borderRadius: 10,
             boxShadow: '0 12px 30px rgba(16,24,40,.14)',
           }}>
@@ -118,7 +118,7 @@ export function RegionPicker({
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               borderRadius: 7,
               padding: '7px 9px',
               marginBottom: 8,
@@ -129,7 +129,7 @@ export function RegionPicker({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜索省份"
-                style={{ border: 0, outline: 0, width: '100%', fontSize: 13 }}
+                style={{ border: 0, outline: 0, width: '100%', fontSize: 'var(--fs-13)' }}
               />
             </div>
 
@@ -143,7 +143,7 @@ export function RegionPicker({
                 {list.map((p) => renderOption(p, value, toggle, false))}
               </div>
               {list.length === 0 && !showNationwide && (
-                <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 12, color: '#98A2B3' }}>
+                <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 'var(--fs-12)', color: '#98A2B3' }}>
                   未找到匹配的区域
                 </div>
               )}
@@ -157,11 +157,11 @@ export function RegionPicker({
               paddingTop: 8,
               borderTop: '1px solid #F2F4F7',
             }}>
-              <span style={{ fontSize: 12, color: '#98A2B3' }}>已选 {countLabel}</span>
+              <span style={{ fontSize: 'var(--fs-12)', color: '#98A2B3' }}>已选 {countLabel}</span>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                style={{ border: 0, background: '#176B5B', color: '#fff', borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}
+                style={{ border: 0, background: 'var(--color-brand)', color: '#fff', borderRadius: 6, padding: '5px 12px', fontSize: 'var(--fs-12)', cursor: 'pointer' }}
               >
                 完成
               </button>
@@ -188,10 +188,10 @@ function renderOption(
       style={{
         padding: '7px 4px',
         borderRadius: 6,
-        border: `1px solid ${active ? '#176B5B' : '#F2F4F7'}`,
-        background: active ? '#E8F4F1' : '#fff',
-        color: active ? '#176B5B' : '#344054',
-        fontSize: 12,
+        border: `1px solid ${active ? 'var(--color-brand)' : '#F2F4F7'}`,
+        background: active ? 'var(--color-brand-subtle)' : '#fff',
+        color: active ? 'var(--color-brand)' : '#344054',
+        fontSize: 'var(--fs-12)',
         cursor: 'pointer',
         fontWeight: nationwide ? 700 : 400,
         whiteSpace: 'nowrap',

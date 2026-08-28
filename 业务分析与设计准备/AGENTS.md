@@ -34,6 +34,14 @@ This project uses **Tailwind CSS v4** through the `@tailwindcss/vite` plugin con
 
 `src/main.tsx` imports `src/index.css`, so global font wiring belongs in `src/index.css`. Keep CSS `@import` statements first, then add any `@font-face` rules and font-family defaults there.
 
+## UI Rules
+
+Before changing a page, component, or style, read `UI_RULES.md` and `../UI设计基线与首批页面说明.md`.
+
+- Reuse the existing common components and `src/index.css` tokens.
+- Do not add a page-specific font, icon library, button style, or business-status meaning.
+- Any necessary exception must be stated in the implementation notes.
+
 ## Code quality
 
 - Use double quotes for strings containing apostrophes (`"We're here to help"`), or escape them in single-quoted strings. An unescaped apostrophe in a single-quoted string breaks the build.

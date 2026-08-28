@@ -61,16 +61,16 @@ export function PermissionAudit() {
         <div style={{
           padding: '10px 16px',
           background: '#F9FAFB',
-          border: '1px solid #E5E7EB',
+          border: '1px solid var(--color-border)',
           borderRadius: 8,
           marginBottom: 16,
           display: 'flex',
           gap: 10,
           alignItems: 'center',
-          fontSize: 13,
+          fontSize: 'var(--fs-13)',
           color: '#667085',
         }}>
-          <Shield size={15} style={{ color: '#176B5B' }} />
+          <Shield size={15} style={{ color: 'var(--color-brand)' }} />
           <span>
             当前筛选 {filtered.length} 条，其中拒绝 {denied} 条。可按操作者、目标用户、角色、组织、模块、动作和结果检索。
           </span>
@@ -94,13 +94,13 @@ export function PermissionAudit() {
           onReset={() => { setFilters({}); setApplied({}); setPage(1); }}
           collapsedCount={4}
           stats={
-            <span style={{ fontSize: 13, color: '#667085' }}>
-              共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条
+            <span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>
+              共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条
             </span>
           }
         />
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1280 }}>
               <thead>
@@ -118,16 +118,16 @@ export function PermissionAudit() {
                     <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>{e.time}</td>
                     <td style={tdStyle}>
                       <div style={{ fontWeight: 500 }}>{e.actor}</div>
-                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>{e.actorRole}</div>
+                      <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF' }}>{e.actorRole}</div>
                     </td>
                     <td style={tdStyle}>{e.org}</td>
                     <td style={{ ...tdStyle, maxWidth: 180 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.target}>{e.target}</span>
                     </td>
-                    <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: '#667085' }}>{e.resource}</td>
+                    <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)', color: '#667085' }}>{e.resource}</td>
                     <td style={tdStyle}>
                       <span style={{
-                        fontSize: 12,
+                        fontSize: 'var(--fs-12)',
                         fontWeight: 600,
                         color: actionColor[e.action] || '#374151',
                         padding: '2px 8px',
@@ -144,7 +144,7 @@ export function PermissionAudit() {
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: 4,
-                        fontSize: 12,
+                        fontSize: 'var(--fs-12)',
                         fontWeight: 500,
                         color: e.decision === '允许' ? '#248A5A' : '#C73A3A',
                       }}>
@@ -153,13 +153,13 @@ export function PermissionAudit() {
                       </span>
                     </td>
                     <td style={{ ...tdStyle, color: '#667085', maxWidth: 160 }}>{e.reason || '—'}</td>
-                    <td style={{ ...tdStyle, color: '#667085', fontSize: 12 }}>
+                    <td style={{ ...tdStyle, color: '#667085', fontSize: 'var(--fs-12)' }}>
                       {e.beforeSummary || e.afterSummary
                         ? `${e.beforeSummary ? `${e.beforeSummary} → ` : ''}${e.afterSummary ?? ''}`
                         : '—'}
                     </td>
-                    <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: '#9CA3AF' }}>{e.requestId}</td>
-                    <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: '#9CA3AF' }}>{e.ip}</td>
+                    <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{e.requestId}</td>
+                    <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{e.ip}</td>
                   </tr>
                 ))}
               </tbody>
