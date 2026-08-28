@@ -38,3 +38,7 @@ Thumbs.db
 # Temp
 .tmp-*
 .claude-replay.*
+
+# Local exported demo copies
+Start Execution/
+Start Execution.zip
