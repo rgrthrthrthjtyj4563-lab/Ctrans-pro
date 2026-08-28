@@ -13,18 +13,18 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const styles: Record<Variant, { bg: string; color: string; border: string; hoverBg: string }> = {
-  primary:   { bg: 'var(--color-brand)', color: '#fff',     border: 'var(--color-brand)', hoverBg: 'var(--color-brand-hover)' },
-  secondary: { bg: '#F3F4F6', color: '#374151',  border: 'var(--color-border)', hoverBg: '#E5E7EB' },
-  ghost:     { bg: 'transparent', color: '#374151', border: 'transparent', hoverBg: '#F3F4F6' },
-  danger:    { bg: '#C73A3A', color: '#fff',     border: '#C73A3A', hoverBg: '#a82d2d' },
-  outline:   { bg: 'transparent', color: '#374151', border: '#D1D5DB', hoverBg: '#F9FAFB' },
-  soft:      { bg: '#FFFFFF', color: '#374151',  border: '#D1D5DB', hoverBg: '#F3F4F6' },
+  primary:   { bg: 'var(--color-brand)', color: '#fff', border: 'var(--color-brand)', hoverBg: 'var(--color-brand-hover)' },
+  secondary: { bg: 'var(--color-button-secondary)', color: 'var(--color-neutral-fg)', border: 'var(--color-border)', hoverBg: 'var(--color-button-secondary-hover)' },
+  ghost:     { bg: 'transparent', color: 'var(--color-neutral-fg)', border: 'transparent', hoverBg: 'var(--color-button-ghost-hover)' },
+  danger:    { bg: 'var(--color-button-danger)', color: '#fff', border: 'var(--color-button-danger)', hoverBg: 'var(--color-button-danger-hover)' },
+  outline:   { bg: 'transparent', color: 'var(--color-neutral-fg)', border: 'var(--color-border-strong)', hoverBg: 'var(--color-button-outline-hover)' },
+  soft:      { bg: 'var(--color-surface)', color: 'var(--color-neutral-fg)', border: 'var(--color-border-strong)', hoverBg: 'var(--color-button-secondary)' },
 };
 
 const sizes: Record<Size, { padding: string; fontSize: string; height: string; iconSize: number }> = {
-  sm: { padding: '0 10px', fontSize: 'var(--fs-12)', height: '28px', iconSize: 14 },
-  md: { padding: '0 14px', fontSize: 'var(--fs-13)', height: '32px', iconSize: 15 },
-  lg: { padding: '0 18px', fontSize: 'var(--fs-14)', height: '38px', iconSize: 16 },
+  sm: { padding: '0 var(--spacing-button-sm-x)', fontSize: '12px', height: 'var(--spacing-button-sm-y)', iconSize: 14 },
+  md: { padding: '0 var(--spacing-button-md-x)', fontSize: '13px', height: 'var(--spacing-button-md-y)', iconSize: 15 },
+  lg: { padding: '0 var(--spacing-button-lg-x)', fontSize: '14px', height: 'var(--spacing-button-lg-y)', iconSize: 16 },
 };
 
 export function Button({ variant = 'secondary', size = 'md', icon, iconAfter, loading, children, disabled, ...props }: ButtonProps) {
@@ -79,7 +79,7 @@ export function Button({ variant = 'secondary', size = 'md', icon, iconAfter, lo
   );
 }
 
-export function IconButton({ variant = 'ghost', size = 'md', icon, disabled, title, ...props }: Omit<ButtonProps, 'children'> & { title?: string }) {
+export function IconButton({ variant = 'ghost', size = 'md', icon, disabled, title, 'aria-label': ariaLabel, ...props }: Omit<ButtonProps, 'children'> & { title: string; 'aria-label'?: string }) {
   const s = styles[variant];
   const dim = { sm: 26, md: 30, lg: 36 }[size];
 
@@ -88,6 +88,7 @@ export function IconButton({ variant = 'ghost', size = 'md', icon, disabled, tit
       {...props}
       disabled={disabled}
       title={title}
+      aria-label={ariaLabel ?? title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
