@@ -12,10 +12,16 @@ import type {
   PriceItem,
   PriceRatio,
   ReportPrice,
+  PriceBook,
   BudgetPlan,
   Task,
   ServiceItem,
+  SettlementBill,
+  SettlementPeriod,
+  UnitPriceAdjustRule,
+  SalesWorkbenchData,
 } from '../types';
+import { DEFAULT_UNIT_PRICE_RULE, defaultSettlementPeriods, snapshotPriceBook } from '../domain/taskV4';
 
 const auditStatuses: AuditStatus[] = ['草稿', '待审核', '已通过', '已驳回', '已打绩效', '已结算', '已撤销'];
 
@@ -24,7 +30,27 @@ export const DEMO_HOLDER = '百益健康科技';
 
 export const specialists = ['张伟', '李强', '王芳', '刘洋', '陈静', '杨明', '赵磊', '孙丽', '黄峰', '吴超'];
 export const providers = ['智联科技有限公司', '东方恒业推广有限公司', '康晟云服科技有限公司', '永泰汇通推广有限公司'];
-export const workGroups = ['业务一组', '业务二组', '业务三组', '业务四组', '业务五组'];
+export const workGroups = ['工作组一', '工作组二', '工作组三', '工作组四', '工作组五'];
+/** 各工作组成员（服务专员）人数 */
+export const workGroupMembers: Record<string, number> = {
+  工作组一: 5,
+  工作组二: 4,
+  工作组三: 6,
+  工作组四: 3,
+  工作组五: 4,
+};
+/** 一名服务专员每日正常工作量基准：服务项目 → 单人日可完成次数 */
+export const SERVICE_DAILY_CAPACITY: Record<string, number> = {
+  医院拜访: 8,
+  商业拜访: 6,
+  科室会议: 0.5,
+  学术推广: 2,
+  药房拜访: 7,
+  临床应用研究报告: 0.1,
+  联合用药研究报告: 0.1,
+  问卷样本量: 60,
+  分析总结: 0.2,
+};
 export const hospitals = [
   { name: '北京协和医院', grade: '三级甲等' as const },
   { name: '上海瑞金医院', grade: '三级甲等' as const },
@@ -107,11 +133,12 @@ export const visitRecords: VisitRecord[] = Array.from({ length: 60 }, (_, i) => 
 // ===== 品种 / 授权 / 价目（确定性） =====
 
 export const seedVarieties: Variety[] = [
-  { id: 'V-001', genericName: '阿托伐他汀钙片', tradeName: '阿托伐他汀钙片(20mg)', approvalNo: '国药准字H20051408', dosageForm: '片剂', spec: '20mg', package: '7片/板×2板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2028-12-31' },
-  { id: 'V-002', genericName: '二甲双胍缓释片', tradeName: '二甲双胍缓释片(500mg)', approvalNo: '国药准字H20040153', dosageForm: '缓释片', spec: '500mg', package: '20片/瓶', unit: '瓶', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2027-06-30' },
-  { id: 'V-003', genericName: '奥美拉唑肠溶胶囊', tradeName: '奥美拉唑肠溶胶囊(20mg)', approvalNo: '国药准字H20033394', dosageForm: '肠溶胶囊', spec: '20mg', package: '7粒/板×2板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2028-03-31' },
-  { id: 'V-004', genericName: '氨氯地平片', tradeName: '氨氯地平片(5mg)', approvalNo: '国药准字H20020390', dosageForm: '片剂', spec: '5mg', package: '7片/板×4板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2029-01-31' },
-  { id: 'V-005', genericName: '瑞舒伐他汀钙片', tradeName: '瑞舒伐他汀钙片(10mg)', approvalNo: '国药准字H20080687', dosageForm: '片剂', spec: '10mg', package: '7片/板×1板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2028-09-30' },
+  { id: 'V-001', genericName: '阿托伐他汀钙片', tradeName: '阿托伐他汀钙片(20mg)', approvalNo: '国药准字H20051408', dosageForm: '片剂', spec: '20mg', package: '7片/板×2板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2028-12-31', activePriceBookId: 'PB-STD-2026' },
+  { id: 'V-002', genericName: '二甲双胍缓释片', tradeName: '二甲双胍缓释片(500mg)', approvalNo: '国药准字H20040153', dosageForm: '缓释片', spec: '500mg', package: '20片/瓶', unit: '瓶', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2027-06-30', activePriceBookId: 'PB-STD-2026' },
+  { id: 'V-003', genericName: '奥美拉唑肠溶胶囊', tradeName: '奥美拉唑肠溶胶囊(20mg)', approvalNo: '国药准字H20033394', dosageForm: '肠溶胶囊', spec: '20mg', package: '7粒/板×2板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2028-03-31', activePriceBookId: 'PB-ALT-2026' },
+  { id: 'V-004', genericName: '氨氯地平片', tradeName: '氨氯地平片(5mg)', approvalNo: '国药准字H20020390', dosageForm: '片剂', spec: '5mg', package: '7片/板×4板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2029-01-31', activePriceBookId: 'PB-ALT-2026' },
+  { id: 'V-005', genericName: '瑞舒伐他汀钙片', tradeName: '瑞舒伐他汀钙片(10mg)', approvalNo: '国药准字H20080687', dosageForm: '片剂', spec: '10mg', package: '7片/板×1板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2028-09-30', activePriceBookId: '' },
+  { id: 'V-006', genericName: '辛伐他汀片', tradeName: '辛伐他汀片(20mg)', approvalNo: '国药准字H20010001', dosageForm: '片剂', spec: '20mg', package: '7片/板×2板/盒', unit: '盒', holder: DEMO_HOLDER, manufacturer: '百益制药', validUntil: '2028-12-31', activePriceBookId: '' },
 ];
 
 export function varietyDisplayName(v: Variety): string {
@@ -129,6 +156,7 @@ export const seedAuths: VarietyProviderAuth[] = [
   { id: 'AUTH-008', provider: '永泰汇通推广有限公司', varietyId: 'V-005', varietyName: '瑞舒伐他汀钙片(10mg)', holder: DEMO_HOLDER, regions: ['全国'] },
   // 演示：智联同时覆盖二甲双胍 · 陕西/江苏，支撑多品种多地区任务
   { id: 'AUTH-009', provider: '智联科技有限公司', varietyId: 'V-002', varietyName: '二甲双胍缓释片(500mg)', holder: DEMO_HOLDER, regions: ['陕西', '江苏'] },
+  { id: 'AUTH-010', provider: '智联科技有限公司', varietyId: 'V-006', varietyName: '辛伐他汀片(20mg)', holder: DEMO_HOLDER, regions: ['陕西'] },
 ];
 
 /** 所选省份必须都被该服务商覆盖（含「全国」授权） */
@@ -184,39 +212,88 @@ const REPORT_PRICE_DEFS: { reportType: '分析报告服务' | '问卷调研与�
   { reportType: '问卷调研与分析服务', name: '分析总结', amount: 3000, unit: '份', ratio: 20 },
 ];
 
-function pricesFor(varietyId: string): { items: PriceItem[]; ratios: PriceRatio[]; reports: ReportPrice[] } {
+function pricesFor(priceBookId: string, amountScale = 1): { items: PriceItem[]; ratios: PriceRatio[]; reports: ReportPrice[]; rules: PriceBook['rules'] } {
   const items = PRICE_DEFS.map((d, i) => ({
-    id: `PI-${varietyId}-${i + 1}`,
-    varietyId,
+    id: `PI-${priceBookId}-${i + 1}`,
+    varietyId: '',
+    priceBookId,
     category: d.category,
     name: d.name,
-    amount: d.amount,
+    amount: Math.round(d.amount * amountScale),
     unit: d.unit,
     isContractAmount: d.isContractAmount,
     isPreset: d.isPreset,
   }));
   const ratios = PRICE_DEFS.map((d, i) => ({
-    id: `PR-${varietyId}-${i + 1}`,
-    varietyId,
+    id: `PR-${priceBookId}-${i + 1}`,
+    varietyId: '',
+    priceBookId,
     name: d.name,
     ratio: d.ratio,
   }));
   const reports = REPORT_PRICE_DEFS.map((d, i) => ({
-    id: `RP-${varietyId}-${i + 1}`,
-    varietyId,
+    id: `RP-${priceBookId}-${i + 1}`,
+    varietyId: '',
+    priceBookId,
     reportType: d.reportType,
     name: d.name,
-    amount: d.amount,
+    amount: Math.round(d.amount * amountScale),
     unit: d.unit,
     ratio: d.ratio,
   }));
-  return { items, ratios, reports };
+  const rules: PriceBook['rules'] = [
+    ...PRICE_DEFS.map((d, i) => ({
+      id: `PBR-${priceBookId}-P${i + 1}`,
+      category: d.category,
+      name: d.name,
+      amount: Math.round(d.amount * amountScale),
+      unit: d.unit,
+      isContractAmount: d.isContractAmount,
+      isPreset: d.isPreset,
+      ratio: d.ratio,
+    })),
+    ...REPORT_PRICE_DEFS.map((d, i) => ({
+      id: `PBR-${priceBookId}-R${i + 1}`,
+      category: d.reportType,
+      name: d.name,
+      amount: Math.round(d.amount * amountScale),
+      unit: d.unit,
+      isContractAmount: true,
+      isPreset: true,
+      ratio: d.ratio,
+    })),
+  ];
+  return { items, ratios, reports, rules };
 }
 
-const allPrice = seedVarieties.map((v) => pricesFor(v.id));
-export const seedPriceItems: PriceItem[] = allPrice.flatMap((p) => p.items);
-export const seedPriceRatios: PriceRatio[] = allPrice.flatMap((p) => p.ratios);
-export const seedReportPrices: ReportPrice[] = allPrice.flatMap((p) => p.reports);
+const stdPrice = pricesFor('PB-STD-2026', 1);
+const altPrice = pricesFor('PB-ALT-2026', 0.9);
+const expPrice = pricesFor('PB-EXP-2025', 1);
+
+export const seedPriceBooks: PriceBook[] = [
+  {
+    id: 'PB-STD-2026', name: '标准推广价目表 2026', version: 'V1.0',
+    status: '生效', effectiveFrom: '2026-01-01', rules: stdPrice.rules,
+  },
+  {
+    id: 'PB-ALT-2026', name: '专科推广价目表 2026', version: 'V2.0',
+    status: '生效', effectiveFrom: '2026-01-01', rules: altPrice.rules,
+  },
+  {
+    id: 'PB-EXP-2025', name: '过期价目表 2025', version: 'V1.0',
+    status: '已失效', effectiveFrom: '2025-01-01', rules: expPrice.rules,
+  },
+  {
+    id: 'PB-DRAFT', name: '草稿价目表（未发布）', version: 'V0.1',
+    status: '草稿', effectiveFrom: '2026-09-01', rules: stdPrice.rules,
+  },
+];
+
+export const seedUnitPriceAdjustRule: UnitPriceAdjustRule = { ...DEFAULT_UNIT_PRICE_RULE };
+
+export const seedPriceItems: PriceItem[] = [...stdPrice.items, ...altPrice.items, ...expPrice.items];
+export const seedPriceRatios: PriceRatio[] = [...stdPrice.ratios, ...altPrice.ratios, ...expPrice.ratios];
+export const seedReportPrices: ReportPrice[] = [...stdPrice.reports, ...altPrice.reports, ...expPrice.reports];
 
 // ===== 预算计划（只表达企业计划；含 月度合计≠年度预算、某月=0 两种示例） =====
 
@@ -262,17 +339,80 @@ export const seedBudgetPlans: BudgetPlan[] = [
 
 type ItemDef = [category: ServiceItem['category'], name: string, unitPrice: number, unit: string, qty: number];
 
-function buildItems(prefix: string, variety: string, defs: ItemDef[]): ServiceItem[] {
-  return defs.map((d, i) => ({
-    id: `${prefix}-SI-${i + 1}`,
-    variety,
-    category: d[0],
-    name: d[1],
-    unitPrice: d[2],
-    unit: d[3],
-    qty: d[4],
-    amount: d[2] * d[4],
-  }));
+function buildItems(prefix: string, variety: string, region: string, defs: ItemDef[]): ServiceItem[] {
+  return defs.map((d, i) => {
+    const amount = d[2] * d[4];
+    return {
+      id: `${prefix}-SI-${i + 1}`,
+      variety,
+      region,
+      category: d[0],
+      name: d[1],
+      unitPrice: d[2],
+      unit: d[3],
+      qty: d[4],
+      amount,
+      suggestedUnitPrice: d[2],
+      suggestedAmount: amount,
+    };
+  });
+}
+
+function periodsOf(taskId: string, start: string, end: string): SettlementPeriod[] {
+  return defaultSettlementPeriods(start, end).map((p, i) => ({ ...p, id: `${taskId}-SP-${i + 1}` }));
+}
+
+type SeedBill = Omit<SettlementBill, 'settlementPeriodId' | 'voided' | 'financeLocked' | 'appliedAmount' | 'adjustAmount' | 'versions' | 'declarationAccepted' | 'declarationVersion'> & Partial<SettlementBill>;
+
+function billV4(bill: SeedBill, periodId: string): SettlementBill {
+  const applied = bill.appliedAmount ?? bill.lines.reduce((s, l) => s + l.serviceAmount, 0);
+  const finalAmount = bill.finalAmount;
+  return {
+    ...bill,
+    finalAmount,
+    settlementPeriodId: periodId,
+    voided: bill.voided ?? false,
+    financeLocked: bill.financeLocked ?? false,
+    declarationAccepted: bill.confirmed ? true : bill.declarationAccepted,
+    declarationVersion: bill.confirmed ? 'DECL-2026-V1' : bill.declarationVersion,
+    appliedAmount: applied,
+    adjustAmount: finalAmount - applied,
+    versions: bill.versions ?? (bill.confirmed
+      ? [{ version: 1, time: bill.confirmedAt || bill.madeAt, operator: bill.confirmedBy || '李强', action: '结算确认', snapshot: { confirmed: true, voided: false, finalAmount, lines: bill.lines } }]
+      : [{ version: 1, time: bill.madeAt, operator: bill.provider, action: '发起结算', snapshot: { confirmed: false, voided: false, finalAmount, lines: bill.lines } }]),
+  };
+}
+
+function periodIdForMonth(periods: SettlementPeriod[], month: string): string {
+  const hit = periods.find((p) => month >= p.startDate.slice(0, 7) && month <= p.endDate.slice(0, 7));
+  return hit?.id || periods[0]?.id || '';
+}
+
+function bookById(id: string): PriceBook {
+  return snapshotPriceBook(seedPriceBooks.find((b) => b.id === id) || seedPriceBooks[0]);
+}
+
+type SeedTask = Omit<Task, 'priceBookId' | 'priceBookSnapshot' | 'recommendedAmount' | 'recommendedConfigured' | 'planLocked' | 'settlementPeriods' | 'roundingLogs' | 'priceAdjustLogs' | 'opsLogs' | 'settlements'> & {
+  settlements: SeedBill[];
+} & Partial<Pick<Task, 'priceBookSnapshot' | 'recommendedAmount' | 'recommendedConfigured' | 'planLocked' | 'settlementPeriods' | 'roundingLogs' | 'priceAdjustLogs' | 'opsLogs'>>;
+
+function v4Task(task: SeedTask, priceBookId: string): Task {
+  const settlementPeriods = task.settlementPeriods ?? periodsOf(task.id, task.startDate, task.endDate);
+  return {
+    ...task,
+    priceBookId,
+    priceBookSnapshot: task.priceBookSnapshot ?? bookById(priceBookId),
+    recommendedAmount: task.recommendedAmount ?? task.planAmount,
+    recommendedConfigured: task.recommendedConfigured ?? true,
+    planLocked: task.planLocked ?? (task.taskStatus !== '待确认' && task.taskStatus !== '已撤销'),
+    settlementPeriods,
+    roundingLogs: task.roundingLogs ?? [],
+    priceAdjustLogs: task.priceAdjustLogs ?? [],
+    opsLogs: task.opsLogs ?? [
+      { id: `${task.id}-LOG-1`, time: task.createdAt, operator: task.createdBy, role: '药厂销售部门', action: '创建任务', detail: `创建 ${task.taskNo}`, afterState: '待确认' },
+    ],
+    settlements: task.settlements.map((b) => billV4(b, b.settlementPeriodId || periodIdForMonth(settlementPeriods, b.serviceMonth))),
+  };
 }
 
 const V_ATOR = '阿托伐他汀钙片(20mg)';
@@ -281,44 +421,51 @@ const V_OME = '奥美拉唑肠溶胶囊(20mg)';
 const V_AMLO = '氨氯地平片(5mg)';
 const V_ROSU = '瑞舒伐他汀钙片(10mg)';
 
-// ===== 任务 9 条：全状态 + 跨月 + 按月+工作组结算 + 多品种多地区演示 =====
+// ===== 任务 10 条：全状态 + 跨月 + 按月+工作组结算 + 多品种多地区演示 =====
 export const seedTasks: Task[] = [
-  {
+  v4Task({
     id: 'TR-001', taskNo: 'TK-2026-0001', taskName: `${V_ATOR}_百益健康科技`,
     varieties: [V_ATOR], provider: '智联科技有限公司', regions: ['陕西'],
     startDate: '2026-09-01', endDate: '2026-09-30',
     planAmount: 60000, settledAmount: 0, remainingVoided: false,
     taskStatus: '待确认', reconStatus: '未发起',
     createdAt: '2026-08-20 10:00', createdBy: '李强',
-    serviceItems: buildItems('TR-001', V_ATOR, [
+    recommendedAmount: 40000, recommendedConfigured: true,
+    serviceItems: buildItems('TR-001', V_ATOR, '陕西', [
       ['市场推广服务', '医院拜访', 200, '次', 120],
       ['市场推广服务', '科室会议', 2000, '场', 9],
       ['市场推广服务', '学术推广', 500, '次', 36],
     ]),
     workgroupSplits: [], workloadAssigns: [], reports: [], settlements: [],
-  },
-  {
+  }, 'PB-STD-2026'),
+  v4Task({
     id: 'TR-002', taskNo: 'TK-2026-0002', taskName: `${V_METF}_百益健康科技`,
     varieties: [V_METF], provider: '康晟云服科技有限公司', regions: ['山东'],
     startDate: '2026-08-05', endDate: '2026-09-30',
     planAmount: 45000, settledAmount: 0, remainingVoided: false,
     taskStatus: '执行中', reconStatus: '未发起',
     createdAt: '2026-08-07 09:30', createdBy: '李强',
-    serviceItems: buildItems('TR-002', V_METF, [
+    recommendedConfigured: true, recommendedAmount: 36000,
+    opsLogs: [
+      { id: 'TR-002-LOG-1', time: '2026-08-07 09:30', operator: '李强', role: '药厂销售部门', action: '创建任务', detail: '创建 TK-2026-0002', afterState: '待确认' },
+      { id: 'TR-002-LOG-2', time: '2026-08-08 10:00', operator: '服务商', role: '服务提供商', action: '确认任务', detail: '服务商确认，计划与价目表快照已锁定', beforeState: '待确认', afterState: '执行中' },
+    ],
+    serviceItems: buildItems('TR-002', V_METF, '山东', [
       ['市场推广服务', '医院拜访', 200, '次', 90],
       ['市场推广服务', '商业拜访', 300, '次', 40],
       ['市场推广服务', '学术推广', 500, '次', 30],
     ]),
     workgroupSplits: [], workloadAssigns: [], reports: [], settlements: [],
-  },
-  {
+  }, 'PB-STD-2026'),
+  v4Task({
     id: 'TR-003', taskNo: 'TK-2026-0003', taskName: `${V_OME}_百益健康科技`,
     varieties: [V_OME], provider: '东方恒业推广有限公司', regions: ['广东'],
     startDate: '2026-08-01', endDate: '2026-09-30',
     planAmount: 104000, settledAmount: 0, remainingVoided: false,
     taskStatus: '执行中', reconStatus: '未发起',
     createdAt: '2026-07-25 11:00', createdBy: '李强',
-    serviceItems: buildItems('TR-003', V_OME, [
+    recommendedAmount: 40000, recommendedConfigured: true,
+    serviceItems: buildItems('TR-003', V_OME, '广东', [
       ['市场推广服务', '医院拜访', 200, '次', 140],
       ['市场推广服务', '科室会议', 2000, '场', 10],
       ['分析报告服务', '临床应用研究报告', 15000, '份', 2],
@@ -326,40 +473,57 @@ export const seedTasks: Task[] = [
       ['问卷调研与分析服务', '分析总结', 3000, '份', 2],
     ]),
     workgroupSplits: [
-      { id: 'TR-003-WG-1', workGroup: '业务一组', variety: V_OME, region: '广东', amount: 60000, startDate: '2026-08-01', endDate: '2026-09-30' },
-      { id: 'TR-003-WG-2', workGroup: '业务二组', variety: V_OME, region: '广东', amount: 44000, startDate: '2026-08-01', endDate: '2026-09-30' },
+      { id: 'TR-003-WG-1', workGroup: '工作组一', variety: V_OME, region: '广东', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 90, amount: 18000 },
+      { id: 'TR-003-WG-2', workGroup: '工作组一', variety: V_OME, region: '广东', category: '市场推广服务', itemName: '科室会议', unitPrice: 2000, qty: 6, amount: 12000 },
+      { id: 'TR-003-WG-3', workGroup: '工作组一', variety: V_OME, region: '广东', category: '问卷调研与分析服务', itemName: '问卷样本量', unitPrice: 20, qty: 600, amount: 12000 },
+      { id: 'TR-003-WG-4', workGroup: '工作组二', variety: V_OME, region: '广东', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 50, amount: 10000 },
+      { id: 'TR-003-WG-5', workGroup: '工作组二', variety: V_OME, region: '广东', category: '市场推广服务', itemName: '科室会议', unitPrice: 2000, qty: 4, amount: 8000 },
+      { id: 'TR-003-WG-6', workGroup: '工作组二', variety: V_OME, region: '广东', category: '分析报告服务', itemName: '临床应用研究报告', unitPrice: 15000, qty: 2, amount: 30000 },
+      { id: 'TR-003-WG-7', workGroup: '工作组二', variety: V_OME, region: '广东', category: '问卷调研与分析服务', itemName: '问卷样本量', unitPrice: 20, qty: 400, amount: 8000 },
+      { id: 'TR-003-WG-8', workGroup: '工作组二', variety: V_OME, region: '广东', category: '问卷调研与分析服务', itemName: '分析总结', unitPrice: 3000, qty: 1, amount: 3000 },
     ],
     workloadAssigns: [], reports: [], settlements: [],
-  },
-  {
+  }, 'PB-ALT-2026'),
+  v4Task({
     id: 'TR-004', taskNo: 'TK-2026-0004', taskName: `${V_ATOR}_百益健康科技`,
     varieties: [V_ATOR], provider: '智联科技有限公司', regions: ['陕西'],
     startDate: '2026-07-01', endDate: '2026-09-30',
     planAmount: 120000, settledAmount: 36000, remainingVoided: false,
     taskStatus: '执行中', reconStatus: '对账中',
     createdAt: '2026-06-28 09:20', createdBy: '李强',
-    serviceItems: buildItems('TR-004', V_ATOR, [
+    recommendedAmount: 170000, recommendedConfigured: true,
+    opsLogs: [
+      { id: 'TR-004-LOG-1', time: '2026-06-28 09:20', operator: '李强', role: '药厂销售部门', action: '创建任务', detail: '创建 TK-2026-0004', afterState: '待确认' },
+      { id: 'TR-004-LOG-2', time: '2026-06-29 11:00', operator: '服务商', role: '服务提供商', action: '确认任务', detail: '计划锁定', beforeState: '待确认', afterState: '执行中' },
+      { id: 'TR-004-LOG-3', time: '2026-08-05 10:00', operator: '李强', role: '药厂销售部门', action: '结算确认', detail: '确认 JS-2026-0004-01', afterState: '已结算' },
+      { id: 'TR-004-LOG-4', time: '2026-08-20 09:00', operator: '服务商', role: '服务提供商', action: '发起结算', detail: '发起 JS-2026-0004-02 · 2026-08', afterState: '对账中' },
+    ],
+    serviceItems: buildItems('TR-004', V_ATOR, '陕西', [
       ['市场推广服务', '医院拜访', 200, '次', 260],
       ['市场推广服务', '商业拜访', 300, '次', 60],
       ['市场推广服务', '科室会议', 2000, '场', 15],
       ['市场推广服务', '学术推广', 500, '次', 40],
     ]),
     workgroupSplits: [
-      { id: 'TR-004-WG-1', workGroup: '业务一组', variety: V_ATOR, region: '陕西', amount: 70000, startDate: '2026-07-01', endDate: '2026-09-30' },
-      { id: 'TR-004-WG-2', workGroup: '业务二组', variety: V_ATOR, region: '陕西', amount: 50000, startDate: '2026-07-01', endDate: '2026-09-30' },
+      { id: 'TR-004-WG-1', workGroup: '工作组一', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 140, amount: 28000 },
+      { id: 'TR-004-WG-2', workGroup: '工作组一', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '科室会议', unitPrice: 2000, qty: 6, amount: 12000 },
+      { id: 'TR-004-WG-3', workGroup: '工作组二', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 100, amount: 20000 },
+      { id: 'TR-004-WG-4', workGroup: '工作组二', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '学术推广', unitPrice: 500, qty: 24, amount: 12000 },
+      { id: 'TR-004-WG-5', workGroup: '工作组三', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '商业拜访', unitPrice: 300, qty: 40, amount: 12000 },
+      { id: 'TR-004-WG-6', workGroup: '工作组三', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '科室会议', unitPrice: 2000, qty: 6, amount: 12000 },
     ],
     workloadAssigns: [
-      { id: 'TR-004-WL-1', workGroup: '业务一组', specialist: '张伟', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 120, amount: 24000, progress: '已完成', serviceMonth: '2026-07', settledBillNo: 'JS-2026-0004-01' },
-      { id: 'TR-004-WL-2', workGroup: '业务一组', specialist: '李强', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '科室会议', workload: 6, amount: 12000, progress: '已完成', serviceMonth: '2026-07', settledBillNo: 'JS-2026-0004-01' },
-      { id: 'TR-004-WL-3', workGroup: '业务二组', specialist: '王芳', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 80, amount: 16000, progress: '已完成', serviceMonth: '2026-08', settledBillNo: 'JS-2026-0004-02' },
-      { id: 'TR-004-WL-4', workGroup: '业务二组', specialist: '陈静', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '学术推广', workload: 20, amount: 10000, progress: '待审核', serviceMonth: '2026-08' },
-      { id: 'TR-004-WL-5', workGroup: '业务三组', specialist: '杨明', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '商业拜访', workload: 30, amount: 9000, progress: '未完成', serviceMonth: '2026-09' },
+      { id: 'TR-004-WL-1', workGroup: '工作组一', specialist: '张伟', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 120, amount: 24000, progress: '已完成', serviceMonth: '2026-07', settledBillNo: 'JS-2026-0004-01' },
+      { id: 'TR-004-WL-2', workGroup: '工作组一', specialist: '李强', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '科室会议', workload: 6, amount: 12000, progress: '已完成', serviceMonth: '2026-07', settledBillNo: 'JS-2026-0004-01' },
+      { id: 'TR-004-WL-3', workGroup: '工作组二', specialist: '王芳', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 80, amount: 16000, progress: '已完成', serviceMonth: '2026-08', settledBillNo: 'JS-2026-0004-02' },
+      { id: 'TR-004-WL-4', workGroup: '工作组二', specialist: '陈静', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '学术推广', workload: 20, amount: 10000, progress: '待审核', serviceMonth: '2026-08' },
+      { id: 'TR-004-WL-5', workGroup: '工作组三', specialist: '杨明', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '商业拜访', workload: 30, amount: 9000, progress: '未完成', serviceMonth: '2026-09' },
     ],
     reports: [],
     settlements: [
       {
         id: 'SB-004-1', billNo: 'JS-2026-0004-01', contractNo: 'HT-2026-BY-001',
-        workGroup: '业务一组', servicePeriod: '2026-07-01 ~ 2026-09-30',
+        workGroup: '工作组一', servicePeriod: '2026-07-01 ~ 2026-09-30',
         serviceMonth: '2026-07', madeAt: '2026-08-02', provider: '智联科技有限公司',
         lines: [
           { id: 'SB-004-1-L1', variety: V_ATOR, region: '陕西', serviceType: '市场推广服务', serviceItem: '医院拜访', serviceAmount: 24000, actualAmount: 24000, remark: '' },
@@ -370,7 +534,7 @@ export const seedTasks: Task[] = [
       },
       {
         id: 'SB-004-2', billNo: 'JS-2026-0004-02', contractNo: 'HT-2026-BY-001',
-        workGroup: '业务二组', servicePeriod: '2026-07-01 ~ 2026-09-30',
+        workGroup: '工作组二', servicePeriod: '2026-07-01 ~ 2026-09-30',
         serviceMonth: '2026-08', madeAt: '2026-08-20', provider: '智联科技有限公司',
         lines: [
           { id: 'SB-004-2-L1', variety: V_ATOR, region: '陕西', serviceType: '市场推广服务', serviceItem: '医院拜访', serviceAmount: 16000, actualAmount: 16000, remark: '' },
@@ -378,15 +542,16 @@ export const seedTasks: Task[] = [
         finalAmount: 16000, confirmed: false,
       },
     ],
-  },
-  {
+  }, 'PB-STD-2026'),
+  v4Task({
     id: 'TR-005', taskNo: 'TK-2026-0005', taskName: `${V_OME}_百益健康科技`,
     varieties: [V_OME], provider: '东方恒业推广有限公司', regions: ['广东'],
     startDate: '2026-07-01', endDate: '2026-08-31',
     planAmount: 46000, settledAmount: 0, remainingVoided: false,
     taskStatus: '执行中', reconStatus: '未发起',
     createdAt: '2026-07-02 14:00', createdBy: '李强',
-    serviceItems: buildItems('TR-005', V_OME, [
+    recommendedAmount: 40000, recommendedConfigured: true,
+    serviceItems: buildItems('TR-005', V_OME, '广东', [
       ['分析报告服务', '临床应用研究报告', 15000, '份', 2],
       ['问卷调研与分析服务', '问卷样本量', 20, '份', 500],
       ['问卷调研与分析服务', '分析总结', 3000, '份', 2],
@@ -396,32 +561,35 @@ export const seedTasks: Task[] = [
       { id: 'TR-005-RP-1', name: '奥美拉唑广东市场分析报告.pdf', uploadedAt: '2026-08-18 16:20', uploadedBy: '东方恒业推广有限公司', status: '待审核', comment: '' },
     ],
     settlements: [],
-  },
-  {
+  }, 'PB-ALT-2026'),
+  v4Task({
     id: 'TR-006', taskNo: 'TK-2026-0006', taskName: `${V_ROSU}_百益健康科技`,
     varieties: [V_ROSU], provider: '永泰汇通推广有限公司', regions: ['四川'],
     startDate: '2026-06-01', endDate: '2026-06-30',
     planAmount: 40000, settledAmount: 40000, remainingVoided: false,
     taskStatus: '已结算', reconStatus: '已结算',
     createdAt: '2026-05-28 11:00', createdBy: '李强',
-    serviceItems: buildItems('TR-006', V_ROSU, [
+    recommendedAmount: 25000, recommendedConfigured: true,
+    serviceItems: buildItems('TR-006', V_ROSU, '四川', [
       ['市场推广服务', '医院拜访', 200, '次', 100],
       ['市场推广服务', '科室会议', 2000, '场', 5],
       ['市场推广服务', '学术推广', 500, '次', 20],
     ]),
     workgroupSplits: [
-      { id: 'TR-006-WG-1', workGroup: '业务三组', variety: V_ROSU, region: '四川', amount: 40000, startDate: '2026-06-01', endDate: '2026-06-30' },
+      { id: 'TR-006-WG-1', workGroup: '工作组三', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 100, amount: 20000 },
+      { id: 'TR-006-WG-2', workGroup: '工作组三', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '科室会议', unitPrice: 2000, qty: 5, amount: 10000 },
+      { id: 'TR-006-WG-3', workGroup: '工作组三', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '学术推广', unitPrice: 500, qty: 20, amount: 10000 },
     ],
     workloadAssigns: [
-      { id: 'TR-006-WL-1', workGroup: '业务三组', specialist: '刘洋', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '医院拜访', workload: 100, amount: 20000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0006-01' },
-      { id: 'TR-006-WL-2', workGroup: '业务三组', specialist: '赵磊', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '科室会议', workload: 5, amount: 10000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0006-01' },
-      { id: 'TR-006-WL-3', workGroup: '业务三组', specialist: '孙丽', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '学术推广', workload: 20, amount: 10000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0006-01' },
+      { id: 'TR-006-WL-1', workGroup: '工作组三', specialist: '刘洋', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '医院拜访', workload: 100, amount: 20000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0006-01' },
+      { id: 'TR-006-WL-2', workGroup: '工作组三', specialist: '赵磊', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '科室会议', workload: 5, amount: 10000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0006-01' },
+      { id: 'TR-006-WL-3', workGroup: '工作组三', specialist: '孙丽', variety: V_ROSU, region: '四川', category: '市场推广服务', itemName: '学术推广', workload: 20, amount: 10000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0006-01' },
     ],
     reports: [],
     settlements: [
       {
         id: 'SB-006-1', billNo: 'JS-2026-0006-01', contractNo: 'HT-2026-BY-001',
-        workGroup: '业务三组', servicePeriod: '2026-06-01 ~ 2026-06-30',
+        workGroup: '工作组三', servicePeriod: '2026-06-01 ~ 2026-06-30',
         serviceMonth: '2026-06', madeAt: '2026-07-02', provider: '永泰汇通推广有限公司',
         lines: [
           { id: 'SB-006-1-L1', variety: V_ROSU, region: '四川', serviceType: '市场推广服务', serviceItem: '医院拜访', serviceAmount: 20000, actualAmount: 20000, remark: '' },
@@ -430,37 +598,47 @@ export const seedTasks: Task[] = [
         ],
         finalAmount: 40000, confirmed: true, confirmedAt: '2026-07-05', confirmedBy: '李强',
         paymentVoucher: '付款凭证-JS-2026-0006-01.pdf',
+        financeLocked: true,
       },
     ],
-  },
-  {
+  }, 'PB-STD-2026'),
+  v4Task({
     id: 'TR-007', taskNo: 'TK-2026-0007', taskName: `${V_ATOR}_百益健康科技`,
     varieties: [V_ATOR], provider: '智联科技有限公司', regions: ['陕西'],
     startDate: '2026-05-01', endDate: '2026-06-30',
     planAmount: 60000, settledAmount: 39000, remainingVoided: true,
     taskStatus: '已结算', reconStatus: '已结算',
     createdAt: '2026-04-28 10:00', createdBy: '李强',
-    serviceItems: buildItems('TR-007', V_ATOR, [
+    recommendedAmount: 80000, recommendedConfigured: true,
+    opsLogs: [
+      { id: 'TR-007-LOG-1', time: '2026-04-28 10:00', operator: '李强', role: '药厂销售部门', action: '创建任务', detail: '创建 TK-2026-0007', afterState: '待确认' },
+      { id: 'TR-007-LOG-2', time: '2026-07-10 11:00', operator: '李强', role: '药厂销售部门', action: '结算确认', detail: '确认 JS-2026-0007-02（最新有效单）', afterState: '已结算' },
+      { id: 'TR-007-LOG-3', time: '2026-07-12 09:00', operator: '李强', role: '药厂销售部门', action: '结算完结', detail: '剩余计划金额作废', beforeState: '执行中', afterState: '已结算' },
+    ],
+    serviceItems: buildItems('TR-007', V_ATOR, '陕西', [
       ['市场推广服务', '医院拜访', 200, '次', 130],
       ['市场推广服务', '科室会议', 2000, '场', 8],
       ['市场推广服务', '商业拜访', 300, '次', 20],
       ['市场推广服务', '学术推广', 500, '次', 24],
     ]),
     workgroupSplits: [
-      { id: 'TR-007-WG-1', workGroup: '业务一组', variety: V_ATOR, region: '陕西', amount: 60000, startDate: '2026-05-01', endDate: '2026-06-30' },
+      { id: 'TR-007-WG-1', workGroup: '工作组一', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 130, amount: 26000 },
+      { id: 'TR-007-WG-2', workGroup: '工作组一', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '科室会议', unitPrice: 2000, qty: 8, amount: 16000 },
+      { id: 'TR-007-WG-3', workGroup: '工作组一', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '商业拜访', unitPrice: 300, qty: 20, amount: 6000 },
+      { id: 'TR-007-WG-4', workGroup: '工作组一', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '学术推广', unitPrice: 500, qty: 24, amount: 12000 },
     ],
     workloadAssigns: [
-      { id: 'TR-007-WL-1', workGroup: '业务一组', specialist: '张伟', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 80, amount: 16000, progress: '已完成', serviceMonth: '2026-05', settledBillNo: 'JS-2026-0007-01' },
-      { id: 'TR-007-WL-2', workGroup: '业务一组', specialist: '李强', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '科室会议', workload: 4, amount: 8000, progress: '已完成', serviceMonth: '2026-05', settledBillNo: 'JS-2026-0007-01' },
-      { id: 'TR-007-WL-3', workGroup: '业务一组', specialist: '王芳', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 50, amount: 10000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0007-02' },
-      { id: 'TR-007-WL-4', workGroup: '业务一组', specialist: '陈静', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '商业拜访', workload: 20, amount: 6000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0007-02' },
-      { id: 'TR-007-WL-5', workGroup: '业务一组', specialist: '杨明', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '学术推广', workload: 24, amount: 12000, progress: '已完成', serviceMonth: '2026-06' },
+      { id: 'TR-007-WL-1', workGroup: '工作组一', specialist: '张伟', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 80, amount: 16000, progress: '已完成', serviceMonth: '2026-05', settledBillNo: 'JS-2026-0007-01' },
+      { id: 'TR-007-WL-2', workGroup: '工作组一', specialist: '李强', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '科室会议', workload: 4, amount: 8000, progress: '已完成', serviceMonth: '2026-05', settledBillNo: 'JS-2026-0007-01' },
+      { id: 'TR-007-WL-3', workGroup: '工作组一', specialist: '王芳', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 50, amount: 10000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0007-02' },
+      { id: 'TR-007-WL-4', workGroup: '工作组一', specialist: '陈静', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '商业拜访', workload: 20, amount: 6000, progress: '已完成', serviceMonth: '2026-06', settledBillNo: 'JS-2026-0007-02' },
+      { id: 'TR-007-WL-5', workGroup: '工作组一', specialist: '杨明', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '学术推广', workload: 24, amount: 12000, progress: '已完成', serviceMonth: '2026-06' },
     ],
     reports: [],
     settlements: [
       {
         id: 'SB-007-1', billNo: 'JS-2026-0007-01', contractNo: 'HT-2026-BY-001',
-        workGroup: '业务一组', servicePeriod: '2026-05-01 ~ 2026-06-30',
+        workGroup: '工作组一', servicePeriod: '2026-05-01 ~ 2026-06-30',
         serviceMonth: '2026-05', madeAt: '2026-06-03', provider: '智联科技有限公司',
         lines: [
           { id: 'SB-007-1-L1', variety: V_ATOR, region: '陕西', serviceType: '市场推广服务', serviceItem: '医院拜访', serviceAmount: 16000, actualAmount: 16000, remark: '' },
@@ -471,7 +649,7 @@ export const seedTasks: Task[] = [
       },
       {
         id: 'SB-007-2', billNo: 'JS-2026-0007-02', contractNo: 'HT-2026-BY-001',
-        workGroup: '业务一组', servicePeriod: '2026-05-01 ~ 2026-06-30',
+        workGroup: '工作组一', servicePeriod: '2026-05-01 ~ 2026-06-30',
         serviceMonth: '2026-06', madeAt: '2026-07-08', provider: '智联科技有限公司',
         lines: [
           { id: 'SB-007-2-L1', variety: V_ATOR, region: '陕西', serviceType: '市场推广服务', serviceItem: '医院拜访', serviceAmount: 10000, actualAmount: 10000, remark: '' },
@@ -481,54 +659,60 @@ export const seedTasks: Task[] = [
         paymentVoucher: '付款凭证-JS-2026-0007-02.pdf',
       },
     ],
-  },
-  {
+  }, 'PB-STD-2026'),
+  v4Task({
     id: 'TR-008', taskNo: 'TK-2026-0008', taskName: `${V_AMLO}_百益健康科技`,
     varieties: [V_AMLO], provider: '康晟云服科技有限公司', regions: ['北京'],
     startDate: '2026-08-10', endDate: '2026-08-31',
     planAmount: 24000, settledAmount: 0, remainingVoided: false,
     taskStatus: '已撤销', reconStatus: '未发起',
     createdAt: '2026-08-09 15:00', createdBy: '李强',
-    serviceItems: buildItems('TR-008', V_AMLO, [
+    serviceItems: buildItems('TR-008', V_AMLO, '北京', [
       ['市场推广服务', '医院拜访', 200, '次', 60],
       ['市场推广服务', '学术推广', 500, '次', 24],
     ]),
     workgroupSplits: [], workloadAssigns: [], reports: [], settlements: [],
-  },
-  {
-    // 多品种 + 多地区演示：智联 · 阿托伐他汀/二甲双胍 · 陕西/江苏；已按工作组拆解并完成 8 月一组结算
+  }, 'PB-ALT-2026'),
+  v4Task({
+    // 多品种 + 多地区演示：智联 · 阿托伐他汀/二甲双胍 · 陕西/江苏；同价目表可同单
     id: 'TR-009', taskNo: 'TK-2026-0009', taskName: `${V_ATOR}、${V_METF}_百益健康科技`,
     varieties: [V_ATOR, V_METF], provider: '智联科技有限公司', regions: ['陕西', '江苏'],
     startDate: '2026-08-01', endDate: '2026-10-31',
     planAmount: 28000, settledAmount: 6000, remainingVoided: false,
-    taskStatus: '执行中', reconStatus: '未发起',
+    taskStatus: '执行中', reconStatus: '已结算',
     createdAt: '2026-07-30 09:00', createdBy: '李强',
+    recommendedAmount: 170000, recommendedConfigured: true,
+    opsLogs: [
+      { id: 'TR-009-LOG-1', time: '2026-07-30 09:00', operator: '李强', role: '药厂销售部门', action: '创建任务', detail: '同价目表多品种同单发包', afterState: '待确认' },
+      { id: 'TR-009-LOG-2', time: '2026-08-23 10:00', operator: '李强', role: '药厂销售部门', action: '结算确认', detail: '确认 JS-2026-0009-01', afterState: '已结算' },
+    ],
     serviceItems: [
-      ...buildItems('TR-009A', V_ATOR, [
+      ...buildItems('TR-009A', V_ATOR, '陕西', [
         ['市场推广服务', '医院拜访', 200, '次', 50],
+      ]),
+      ...buildItems('TR-009B', V_ATOR, '江苏', [
         ['市场推广服务', '科室会议', 2000, '场', 2],
       ]),
-      ...buildItems('TR-009B', V_METF, [
+      ...buildItems('TR-009C', V_METF, '江苏', [
         ['市场推广服务', '医院拜访', 200, '次', 40],
       ]),
     ],
     workgroupSplits: [
-      { id: 'TR-009-WG-1', workGroup: '业务一组', variety: V_ATOR, region: '陕西', amount: 10000, startDate: '2026-08-01', endDate: '2026-09-30' },
-      { id: 'TR-009-WG-2', workGroup: '业务一组', variety: V_ATOR, region: '江苏', amount: 4000, startDate: '2026-08-01', endDate: '2026-10-31' },
-      { id: 'TR-009-WG-3', workGroup: '业务二组', variety: V_METF, region: '江苏', amount: 8000, startDate: '2026-08-01', endDate: '2026-10-31' },
-      { id: 'TR-009-WG-4', workGroup: '业务二组', variety: V_METF, region: '陕西', amount: 6000, startDate: '2026-09-01', endDate: '2026-10-31' },
+      { id: 'TR-009-WG-1', workGroup: '工作组一', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 50, amount: 10000 },
+      { id: 'TR-009-WG-2', workGroup: '工作组一', variety: V_ATOR, region: '江苏', category: '市场推广服务', itemName: '科室会议', unitPrice: 2000, qty: 2, amount: 4000 },
+      { id: 'TR-009-WG-3', workGroup: '工作组二', variety: V_METF, region: '江苏', category: '市场推广服务', itemName: '医院拜访', unitPrice: 200, qty: 40, amount: 8000 },
     ],
     workloadAssigns: [
-      { id: 'TR-009-WL-1', workGroup: '业务一组', specialist: '张伟', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 30, amount: 6000, progress: '已完成', serviceMonth: '2026-08', settledBillNo: 'JS-2026-0009-01' },
-      { id: 'TR-009-WL-2', workGroup: '业务一组', specialist: '李强', variety: V_ATOR, region: '江苏', category: '市场推广服务', itemName: '科室会议', workload: 2, amount: 4000, progress: '已完成', serviceMonth: '2026-08' },
-      { id: 'TR-009-WL-3', workGroup: '业务二组', specialist: '王芳', variety: V_METF, region: '江苏', category: '市场推广服务', itemName: '医院拜访', workload: 40, amount: 8000, progress: '已完成', serviceMonth: '2026-08' },
-      { id: 'TR-009-WL-4', workGroup: '业务二组', specialist: '陈静', variety: V_METF, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 20, amount: 4000, progress: '待审核', serviceMonth: '2026-09' },
+      { id: 'TR-009-WL-1', workGroup: '工作组一', specialist: '张伟', variety: V_ATOR, region: '陕西', category: '市场推广服务', itemName: '医院拜访', workload: 30, amount: 6000, progress: '已完成', serviceMonth: '2026-08', settledBillNo: 'JS-2026-0009-01' },
+      { id: 'TR-009-WL-2', workGroup: '工作组一', specialist: '李强', variety: V_ATOR, region: '江苏', category: '市场推广服务', itemName: '科室会议', workload: 2, amount: 4000, progress: '已完成', serviceMonth: '2026-08' },
+      { id: 'TR-009-WL-3', workGroup: '工作组二', specialist: '王芳', variety: V_METF, region: '江苏', category: '市场推广服务', itemName: '医院拜访', workload: 40, amount: 8000, progress: '已完成', serviceMonth: '2026-08' },
+      { id: 'TR-009-WL-4', workGroup: '工作组二', specialist: '陈静', variety: V_METF, region: '江苏', category: '市场推广服务', itemName: '医院拜访', workload: 20, amount: 4000, progress: '待审核', serviceMonth: '2026-09' },
     ],
     reports: [],
     settlements: [
       {
         id: 'SB-009-1', billNo: 'JS-2026-0009-01', contractNo: 'HT-2026-BY-001',
-        workGroup: '业务一组', servicePeriod: '2026-08-01 ~ 2026-10-31',
+        workGroup: '工作组一', servicePeriod: '2026-08-01 ~ 2026-10-31',
         serviceMonth: '2026-08', madeAt: '2026-08-22', provider: '智联科技有限公司',
         lines: [
           { id: 'SB-009-1-L1', variety: V_ATOR, region: '陕西', serviceType: '市场推广服务', serviceItem: '医院拜访', serviceAmount: 6000, actualAmount: 6000, remark: '' },
@@ -537,7 +721,32 @@ export const seedTasks: Task[] = [
         paymentVoucher: '付款凭证-JS-2026-0009-01.pdf',
       },
     ],
-  },
+  }, 'PB-STD-2026'),
+  v4Task({
+    // 新流程演示：多品种 + 多地区 · 执行中 · 未拆分任务包
+    id: 'TR-010', taskNo: 'TK-2026-0010', taskName: `${V_ATOR}、${V_METF}_百益健康科技`,
+    varieties: [V_ATOR, V_METF], provider: DEMO_PROVIDER, regions: ['陕西', '江苏'],
+    startDate: '2026-08-15', endDate: '2026-11-15',
+    planAmount: 54000, settledAmount: 0, remainingVoided: false,
+    taskStatus: '执行中', reconStatus: '未发起',
+    createdAt: '2026-08-10 09:20', createdBy: '李强',
+    recommendedConfigured: true, recommendedAmount: 54000,
+    opsLogs: [
+      { id: 'TR-010-LOG-1', time: '2026-08-10 09:20', operator: '李强', role: '药厂销售部门', action: '创建任务', detail: '同价目表多品种多地区发包', afterState: '待确认' },
+      { id: 'TR-010-LOG-2', time: '2026-08-11 14:30', operator: '服务商', role: '服务提供商', action: '确认任务', detail: '服务商确认，计划与价目表快照已锁定', beforeState: '待确认', afterState: '执行中' },
+    ],
+    serviceItems: [
+      ...buildItems('TR-010A', V_ATOR, '陕西', [
+        ['市场推广服务', '医院拜访', 200, '次', 100],
+        ['市场推广服务', '学术推广', 500, '次', 20],
+      ]),
+      ...buildItems('TR-010B', V_METF, '江苏', [
+        ['市场推广服务', '医院拜访', 200, '次', 80],
+        ['市场推广服务', '科室会议', 2000, '场', 4],
+      ]),
+    ],
+    workgroupSplits: [], workloadAssigns: [], reports: [], settlements: [],
+  }, 'PB-STD-2026'),
 ];
 
 const tierLabels = ['KOL A类', 'KOL B类', '普通医生', '潜力医生'];
@@ -581,8 +790,8 @@ export const auditLogs: AuditLogEntry[] = Array.from({ length: 80 }, (_, i) => {
 export const roleDashboardData: Record<Role, DashboardRoleData> = {
   '药厂销售部门': {
     role: '药厂销售部门',
-    headline: '销售执行总览',
-    subtitle: '今天最值得关注的是任务进度、预算执行与超期填报。',
+    headline: '销售运营工作台',
+    subtitle: '聚焦委托推广任务交付与协同处理：哪项任务偏离计划、影响什么、由谁负责、下一步做什么。',
     unreadCount: 11,
     metrics: [
       { id: 'pm-1', title: '今日拜访量', value: 126, unit: '次', delta: 18, deltaLabel: '较昨日', subtitle: '目标 140 次', icon: 'clipboard', actionLabel: '查看拜访', target: 'hospital-visits' },
@@ -594,10 +803,10 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
     insights: [
       {
         id: 'pm-ai-1',
-        title: '业务四组执行落后',
-        conclusion: '业务四组 3 个任务进度落后时间进度 15%，本周目标存在失约风险。',
+        title: '工作组四执行落后',
+        conclusion: '工作组四 3 个任务进度落后时间进度 15%，本周目标存在失约风险。',
         basis: '命中规则：任务完成率 < 时间进度 - 10%。',
-        dataRange: '业务四组 3 个任务，近 7 日',
+        dataRange: '工作组四 3 个任务，近 7 日',
         confidence: '高',
         suggestion: '优先催办责任工作组，并检查是否需要调整资源分配。',
         actionLabel: '查看任务',
@@ -650,7 +859,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       { id: 'pm-a-3', label: '医院拜访', description: '检查证据链问题', target: 'hospital-visits' },
     ],
     recentOperations: [
-      { id: 'pm-r-1', action: '创建任务', target: 'TK-2026-0001', user: '李强', time: '12 分钟前', color: '#176B5B' },
+      { id: 'pm-r-1', action: '创建任务', target: 'TK-2026-0001', user: '李强', time: '12 分钟前', color: 'var(--color-brand)' },
       { id: 'pm-r-2', action: '结算完结', target: 'TK-2026-0007', user: '李强', time: '34 分钟前', color: '#248A5A' },
       { id: 'pm-r-3', action: '调整预算', target: '阿托伐他汀 · 陕西 · 市场推广服务', user: '李强', time: '1 小时前', color: '#C77A16' },
       { id: 'pm-r-4', action: '导出', target: '组别执行对比', user: '药厂销售部门', time: '2 小时前', color: '#2F6BCE' },
@@ -676,9 +885,9 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
     ranking: {
       title: '组别排名',
       items: [
-        { id: 'pm-rank-1', label: 'TOP1 业务一组', value: '91%', hint: '拜访有效率', tone: 'success', progress: 91 },
-        { id: 'pm-rank-2', label: 'TOP2 业务三组', value: '87%', hint: '任务兑现率', tone: 'brand', progress: 87 },
-        { id: 'pm-rank-3', label: '垫底 业务四组', value: '64%', hint: '3 个任务落后', tone: 'danger', progress: 64 },
+        { id: 'pm-rank-1', label: 'TOP1 工作组一', value: '91%', hint: '拜访有效率', tone: 'success', progress: 91 },
+        { id: 'pm-rank-2', label: 'TOP2 工作组三', value: '87%', hint: '任务兑现率', tone: 'brand', progress: 87 },
+        { id: 'pm-rank-3', label: '垫底 工作组四', value: '64%', hint: '3 个任务落后', tone: 'danger', progress: 64 },
       ],
     },
     comparisonTable: {
@@ -699,6 +908,256 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         { id: 'pm-sp-3', label: '需重点跟进服务商', value: '2 家', hint: '证据链通过率偏低', tone: 'warning', progress: 39 },
       ],
     },
+    salesWorkbench: {
+      headline: '销售运营工作台',
+      dataAsOf: '2026-08-27 09:30',
+      filterOptions: {
+        varieties: ['阿托伐他汀钙片(20mg)', '奥美拉唑肠溶胶囊(20mg)', '瑞舒伐他汀钙片(10mg)'],
+        regions: ['广东', '陕西', '江苏', '浙江', '山东'],
+        providers: ['智联科技有限公司', '康晟云服科技有限公司', '东方恒业推广有限公司'],
+      },
+      todos: [
+        {
+          id: 'swb-todo-1',
+          taskId: 'TK-2026-0004',
+          taskName: '阿托伐他汀钙片(20mg) · 广东 · 市场推广服务',
+          docType: '结算单',
+          reason: '结算待业务确认（申请金额 ￥36,000）',
+          dueState: '已逾期 2 天',
+          overdue: true,
+          owner: '李强（药厂销售运营）',
+          primaryAction: '去确认',
+          target: 'task-dispatch',
+        },
+        {
+          id: 'swb-todo-2',
+          taskId: 'TK-2026-0005',
+          taskName: '奥美拉唑肠溶胶囊(20mg) · 广东 · 分析报告服务',
+          docType: '报告',
+          reason: '第 1 份分析报告待审核',
+          dueState: '今天到期',
+          overdue: false,
+          dueToday: true,
+          owner: '李强（药厂销售运营）',
+          primaryAction: '审核报告',
+          target: 'task-dispatch',
+        },
+        {
+          id: 'swb-todo-3',
+          taskId: 'TK-2026-0006',
+          taskName: '瑞舒伐他汀钙片(10mg) · 山东 · 市场推广服务',
+          docType: '任务',
+          reason: '任务待服务商确认，确认窗口内可撤销',
+          dueState: '剩余 3 天',
+          overdue: false,
+          owner: '李强（药厂销售运营）',
+          primaryAction: '查看任务',
+          target: 'task-dispatch',
+        },
+        {
+          id: 'swb-todo-4',
+          taskId: 'TK-2026-0001',
+          taskName: '阿托伐他汀钙片(20mg) · 广东 · 市场推广服务',
+          docType: '交付验收',
+          reason: '中期交付验收（里程碑 09-15）',
+          dueState: '剩余 19 天',
+          overdue: false,
+          owner: '李强（药厂销售运营）',
+          primaryAction: '查看交付',
+          target: 'task-dispatch',
+        },
+      ],
+      focusEvents: [
+        {
+          id: 'swb-ev-1',
+          severity: '紧急',
+          title: '交付逾期：学术会议 2 场未按里程碑交付',
+          taskId: 'TK-2026-0003',
+          provider: '东方恒业推广有限公司',
+          basis: '里程碑 2026-08-20 已过：5 场仅验收 3 场；经业务确认升级为紧急（08-31 整单验收受影响）',
+          impact: '影响 08-31 整单验收与后续结算确认',
+          state: '处理中',
+          occurredAt: '08-21 首次发生 · 08-26 服务商提交整改计划',
+          actionLabel: '查看任务',
+          target: 'task-dispatch',
+        },
+        {
+          id: 'swb-ev-2',
+          severity: '需关注',
+          title: '审核通过率偏低：首次审核通过率 72%',
+          taskId: 'TK-2026-0003',
+          provider: '东方恒业推广有限公司',
+          basis: '近 4 周已完成首次审核 100 条，通过 72 条；待审核 20 条未计入分母；低于批准阈值 85%',
+          impact: '影响该服务商承接质量的持续评估',
+          state: '待处理',
+          occurredAt: '08-25 规则触发',
+          actionLabel: '查看拜访',
+          target: 'hospital-visits',
+        },
+        {
+          id: 'swb-ev-3',
+          severity: '信息',
+          title: '未按期填报：8 月阶段数据 12 个应提交对象中 3 个逾期',
+          taskId: 'TK-2026-0002',
+          provider: '康晟云服科技有限公司',
+          basis: '应提交对象已生成、期限 08-25 已到、无有效提交；按任务归集，个人明细按权限下钻',
+          impact: '影响 09-10 问卷回收里程碑',
+          state: '待处理',
+          occurredAt: '08-26 规则触发',
+          actionLabel: '查看任务',
+          target: 'task-dispatch',
+        },
+      ],
+      tasks: [
+        {
+          id: 't1',
+          taskNo: 'TK-2026-0001',
+          name: '阿托伐他汀钙片(20mg) · 广东 · 市场推广服务',
+          varieties: ['阿托伐他汀钙片(20mg)'],
+          regions: ['广东'],
+          provider: '智联科技有限公司',
+          startDate: '2026-07-01',
+          endDate: '2026-09-30',
+          status: '执行中',
+          deliverables: [
+            { id: 't1-d1', name: '医院拜访', unit: '次', target: 500, accepted: 420, dueDate: '2026-09-15' },
+            { id: 't1-d2', name: '学术会议', unit: '场', target: 6, accepted: 4, dueDate: '2026-09-30' },
+          ],
+          anomalies: [],
+          nextDueLabel: '中期交付验收 · 09-15',
+        },
+        {
+          id: 't2',
+          taskNo: 'TK-2026-0002',
+          name: '奥美拉唑肠溶胶囊(20mg) · 陕西 · 问卷调研与分析服务',
+          varieties: ['奥美拉唑肠溶胶囊(20mg)'],
+          regions: ['陕西'],
+          provider: '康晟云服科技有限公司',
+          startDate: '2026-08-01',
+          endDate: '2026-10-31',
+          status: '执行中',
+          deliverables: [
+            { id: 't2-d1', name: '问卷回收', unit: '份', target: 2000, accepted: 1200, dueDate: '2026-09-10' },
+            { id: 't2-d2', name: '阶段数据提交', unit: '次', target: 1, accepted: 0, dueDate: '2026-08-25' },
+          ],
+          anomalies: ['未按期填报'],
+          nextDueLabel: '问卷回收里程碑 · 09-10',
+        },
+        {
+          id: 't3',
+          taskNo: 'TK-2026-0003',
+          name: '阿托伐他汀钙片(20mg) · 江苏/浙江 · 市场推广服务',
+          varieties: ['阿托伐他汀钙片(20mg)'],
+          regions: ['江苏', '浙江'],
+          provider: '东方恒业推广有限公司',
+          startDate: '2026-06-01',
+          endDate: '2026-08-31',
+          status: '执行中',
+          deliverables: [
+            { id: 't3-d1', name: '医院拜访', unit: '次', target: 400, accepted: 310, dueDate: '2026-08-31' },
+            { id: 't3-d2', name: '学术会议', unit: '场', target: 5, accepted: 3, dueDate: '2026-08-20' },
+            { id: 't3-d3', name: '总结报告', unit: '份', target: 1, accepted: 0, dueDate: '2026-08-31' },
+          ],
+          anomalies: ['交付逾期', '审核通过率偏低'],
+          nextDueLabel: '整单验收截止 · 08-31',
+        },
+        {
+          id: 't4',
+          taskNo: 'TK-2026-0004',
+          name: '阿托伐他汀钙片(20mg) · 广东 · 市场推广服务（二期）',
+          varieties: ['阿托伐他汀钙片(20mg)'],
+          regions: ['广东'],
+          provider: '智联科技有限公司',
+          startDate: '2026-05-01',
+          endDate: '2026-08-31',
+          status: '执行中',
+          deliverables: [
+            { id: 't4-d1', name: '医院拜访', unit: '次', target: 380, accepted: 380, dueDate: '2026-08-15' },
+            { id: 't4-d2', name: '结案报告', unit: '份', target: 1, accepted: 1, dueDate: '2026-08-22' },
+          ],
+          anomalies: [],
+          nextDueLabel: '结算确认（待办中）· 已逾期 2 天',
+        },
+        {
+          id: 't5',
+          taskNo: 'TK-2026-0005',
+          name: '奥美拉唑肠溶胶囊(20mg) · 广东 · 分析报告服务',
+          varieties: ['奥美拉唑肠溶胶囊(20mg)'],
+          regions: ['广东'],
+          provider: '康晟云服科技有限公司',
+          startDate: '2026-08-10',
+          endDate: '2026-09-20',
+          status: '执行中',
+          deliverables: [
+            { id: 't5-d1', name: '分析报告', unit: '份', target: 2, accepted: 1, dueDate: '2026-09-18' },
+          ],
+          anomalies: [],
+          nextDueLabel: '第 1 份报告审核 · 今天到期',
+        },
+        {
+          id: 't6',
+          taskNo: 'TK-2026-0006',
+          name: '瑞舒伐他汀钙片(10mg) · 山东 · 市场推广服务',
+          varieties: ['瑞舒伐他汀钙片(10mg)'],
+          regions: ['山东'],
+          provider: '东方恒业推广有限公司',
+          startDate: '2026-09-01',
+          endDate: '2026-11-30',
+          status: '待确认',
+          deliverables: [],
+          anomalies: [],
+          nextDueLabel: '',
+        },
+        {
+          id: 't7',
+          taskNo: 'TK-2026-0007',
+          name: '阿托伐他汀钙片(20mg) · 陕西 · 市场推广服务',
+          varieties: ['阿托伐他汀钙片(20mg)'],
+          regions: ['陕西'],
+          provider: '智联科技有限公司',
+          startDate: '2026-05-01',
+          endDate: '2026-07-31',
+          status: '已结算',
+          deliverables: [
+            { id: 't7-d1', name: '医院拜访', unit: '次', target: 260, accepted: 260, dueDate: '2026-07-31' },
+          ],
+          anomalies: [],
+          nextDueLabel: '已完成结算',
+        },
+        {
+          id: 't8',
+          taskNo: 'TK-2026-0008',
+          name: '奥美拉唑肠溶胶囊(20mg) · 浙江 · 市场推广服务',
+          varieties: ['奥美拉唑肠溶胶囊(20mg)'],
+          regions: ['浙江'],
+          provider: '康晟云服科技有限公司',
+          startDate: '2026-08-05',
+          endDate: '2026-08-12',
+          status: '已撤销',
+          deliverables: [],
+          anomalies: [],
+          nextDueLabel: '',
+        },
+      ],
+      ai: {
+        id: 'swb-ai-1',
+        summary: '东方恒业近 4 周首次审核通过率 72%，且学术会议交付逾期 2 场——交付问题与审核问题集中在同一服务商，建议合并处理。',
+        finding: '东方恒业推广有限公司（TK-2026-0003）近 4 周首次审核通过率 72%，同期学术会议交付逾期 2 场（里程碑 08-20）。',
+        evidence: '已完成首次审核 100 条，通过 72 条；待审核 20 条未计入分母。交付里程碑 08-20 已过，5 场仅验收 3 场。业务数据截至 2026-08-27 09:30。',
+        cause: '已验证：退回记录中「材料缺失」占 61%。待核实：是否存在定位漂移等采集流程问题（需人工复核）。',
+        suggestion: '① 查看退回分类与关联任务（责任角色：药厂销售运营）；② 与东方恒业确认整改计划并跟踪 08-31 验收（责任角色：服务商）。',
+        actions: [
+          { label: '查看任务明细', target: 'task-dispatch' },
+          { label: '查看拜访记录', target: 'hospital-visits' },
+        ],
+        generatedAt: '2026-08-27 09:35',
+      },
+      quickActions: [
+        { id: 'swb-a-1', label: '任务执行', description: '任务列表与结算确认', target: 'task-dispatch' },
+        { id: 'swb-a-2', label: '预算计划', description: '年度与月度预算', target: 'budget-plan' },
+        { id: 'swb-a-3', label: '医院拜访', description: '执行记录与审核', target: 'hospital-visits' },
+      ],
+    } satisfies SalesWorkbenchData,
   },
   '药厂合规部门': {
     role: '药厂合规部门',
@@ -727,12 +1186,12 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       },
       {
         id: 'pc-ai-4',
-        title: '证据存疑集中于业务三组',
-        conclusion: '业务三组跟踪巡访任务证据存疑集中（3 条），建议优先复审。',
+        title: '证据存疑集中于工作组三',
+        conclusion: '工作组三跟踪巡访任务证据存疑集中（3 条），建议优先复审。',
         basis: '命中规则：近 7 日同任务类型存疑记录 ≥ 3 条，且集中于同一工作组。',
         dataRange: '近 7 日证据链一次自动审核结果，更新于今日 09:00',
         confidence: '高',
-        suggestion: '优先复审业务三组跟踪巡访存疑记录，并核对该组证据采集流程是否整改。',
+        suggestion: '优先复审工作组三跟踪巡访存疑记录，并核对该组证据采集流程是否整改。',
         actionLabel: '去复审',
         target: 'evidence-chain',
         confirmationNote: '复审通过或退回需合规管理员人工裁定。',
@@ -743,12 +1202,12 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       { id: 'pc-q-1', name: '专员李晨 · 未备案，待补备案', type: '备案管理', deadline: '2026-08-24 18:00', risk: 'overdue', assignee: '合规管理员', lastAction: '30 分钟前 · 催补备案提醒', actionLabel: '处理备案', target: 'dashboard', note: '橙色审批门槛' },
       { id: 'pc-q-2', name: '供应商准入 #SP-2026-08-12', type: '审批待办', deadline: '2026-08-22 17:00', risk: 'risk', assignee: '合规管理员', lastAction: '1 小时前 · 补件完成', actionLabel: '查看审批', target: 'audit-log', note: '橙色审批门槛' },
       { id: 'pc-q-3', name: '随检任务池 · 今日推荐 9 条', type: '随检通知', deadline: '2026-08-23 09:00', risk: 'attention', assignee: '随检组', lastAction: '今天 · 待认领', actionLabel: '进入随检', target: 'inspection', note: '蓝色风控建议' },
-      { id: 'pc-q-4', name: '证据链存疑 · 业务三组跟踪巡访 3 条', type: '证据复审', deadline: '2026-08-23 18:00', risk: 'normal', assignee: '合规管理员', lastAction: '今天 · AI 自动标注', actionLabel: '去复审', target: 'evidence-chain', note: '蓝色风控建议' },
+      { id: 'pc-q-4', name: '证据链存疑 · 工作组三跟踪巡访 3 条', type: '证据复审', deadline: '2026-08-23 18:00', risk: 'normal', assignee: '合规管理员', lastAction: '今天 · AI 自动标注', actionLabel: '去复审', target: 'evidence-chain', note: '蓝色风控建议' },
     ],
     quickActions: [
       { id: 'pc-a-1', label: '随检工作台', description: '优先处理今日推荐任务', target: 'inspection' },
       { id: 'pc-a-2', label: '审批供应商准入', description: '处理补件与资质核验', target: 'audit-log' },
-      { id: 'pc-a-3', label: '证据链存疑复审', description: '优先处理业务三组集中存疑', target: 'evidence-chain' },
+      { id: 'pc-a-3', label: '证据链存疑复审', description: '优先处理工作组三集中存疑', target: 'evidence-chain' },
     ],
     recentOperations: [
       { id: 'pc-r-1', action: '发起随检', target: '随检任务 QA-0081', user: '药厂合规部门', time: '29 分钟前', color: '#2F6BCE' },
@@ -777,7 +1236,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         { id: 'pc-d-1', label: '备案状态异常', value: '2 人', hint: '未备案 · 推广提交将被自动拦截', tone: 'danger', progress: 20 },
         { id: 'pc-d-2', label: '准入 · 资质', value: '41 件', hint: '准入待审 4 家 · 资质临期 37 件', tone: 'warning', progress: 55 },
         { id: 'pc-d-3', label: '随检覆盖', value: '9 项', hint: '今日推荐 · 待认领', tone: 'info', progress: 45 },
-        { id: 'pc-d-4', label: '证据存疑', value: '6 条', hint: '业务三组跟踪巡访集中 3 条', tone: 'brand', progress: 60 },
+        { id: 'pc-d-4', label: '证据存疑', value: '6 条', hint: '工作组三跟踪巡访集中 3 条', tone: 'brand', progress: 60 },
       ],
     },
     spotlight: {
@@ -785,15 +1244,15 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       items: [
         { id: 'pc-sp-1', label: '专员 · 李晨', value: '未备案', hint: '待补备案 · 提交将被系统拦截', tone: 'danger', progress: 90 },
         { id: 'pc-sp-2', label: '供应商 · 东方恒业推广有限公司', value: '资质 30 天临期', hint: '3 项资质待续证', tone: 'warning', progress: 65 },
-        { id: 'pc-sp-3', label: '随检 · 业务一组学术拜访', value: '风险分 92', hint: '定位漂移 + 异常时间', tone: 'warning', progress: 92 },
-        { id: 'pc-sp-4', label: '证据 · 业务三组跟踪巡访', value: '3 条存疑', hint: '建议优先复审', tone: 'info', progress: 70 },
+        { id: 'pc-sp-3', label: '随检 · 工作组一学术拜访', value: '风险分 92', hint: '定位漂移 + 异常时间', tone: 'warning', progress: 92 },
+        { id: 'pc-sp-4', label: '证据 · 工作组三跟踪巡访', value: '3 条存疑', hint: '建议优先复审', tone: 'info', progress: 70 },
       ],
     },
     inspectionWorkbench: {
       recommended: [
-        { id: 'pc-i-1', label: '业务一组 · 学术拜访', value: '风险分 92', hint: '定位漂移 + 异常时间', tone: 'danger' },
-        { id: 'pc-i-2', label: '业务四组 · 文献分享', value: '风险分 86', hint: '拍照时间逆序', tone: 'warning' },
-        { id: 'pc-i-3', label: '业务三组 · 跟踪巡访', value: '风险分 81', hint: '证据链缺失', tone: 'info' },
+        { id: 'pc-i-1', label: '工作组一 · 学术拜访', value: '风险分 92', hint: '定位漂移 + 异常时间', tone: 'danger' },
+        { id: 'pc-i-2', label: '工作组四 · 文献分享', value: '风险分 86', hint: '拍照时间逆序', tone: 'warning' },
+        { id: 'pc-i-3', label: '工作组三 · 跟踪巡访', value: '风险分 81', hint: '证据链缺失', tone: 'info' },
       ],
       active: [
         { id: 'pc-i-4', label: '随检任务 QA-0081', value: '进行中', hint: '摄像头在线 / 定位正常', tone: 'success' },
@@ -835,11 +1294,11 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       {
         id: 'sp-ai-2',
         title: '工作组负荷失衡',
-        conclusion: '业务二组工作量占比 38%，明显高于其他组，存在超期风险。',
+        conclusion: '工作组二工作量占比 38%，明显高于其他组，存在超期风险。',
         basis: '命中规则：单组负荷占比 > 平均值 1.5 倍。',
         dataRange: '本周任务与专员排班数据',
         confidence: '中',
-        suggestion: '调整待分配工作量，优先向业务三组和业务五组倾斜。',
+        suggestion: '调整待分配工作量，优先向工作组三和工作组五倾斜。',
         actionLabel: '查看任务分配',
         target: 'task-dispatch',
         confirmationNote: '是否调整排班需管理者人工确认。',
@@ -868,7 +1327,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
     messages: [
       { id: 'sp-m-1', type: '任务提醒', title: '9 条待初审记录命中 AI 存疑', summary: '建议优先分配有经验的工作组长。', time: '7 分钟前', unread: true, reminderLevel: '1小时提醒', actionLabel: '查看队列', target: 'hospital-visits' },
       { id: 'sp-m-2', type: '任务提醒', title: '1 条任务待确认', summary: 'TK-2026-0001 阿托伐他汀 · 陕西。', time: '18 分钟前', unread: true, actionLabel: '去确认', target: 'task-dispatch' },
-      { id: 'sp-m-3', type: '审批待办', title: '2 条任务转派待确认', summary: '涉及业务二组负荷平衡。', time: '35 分钟前', actionLabel: '去确认', target: 'task-dispatch' },
+      { id: 'sp-m-3', type: '审批待办', title: '2 条任务转派待确认', summary: '涉及工作组二负荷平衡。', time: '35 分钟前', actionLabel: '去确认', target: 'task-dispatch' },
       { id: 'sp-m-4', type: '转办通知', title: '药厂销售部门转办 1 条异常任务', summary: '需内部排查执行过程。', time: '1 小时前', actionLabel: '查看详情', target: 'task-dispatch' },
     ],
     quickActions: [
@@ -877,9 +1336,9 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       { id: 'sp-a-3', label: '查看本月结算', description: '跟踪结算兑现', target: 'settlement' },
     ],
     recentOperations: [
-      { id: 'sp-r-1', action: '发起结算', target: 'TK-2026-0004', user: '服务提供商', time: '11 分钟前', color: '#176B5B' },
+      { id: 'sp-r-1', action: '发起结算', target: 'TK-2026-0004', user: '服务提供商', time: '11 分钟前', color: 'var(--color-brand)' },
       { id: 'sp-r-2', action: '初审驳回', target: '拜访记录 VR01102', user: '刘洋', time: '28 分钟前', color: '#C73A3A' },
-      { id: 'sp-r-3', action: '拆分任务包', target: 'TK-2026-0004 · 业务一组/二组', user: '服务提供商', time: '46 分钟前', color: '#2F6BCE' },
+      { id: 'sp-r-3', action: '拆分任务包', target: 'TK-2026-0004 · 工作组一/二组', user: '服务提供商', time: '46 分钟前', color: '#2F6BCE' },
       { id: 'sp-r-4', action: '催办', target: '超期未填报专员 2 人', user: '工作组长', time: '1 小时前', color: '#C77A16' },
     ],
     trend: {
@@ -903,9 +1362,9 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
     ranking: {
       title: '工作组排名',
       items: [
-        { id: 'sp-rank-1', label: 'TOP1 业务三组', value: '94%', hint: '任务完成率', tone: 'success', progress: 94 },
-        { id: 'sp-rank-2', label: 'TOP2 业务五组', value: '89%', hint: '证据链通过率', tone: 'brand', progress: 89 },
-        { id: 'sp-rank-3', label: '关注 业务二组', value: '68%', hint: '负荷偏高', tone: 'warning', progress: 68 },
+        { id: 'sp-rank-1', label: 'TOP1 工作组三', value: '94%', hint: '任务完成率', tone: 'success', progress: 94 },
+        { id: 'sp-rank-2', label: 'TOP2 工作组五', value: '89%', hint: '证据链通过率', tone: 'brand', progress: 89 },
+        { id: 'sp-rank-3', label: '关注 工作组二', value: '68%', hint: '负荷偏高', tone: 'warning', progress: 68 },
       ],
     },
     spotlight: {
@@ -924,12 +1383,12 @@ export function getRoleDashboardData(role: Role): DashboardRoleData {
 }
 
 export const evidenceChainRecords: EvidenceChainRecord[] = [
-  { id: 'ev-1', taskNo: 'VR-2031', specialist: '杨明', provider: '东方恒业推广有限公司', workGroup: '业务三组', visitType: '跟踪巡访服务', time: '今天 09:12', aiTags: ['照片清晰度不足', '证据缺失'] },
-  { id: 'ev-2', taskNo: 'VR-2034', specialist: '黄峰', provider: '东方恒业推广有限公司', workGroup: '业务三组', visitType: '跟踪巡访服务', time: '今天 08:47', aiTags: ['任务关联断裂'] },
-  { id: 'ev-3', taskNo: 'VR-2036', specialist: '吴超', provider: '东方恒业推广有限公司', workGroup: '业务三组', visitType: '跟踪巡访服务', time: '昨天 17:30', aiTags: ['证据缺失'] },
-  { id: 'ev-4', taskNo: 'VR-2019', specialist: '张伟', provider: '智联科技有限公司', workGroup: '业务一组', visitType: '学术拜访', time: '昨天 15:20', aiTags: ['照片清晰度不足'] },
-  { id: 'ev-5', taskNo: 'VR-2022', specialist: '刘洋', provider: '智联科技有限公司', workGroup: '业务四组', visitType: '日常拜访', time: '昨天 11:05', aiTags: ['照片清晰度不足', '证据缺失'] },
-  { id: 'ev-6', taskNo: 'VR-2008', specialist: '陈静', provider: '永泰汇通推广有限公司', workGroup: '业务五组', visitType: '信息收集和调研', time: '2 天前 16:40', aiTags: ['任务关联断裂'] },
+  { id: 'ev-1', taskNo: 'VR-2031', specialist: '杨明', provider: '东方恒业推广有限公司', workGroup: '工作组三', visitType: '跟踪巡访服务', time: '今天 09:12', aiTags: ['照片清晰度不足', '证据缺失'] },
+  { id: 'ev-2', taskNo: 'VR-2034', specialist: '黄峰', provider: '东方恒业推广有限公司', workGroup: '工作组三', visitType: '跟踪巡访服务', time: '今天 08:47', aiTags: ['任务关联断裂'] },
+  { id: 'ev-3', taskNo: 'VR-2036', specialist: '吴超', provider: '东方恒业推广有限公司', workGroup: '工作组三', visitType: '跟踪巡访服务', time: '昨天 17:30', aiTags: ['证据缺失'] },
+  { id: 'ev-4', taskNo: 'VR-2019', specialist: '张伟', provider: '智联科技有限公司', workGroup: '工作组一', visitType: '学术拜访', time: '昨天 15:20', aiTags: ['照片清晰度不足'] },
+  { id: 'ev-5', taskNo: 'VR-2022', specialist: '刘洋', provider: '智联科技有限公司', workGroup: '工作组四', visitType: '日常拜访', time: '昨天 11:05', aiTags: ['照片清晰度不足', '证据缺失'] },
+  { id: 'ev-6', taskNo: 'VR-2008', specialist: '陈静', provider: '永泰汇通推广有限公司', workGroup: '工作组五', visitType: '信息收集和调研', time: '2 天前 16:40', aiTags: ['任务关联断裂'] },
 ];
 
 export const repFilingAnalysis: RepFilingAnalysis = {

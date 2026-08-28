@@ -6,7 +6,7 @@ import type { ToastMessage } from '../components/Toast';
 import type { DashboardStatItem } from '../types';
 
 const toneColor: Record<string, string> = {
-  brand: '#176B5B',
+  brand: 'var(--color-brand)',
   success: '#248A5A',
   warning: '#C77A16',
   danger: '#C73A3A',
@@ -16,7 +16,7 @@ const toneColor: Record<string, string> = {
 
 const panelStyle: React.CSSProperties = {
   background: '#fff',
-  border: '1px solid #E5E7EB',
+  border: '1px solid var(--color-border)',
   borderRadius: 10,
   display: 'flex',
   flexDirection: 'column',
@@ -30,12 +30,12 @@ const rowStyle: React.CSSProperties = {
 
 function PanelHeader({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
   return (
-    <div style={{ padding: '12px 14px', borderBottom: '1px solid #E5E7EB', background: '#FAFBFC' }}>
+    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--color-border)', background: '#FAFBFC' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {icon}
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{title}</span>
+        <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-sidebar)' }}>{title}</span>
       </div>
-      <div style={{ fontSize: 11, color: '#98A2B3', marginTop: 4 }}>{subtitle}</div>
+      <div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3', marginTop: 4 }}>{subtitle}</div>
     </div>
   );
 }
@@ -67,12 +67,12 @@ export function InspectionWorkbench({ addToast }: { addToast: (msg: Omit<ToastMe
             {recommended.map((item: DashboardStatItem) => (
               <div key={item.id} style={rowStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{item.label}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: toneColor[item.tone || 'neutral'], whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-sidebar)' }}>{item.label}</span>
+                  <span style={{ fontSize: 'var(--fs-12)', fontWeight: 700, color: toneColor[item.tone || 'neutral'], whiteSpace: 'nowrap' }}>
                     {item.value}
                   </span>
                 </div>
-                <div style={{ fontSize: 12, color: '#667085', marginTop: 4 }}>{item.hint}</div>
+                <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 4 }}>{item.hint}</div>
                 <div style={{ marginTop: 10 }}>
                   <Button
                     variant="primary"
@@ -105,9 +105,9 @@ export function InspectionWorkbench({ addToast }: { addToast: (msg: Omit<ToastMe
               return (
                 <div key={item.id} style={rowStyle}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{item.label}</span>
+                    <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-sidebar)' }}>{item.label}</span>
                     <span style={{
-                      fontSize: 11,
+                      fontSize: 'var(--fs-11)',
                       fontWeight: 600,
                       color: '#248A5A',
                       background: '#E6F5ED',
@@ -118,7 +118,7 @@ export function InspectionWorkbench({ addToast }: { addToast: (msg: Omit<ToastMe
                       {item.value}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 12 }}>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 'var(--fs-12)' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: cameraOn ? '#248A5A' : '#C73A3A' }}>
                       <Video size={13} />
                       {cameraOn ? '摄像头在线' : '摄像头离线'}
@@ -129,7 +129,7 @@ export function InspectionWorkbench({ addToast }: { addToast: (msg: Omit<ToastMe
                     </span>
                   </div>
                   {item.hint && (
-                    <div style={{ fontSize: 12, color: '#667085', marginTop: 6 }}>{item.hint}</div>
+                    <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 6 }}>{item.hint}</div>
                   )}
                 </div>
               );
@@ -146,12 +146,12 @@ export function InspectionWorkbench({ addToast }: { addToast: (msg: Omit<ToastMe
             {pending.map((item: DashboardStatItem) => (
               <div key={item.id} style={rowStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{item.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: toneColor[item.tone || 'neutral'], whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-sidebar)' }}>{item.label}</span>
+                  <span style={{ fontSize: 'var(--fs-13)', fontWeight: 700, color: toneColor[item.tone || 'neutral'], whiteSpace: 'nowrap' }}>
                     {item.value}
                   </span>
                 </div>
-                <div style={{ fontSize: 12, color: '#667085', marginTop: 4 }}>{item.hint}</div>
+                <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginTop: 4 }}>{item.hint}</div>
                 <div style={{ marginTop: 10 }}>
                   <Button
                     variant="outline"

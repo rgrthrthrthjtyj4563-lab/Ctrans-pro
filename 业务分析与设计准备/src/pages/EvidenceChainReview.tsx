@@ -15,7 +15,7 @@ const aiTagColor: Record<string, 'warning' | 'danger' | 'info'> = {
 const thStyle: React.CSSProperties = {
   padding: '10px 12px',
   textAlign: 'left',
-  fontSize: 12,
+  fontSize: 'var(--fs-12)',
   fontWeight: 600,
   color: '#9CA3AF',
   whiteSpace: 'nowrap',
@@ -23,7 +23,7 @@ const thStyle: React.CSSProperties = {
 
 const tdStyle: React.CSSProperties = {
   padding: '12px',
-  fontSize: 13,
+  fontSize: 'var(--fs-13)',
   color: '#374151',
   borderTop: '1px solid #F3F4F6',
   verticalAlign: 'middle',
@@ -75,16 +75,16 @@ export function EvidenceChainReview({ addToast }: { addToast: (msg: Omit<ToastMe
           display: 'flex',
           gap: 10,
           alignItems: 'center',
-          fontSize: 13,
+          fontSize: 'var(--fs-13)',
           color: '#C77A16',
         }}>
           <FileSearch size={15} />
           <span>
-            存疑记录 {evidenceChainRecords.length} 条，待复审 {pendingCount} 条；业务三组跟踪巡访存疑集中（3 条），建议优先复审。
+            存疑记录 {evidenceChainRecords.length} 条，待复审 {pendingCount} 条；工作组三跟踪巡访存疑集中（3 条），建议优先复审。
           </span>
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, overflow: 'auto' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 10, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#FAFBFC' }}>
@@ -101,16 +101,16 @@ export function EvidenceChainReview({ addToast }: { addToast: (msg: Omit<ToastMe
                 const result = results[rec.id];
                 return (
                   <tr key={rec.id} style={{ background: result ? '#FAFBFC' : '#fff' }}>
-                    <td style={{ ...tdStyle, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{rec.taskNo}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{rec.taskNo}</td>
                     <td style={tdStyle}>
-                      <div style={{ fontWeight: 500, color: '#111827' }}>{rec.specialist}</div>
-                      <div style={{ fontSize: 12, color: '#98A2B3', marginTop: 2 }}>{rec.provider}</div>
+                      <div style={{ fontWeight: 500, color: 'var(--color-sidebar)' }}>{rec.specialist}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#98A2B3', marginTop: 2 }}>{rec.provider}</div>
                     </td>
                     <td style={tdStyle}>
                       <div>{rec.workGroup}</div>
-                      <div style={{ fontSize: 12, color: '#98A2B3', marginTop: 2 }}>{rec.visitType}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#98A2B3', marginTop: 2 }}>{rec.visitType}</div>
                     </td>
-                    <td style={{ ...tdStyle, color: '#667085', fontSize: 12, whiteSpace: 'nowrap' }}>{rec.time}</td>
+                    <td style={{ ...tdStyle, color: '#667085', fontSize: 'var(--fs-12)', whiteSpace: 'nowrap' }}>{rec.time}</td>
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {rec.aiTags.map(tag => (
@@ -120,12 +120,12 @@ export function EvidenceChainReview({ addToast }: { addToast: (msg: Omit<ToastMe
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       {result === 'passed' && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#248A5A' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-12)', fontWeight: 600, color: '#248A5A' }}>
                           <CheckCircle size={14} /> 复审通过
                         </span>
                       )}
                       {result === 'returned' && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#C77A16' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-12)', fontWeight: 600, color: '#C77A16' }}>
                           <XCircle size={14} /> 已退回补件
                         </span>
                       )}

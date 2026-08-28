@@ -30,6 +30,17 @@
   --color-border-strong:#D1D5DB;
   --color-table-stripe: #F9FAFB;
 
+  /* AI workbench — same family, no purple/neon */
+  --color-ai-rail:       #F3F6F4;
+  --color-ai-stream:     #FFFFFF;
+  --color-ai-inspector:  #FAFBFA;
+  --color-ai-ink:        #1B322D;
+  --color-ai-muted:      #6D7972;
+  --color-ai-line:       #E4E9E2;
+  --color-ai-chip:       #E8F4F1;
+  --color-ai-warning:    #C77A16;
+  --color-ai-warning-bg: #FEF3E2;
+
   /* Sidebar */
   --color-sidebar:          #111827;
   --color-sidebar-hover:    #1c2b3a;
@@ -37,6 +48,9 @@
   --color-sidebar-text:     #D1D5DB;
   --color-sidebar-muted:    #6B7280;
   --color-sidebar-divider:  #1F2937;
+  --color-sidebar-elev:     #1F2937;   /* 侧栏上的浮层/按钮底色 */
+  --color-sidebar-line:     #374151;   /* 侧栏浮层描边与内分隔线 */
+  --color-sidebar-accent:   #4ADE80;   /* 侧栏激活态强调色 */
 
   /* Text */
   --color-text-1: #1F2937;
@@ -66,6 +80,86 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* ─── Display preferences: font scale tokens ────────────────────────────────
+   正文/表格/表单/弹窗等所有字号通过 var(--fs-N) 引用，档位变化只动比例。
+   图标、Logo、图表几何尺寸不走这套 token，因此不受缩放影响。 */
+:root {
+  --font-scale: 1;
+  --app-font-size: 14px;
+  --fs-10: calc(10px * var(--font-scale));
+  --fs-11: calc(11px * var(--font-scale));
+  --fs-12: calc(12px * var(--font-scale));
+  --fs-13: calc(13px * var(--font-scale));
+  --fs-14: calc(14px * var(--font-scale));
+  --fs-15: calc(15px * var(--font-scale));
+  --fs-16: calc(16px * var(--font-scale));
+  --fs-18: calc(18px * var(--font-scale));
+  --fs-20: calc(20px * var(--font-scale));
+  --fs-22: calc(22px * var(--font-scale));
+  --fs-24: calc(24px * var(--font-scale));
+}
+
+html[data-font-scale="compact"] { --font-scale: 0.9286; --app-font-size: 13px; }
+html[data-font-scale="large"]   { --font-scale: 1.1429; --app-font-size: 16px; }
+
+/* ─── Display preferences: color themes ─────────────────────────────────────
+   只改品牌/侧栏/边框等中性 token；成功、警告、错误、信息等语义色恒定，
+   状态含义不随主题漂移。teal 即 @theme 中的默认值，无需覆盖。 */
+html[data-color-theme="blue"] {
+  --color-brand:        #2F6BCE;
+  --color-brand-hover:  #2457A8;
+  --color-brand-subtle: #EBF2FE;
+  --color-sidebar:          #101B2E;
+  --color-sidebar-divider:  #1D2A42;
+  --color-sidebar-elev:     #1D2A42;
+  --color-sidebar-line:     #324A70;
+  --color-sidebar-accent:   #7FB0FF;
+}
+
+html[data-color-theme="high-contrast"] {
+  --color-brand:        #003366;
+  --color-brand-hover:  #002548;
+  --color-brand-subtle: #D8E4F3;
+  --color-sidebar:          #000000;
+  --color-sidebar-divider:  #262626;
+  --color-sidebar-elev:     #1A1A1A;
+  --color-sidebar-line:     #404040;
+  --color-sidebar-text:     #E8E8E8;
+  --color-sidebar-accent:   #66FFA3;
+  --color-border:       #6B7280;
+  --color-border-strong:#374151;
+  --color-text-1:       #000000;
+}
+
+/* 主题切换只做 150–200ms 色彩过渡（由 JS 临时挂类），不干扰布局动画 */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 180ms ease, border-color 180ms ease,
+              color 180ms ease, fill 180ms ease, stroke 180ms ease,
+              outline-color 180ms ease !important;
+}
+
+/* 高对比主题下焦点框加粗 */
+html[data-color-theme="high-contrast"] :focus-visible {
+  outline-width: 3px;
+}
+
+/* 窄屏下“显示设置”按钮只留图标（tooltip 由 title 提供） */
+@media (max-width: 900px) {
+  .display-pref-label { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-transitioning,
+  html.theme-transitioning *,
+  html.theme-transitioning *::before,
+  html.theme-transitioning *::after {
+    transition: none !important;
+  }
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -75,7 +169,7 @@ html, body, #root {
 
 body {
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--app-font-size);
   line-height: 1.5715;
   color: var(--color-text-1);
   background: var(--color-canvas);
@@ -99,4 +193,26 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes demoSceneIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes demoFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-scene-enter,
+  .demo-scene-overlay {
+    animation: none !important;
+    transition: none !important;
+  }
 }

@@ -48,13 +48,13 @@ export function DoctorMaster() {
     <th style={{
       padding: '10px 12px',
       textAlign: 'left',
-      fontSize: 12,
+      fontSize: 'var(--fs-12)',
       fontWeight: 600,
       color: '#9CA3AF',
       textTransform: 'uppercase',
       letterSpacing: '0.03em',
       background: '#F9FAFB',
-      borderBottom: '1px solid #E5E7EB',
+      borderBottom: '1px solid var(--color-border)',
       whiteSpace: 'nowrap',
       width: w,
     }}>{label}</th>
@@ -74,7 +74,7 @@ export function DoctorMaster() {
             background: '#FEF3E2',
             border: '1px solid #FDE68A',
             borderRadius: '6px',
-            fontSize: 12,
+            fontSize: 'var(--fs-12)',
             color: '#C77A16',
           }}>
             <AlertCircle size={13} />
@@ -91,7 +91,7 @@ export function DoctorMaster() {
           border: '1px solid #BFDBFE',
           borderRadius: '8px',
           marginBottom: 16,
-          fontSize: 13,
+          fontSize: 'var(--fs-13)',
           color: '#2F6BCE',
           display: 'flex',
           gap: 8,
@@ -112,14 +112,14 @@ export function DoctorMaster() {
           onSearch={() => setPage(1)}
           onReset={() => { setFilters({}); setPage(1); }}
           stats={
-            <span style={{ fontSize: 13, color: '#667085' }}>
-              共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 位医生
+            <span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>
+              共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 位医生
             </span>
           }
           collapsedCount={4}
         />
 
-        <div style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ background: '#FFFFFF', border: '1px solid var(--color-border)', borderRadius: '8px', overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
               <thead>
@@ -150,13 +150,13 @@ export function DoctorMaster() {
                     onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA'; }}
                   >
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>{doc.name}</div>
-                      <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{doc.title}</div>
+                      <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>{doc.name}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{doc.title}</div>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, color: '#374151', maxWidth: 160 }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', maxWidth: 160 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.hospital}</span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, color: '#374151', whiteSpace: 'nowrap' }}>{doc.department}</td>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', whiteSpace: 'nowrap' }}>{doc.department}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <Tag label={doc.tier} color={doc.tier.includes('KOL A') ? 'brand' : doc.tier.includes('KOL B') ? 'info' : 'default'} />
                     </td>
@@ -164,7 +164,7 @@ export function DoctorMaster() {
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {doc.tags.map((tag, ti) => (
                           <span key={ti} style={{
-                            fontSize: 11,
+                            fontSize: 'var(--fs-11)',
                             padding: '2px 6px',
                             borderRadius: '3px',
                             background: '#F3F4F6',
@@ -180,7 +180,7 @@ export function DoctorMaster() {
                         gap: 5,
                         padding: '3px 8px',
                         borderRadius: '9999px',
-                        fontSize: 12,
+                        fontSize: 'var(--fs-12)',
                         fontWeight: 500,
                         background: statusColor[doc.cooperationStatus].bg,
                         color: statusColor[doc.cooperationStatus].fg,
@@ -189,10 +189,10 @@ export function DoctorMaster() {
                         {doc.cooperationStatus}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#667085', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#667085', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                       {doc.lastVisit}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 600, color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', fontWeight: 600, color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>
                       {doc.visitCount}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
@@ -225,26 +225,26 @@ export function DoctorMaster() {
               background: '#F9FAFB',
               borderRadius: '8px',
               marginBottom: 20,
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
             }}>
               <div style={{
                 width: 48,
                 height: 48,
                 borderRadius: '12px',
-                background: '#E8F4F1',
-                color: '#176B5B',
+                background: 'var(--color-brand-subtle)',
+                color: 'var(--color-brand)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 20,
+                fontSize: 'var(--fs-20)',
                 fontWeight: 700,
                 flexShrink: 0,
               }}>
                 {drawerDoctor.name.slice(0, 1)}
               </div>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#1F2937' }}>{drawerDoctor.name}</div>
-                <div style={{ fontSize: 13, color: '#667085', marginTop: 2 }}>
+                <div style={{ fontSize: 'var(--fs-16)', fontWeight: 700, color: 'var(--color-text-1)' }}>{drawerDoctor.name}</div>
+                <div style={{ fontSize: 'var(--fs-13)', color: '#667085', marginTop: 2 }}>
                   {drawerDoctor.title} · {drawerDoctor.department}
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
@@ -260,7 +260,7 @@ export function DoctorMaster() {
               border: '1px solid #FDE68A',
               borderRadius: '6px',
               marginBottom: 16,
-              fontSize: 12,
+              fontSize: 'var(--fs-12)',
               color: '#C77A16',
               display: 'flex',
               gap: 8,
@@ -276,7 +276,7 @@ export function DoctorMaster() {
               <FieldItem label="合作状态" value={
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', gap: 5,
-                  padding: '3px 8px', borderRadius: '9999px', fontSize: 12, fontWeight: 500,
+                  padding: '3px 8px', borderRadius: '9999px', fontSize: 'var(--fs-12)', fontWeight: 500,
                   background: statusColor[drawerDoctor.cooperationStatus].bg,
                   color: statusColor[drawerDoctor.cooperationStatus].fg,
                 }}>
@@ -284,17 +284,17 @@ export function DoctorMaster() {
                   {drawerDoctor.cooperationStatus}
                 </span>
               } />
-              <FieldItem label="医生 ID" value={<span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF', fontSize: 12 }}>{drawerDoctor.id}</span>} />
+              <FieldItem label="医生 ID" value={<span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF', fontSize: 'var(--fs-12)' }}>{drawerDoctor.id}</span>} />
             </FieldGroup>
 
             <FieldGroup title="业务数据">
               <FieldItem label="最近拜访" value={<span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{drawerDoctor.lastVisit}</span>} />
-              <FieldItem label="历史拜访次数" value={<span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 16 }}>{drawerDoctor.visitCount}</span>} />
+              <FieldItem label="历史拜访次数" value={<span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 'var(--fs-16)' }}>{drawerDoctor.visitCount}</span>} />
             </FieldGroup>
 
             <div style={{ marginBottom: 16 }}>
               <div style={{
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 fontWeight: 600,
                 color: '#9CA3AF',
                 textTransform: 'uppercase',
@@ -310,7 +310,7 @@ export function DoctorMaster() {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {drawerDoctor.tags.map((tag, i) => (
                   <span key={i} style={{
-                    fontSize: 13,
+                    fontSize: 'var(--fs-13)',
                     padding: '5px 10px',
                     borderRadius: '6px',
                     background: '#F3F4F6',

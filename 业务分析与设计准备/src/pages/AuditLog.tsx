@@ -55,13 +55,13 @@ export function AuditLog() {
     <th style={{
       padding: '10px 12px',
       textAlign: 'left',
-      fontSize: 12,
+      fontSize: 'var(--fs-12)',
       fontWeight: 600,
       color: '#9CA3AF',
       textTransform: 'uppercase',
       letterSpacing: '0.03em',
       background: '#F9FAFB',
-      borderBottom: '1px solid #E5E7EB',
+      borderBottom: '1px solid var(--color-border)',
       whiteSpace: 'nowrap',
       width: w,
     }}>{label}</th>
@@ -78,16 +78,16 @@ export function AuditLog() {
         <div style={{
           padding: '10px 16px',
           background: '#F9FAFB',
-          border: '1px solid #E5E7EB',
+          border: '1px solid var(--color-border)',
           borderRadius: '8px',
           marginBottom: 16,
           display: 'flex',
           gap: 10,
           alignItems: 'center',
-          fontSize: 13,
+          fontSize: 'var(--fs-13)',
           color: '#667085',
         }}>
-          <Shield size={15} style={{ color: '#176B5B' }} />
+          <Shield size={15} style={{ color: 'var(--color-brand)' }} />
           <span>
             操作日志为只读审计记录，不可修改、删除或导出敏感字段。
             所有高风险操作（删除、批量审核、结算完结）均强制写入此日志。
@@ -101,14 +101,14 @@ export function AuditLog() {
           onSearch={() => setPage(1)}
           onReset={() => { setFilters({}); setPage(1); }}
           stats={
-            <span style={{ fontSize: 13, color: '#667085' }}>
-              共 <strong style={{ color: '#1F2937', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条记录
+            <span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>
+              共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条记录
             </span>
           }
           collapsedCount={4}
         />
 
-        <div style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ background: '#FFFFFF', border: '1px solid var(--color-border)', borderRadius: '8px', overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
               <thead>
@@ -136,17 +136,17 @@ export function AuditLog() {
                     key={log.id}
                     style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA', borderBottom: '1px solid #F3F4F6' }}
                   >
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#374151', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                       {log.time}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: '#1F2937' }}>{log.operator}</div>
-                      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>{log.role}</div>
+                      <div style={{ fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-text-1)' }}>{log.operator}</div>
+                      <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF', marginTop: 1 }}>{log.role}</div>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, color: '#374151', whiteSpace: 'nowrap' }}>{log.module}</td>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', whiteSpace: 'nowrap' }}>{log.module}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <span style={{
-                        fontSize: 12,
+                        fontSize: 'var(--fs-12)',
                         fontWeight: 600,
                         color: actionColor[log.action] || '#374151',
                         padding: '2px 8px',
@@ -157,22 +157,22 @@ export function AuditLog() {
                         {log.action}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 13, color: '#374151', maxWidth: 200 }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', maxWidth: 200 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.target}>
                         {log.target}
                       </span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       {log.beforeState ? (
-                        <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{log.beforeState}</span>
+                        <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{log.beforeState}</span>
                       ) : <span style={{ color: '#D1D5DB' }}>—</span>}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       {log.afterState ? (
-                        <span style={{ fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>{log.afterState}</span>
+                        <span style={{ fontSize: 'var(--fs-12)', color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>{log.afterState}</span>
                       ) : <span style={{ color: '#D1D5DB' }}>—</span>}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                       {log.ip}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
@@ -180,7 +180,7 @@ export function AuditLog() {
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: 4,
-                        fontSize: 12,
+                        fontSize: 'var(--fs-12)',
                         fontWeight: 500,
                         color: log.result === '成功' ? '#248A5A' : '#C73A3A',
                       }}>

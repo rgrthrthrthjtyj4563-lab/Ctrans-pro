@@ -1,10 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   LayoutDashboard, ClipboardList,
   Database, Settings, Shield,
   ChevronDown, ChevronRight, Bell, Search, LogOut,
   Building2, Archive,
-  ChevronLeft, Activity, Users, CircleDollarSign,
+  ChevronLeft, Users, CircleDollarSign, UserCheck,
+  ShieldCheck, FileSearch,
+  Sparkles, Smartphone, Table2,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { VisitManagement } from './pages/VisitManagement';
@@ -19,10 +21,24 @@ import { Settlement } from './pages/Settlement';
 import { AuditLog } from './pages/AuditLog';
 import { InspectionWorkbench } from './pages/InspectionWorkbench';
 import { EvidenceChainReview } from './pages/EvidenceChainReview';
+import { RepFilingManage } from './pages/RepFilingManage';
+import { VendorAccessManage } from './pages/VendorAccessManage';
+import { RoleManage } from './pages/RoleManage';
+import { UserGrantManage } from './pages/UserGrantManage';
+import { PermissionAudit } from './pages/PermissionAudit';
+import { RolePreview } from './pages/RolePreview';
+import { PreviewBanner } from './pages/permUi';
+import { BaiyeeAI } from './pages/BaiyeeAI';
+import { RepAppointmentMobileDemo } from './pages/RepAppointmentMobileDemo';
+import { BrandLogo } from './components/Brand';
+import { DisplaySettingsMenu } from './components/DisplaySettingsMenu';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { getRoleDashboardData } from './data/mockData';
 import { TaskDataProvider } from './context/TaskDataContext';
+import { DisplayPreferenceProvider } from './context/DisplayPreferenceContext';
+import { PermissionProvider, usePermission } from './context/PermissionContext';
+import { RESOURCE_PAGES } from './data/permissions';
 import type { NavFocus, NavigateFn, PageId, Role } from './types';
 
 // ─── Nav structure ────────────────────────────────────────────────────────────
@@ -39,6 +55,7 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
   {
     items: [
       { id: 'dashboard', label: '工作台', icon: LayoutDashboard, badge: 8 },
+      { id: 'baiyee-ai', label: 'baiyee-AI', icon: Sparkles },
     ],
   },
   {
@@ -46,6 +63,24 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
     items: [
       { id: 'budget-plan', label: '预算计划', icon: CircleDollarSign },
       { id: 'task-dispatch', label: '任务执行', icon: ClipboardList },
+    ],
+  },
+  {
+    label: '合规管理',
+    items: [
+      { id: 'inspection', label: '随检工作台', icon: ShieldCheck },
+      { id: 'evidence-chain', label: '证据链复审', icon: FileSearch },
+    ],
+  },
+  {
+    items: [
+      {
+        id: 'enterprise-user-group', label: '企业用户管理', icon: UserCheck,
+        children: [
+          { id: 'rep-filing', label: '医药代表备案管理' },
+          { id: 'vendor-access', label: '服务商准入管理' },
+        ],
+      },
     ],
   },
   {
@@ -69,13 +104,23 @@ const navGroups: { label?: string; items: NavItem[] }[] = [
         id: 'config-group', label: '规则配置', icon: Settings,
         children: [
           { id: 'business-switch', label: '药厂业务开关', disabled: true },
-          { id: 'price-config', label: '价目配置' },
+        ],
+      },
+      {
+        id: 'price-group', label: '价目管理', icon: Table2,
+        children: [
+          { id: 'price-base', label: '基础价目表' },
+          { id: 'price-gs', label: '公私分离价目表' },
+          { id: 'price-report', label: '报告价目表' },
         ],
       },
       {
         id: 'admin-group', label: '系统管理', icon: Shield,
         children: [
-          { id: 'roles', label: '角色管理', disabled: true },
+          { id: 'roles', label: '角色管理' },
+          { id: 'user-grants', label: '用户授权' },
+          { id: 'perm-audit', label: '权限审计' },
+          { id: 'role-preview', label: '角色预览' },
           { id: 'departments', label: '机构部门', disabled: true },
           { id: 'audit-log', label: '操作日志' },
         ],
@@ -98,14 +143,22 @@ const pageLabels: Record<string, string> = {
   varieties: '品种管理',
   'variety-auth': '品种授权',
   'enterprise-users': '企业用户',
+  'rep-filing': '医药代表备案管理',
+  'vendor-access': '服务商准入管理',
   settlement: '结算明细',
   inspection: '随检工作台',
   'evidence-chain': '证据链复审',
   'business-switch': '药厂业务开关',
-  'price-config': '价目配置',
+  'price-base': '基础价目表',
+  'price-gs': '公私分离价目表',
+  'price-report': '报告价目表',
   roles: '角色管理',
+  'user-grants': '用户授权',
+  'perm-audit': '权限审计',
+  'role-preview': '角色预览',
   departments: '机构部门',
   'audit-log': '操作日志',
+  'baiyee-ai': 'baiyee-AI',
 };
 
 const pageSections: Record<string, string> = {
@@ -124,19 +177,27 @@ const pageSections: Record<string, string> = {
   varieties: '主数据管理',
   'variety-auth': '主数据管理',
   'enterprise-users': '主数据管理',
+  'rep-filing': '企业用户管理',
+  'vendor-access': '企业用户管理',
   'business-switch': '规则配置',
-  'price-config': '规则配置',
+  'price-base': '价目管理',
+  'price-gs': '价目管理',
+  'price-report': '价目管理',
   roles: '系统管理',
+  'user-grants': '系统管理',
+  'perm-audit': '系统管理',
+  'role-preview': '系统管理',
   departments: '系统管理',
   'audit-log': '系统管理',
 };
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
 function NavLeaf({
-  id, label, active, badge, disabled, collapsed, onClick,
+  id, label, active, badge, disabled, collapsed, onClick, icon: Icon,
 }: {
   id: string; label: string; active: boolean; badge?: number;
   disabled?: boolean; collapsed: boolean; onClick: () => void;
+  icon?: typeof LayoutDashboard;
 }) {
   return (
     <button
@@ -149,10 +210,10 @@ function NavLeaf({
         width: '100%',
         padding: collapsed ? '8px' : '7px 12px',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        fontSize: 13,
+        fontSize: 'var(--fs-13)',
         fontWeight: active ? 600 : 400,
-        color: disabled ? '#374151' : active ? '#4ADE80' : '#D1D5DB',
-        background: active ? 'rgba(74,222,128,0.10)' : 'none',
+        color: disabled ? '#374151' : active ? 'var(--color-sidebar-accent)' : 'var(--color-sidebar-text)',
+        background: active ? 'color-mix(in srgb, var(--color-sidebar-accent) 10%, transparent)' : 'none',
         border: 'none',
         borderRadius: '6px',
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -173,16 +234,17 @@ function NavLeaf({
           transform: 'translateY(-50%)',
           width: 3,
           height: 20,
-          background: '#4ADE80',
+          background: 'var(--color-sidebar-accent)',
           borderRadius: '0 2px 2px 0',
         }} />
       )}
+      {Icon && <Icon size={16} style={{ color: disabled ? '#374151' : active ? 'var(--color-sidebar-accent)' : '#6B7280', flexShrink: 0 }} />}
       {!collapsed && <span style={{ marginLeft: active ? 4 : 0 }}>{label}</span>}
-      {collapsed && <span style={{ fontSize: 11, color: active ? '#4ADE80' : '#9CA3AF' }}>{label.slice(0, 2)}</span>}
+      {collapsed && !Icon && <span style={{ fontSize: 'var(--fs-11)', color: active ? 'var(--color-sidebar-accent)' : '#9CA3AF' }}>{label.slice(0, 2)}</span>}
       {badge !== undefined && !collapsed && (
         <span style={{
           marginLeft: 'auto',
-          fontSize: 10,
+          fontSize: 'var(--fs-10)',
           fontWeight: 700,
           minWidth: 18,
           height: 18,
@@ -220,6 +282,7 @@ function NavGroup({
         badge={item.badge}
         disabled={item.disabled}
         collapsed={collapsed}
+        icon={item.icon}
         onClick={() => onNavigate(item.id as PageId)}
       />
     );
@@ -236,7 +299,7 @@ function NavGroup({
           width: '100%',
           padding: collapsed ? '8px' : '8px 12px',
           justifyContent: collapsed ? 'center' : 'flex-start',
-          fontSize: 13,
+          fontSize: 'var(--fs-13)',
           fontWeight: childActive ? 600 : 400,
           color: childActive ? '#E5E7EB' : '#9CA3AF',
           background: 'none',
@@ -249,7 +312,7 @@ function NavGroup({
         onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
       >
-        <Icon size={16} style={{ color: childActive ? '#4ADE80' : '#6B7280', flexShrink: 0 }} />
+        <Icon size={16} style={{ color: childActive ? 'var(--color-sidebar-accent)' : '#6B7280', flexShrink: 0 }} />
         {!collapsed && (
           <>
             <span style={{ flex: 1 }}>{item.label}</span>
@@ -308,8 +371,8 @@ function StubPage({ title, description }: { title: string; description?: string 
       }}>
         <Archive size={24} style={{ color: '#9CA3AF' }} />
       </div>
-      <div style={{ fontSize: 16, fontWeight: 600, color: '#374151' }}>{title}</div>
-      <div style={{ fontSize: 13, color: '#9CA3AF', maxWidth: 320, textAlign: 'center', lineHeight: 1.6 }}>
+      <div style={{ fontSize: 'var(--fs-16)', fontWeight: 600, color: '#374151' }}>{title}</div>
+      <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF', maxWidth: 320, textAlign: 'center', lineHeight: 1.6 }}>
         {description || '此页面在首批交付范围内，即将上线。请联系产品经理了解上线时间。'}
       </div>
       <div style={{
@@ -317,7 +380,7 @@ function StubPage({ title, description }: { title: string; description?: string 
         background: '#FEF3E2',
         border: '1px solid #FDE68A',
         borderRadius: '6px',
-        fontSize: 12,
+        fontSize: 'var(--fs-12)',
         color: '#C77A16',
         display: 'flex',
         alignItems: 'center',
@@ -332,15 +395,37 @@ function StubPage({ title, description }: { title: string; description?: string 
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const [currentRole, setCurrentRole] = useState<Role>('药厂销售部门');
+  return (
+    <DisplayPreferenceProvider>
+      <TaskDataProvider>
+        <PermissionProvider loginRole={currentRole}>
+          <AppShell currentRole={currentRole} setCurrentRole={setCurrentRole} />
+        </PermissionProvider>
+      </TaskDataProvider>
+    </DisplayPreferenceProvider>
+  );
+}
+
+function AppShell({
+  currentRole,
+  setCurrentRole,
+}: {
+  currentRole: Role;
+  setCurrentRole: (role: Role) => void;
+}) {
+  const { visiblePages, preview, effectiveRole, exitPreview, orgs, users, logAudit } = usePermission();
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['master-group', 'config-group'])
+    new Set(['master-group', 'config-group', 'price-group', 'enterprise-user-group', 'admin-group'])
   );
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [currentRole, setCurrentRole] = useState<Role>('药厂销售部门');
   const [navFocus, setNavFocus] = useState<NavFocus>({});
+  const [mobileDemoOpen, setMobileDemoOpen] = useState(false);
+  const [mobileDemoShown, setMobileDemoShown] = useState(false);
+  const mobileDemoCloseTimer = useRef<number | null>(null);
 
   const addToast = useCallback((msg: Omit<ToastMessage, 'id'>) => {
     const id = `toast-${Date.now()}`;
@@ -352,6 +437,20 @@ export default function App() {
   }, []);
 
   const navigate: NavigateFn = (page, focus) => {
+    const controlled = RESOURCE_PAGES.some(p => p.id === page);
+    if (controlled && page !== 'dashboard' && !visiblePages.has(page)) {
+      logAudit({
+        module: pageLabels[page] || page,
+        action: '越权访问',
+        target: pageLabels[page] || page,
+        resource: `${page}.view`,
+        decision: '拒绝',
+        reason: '当前角色无页面查看权限',
+        result: '失败',
+      });
+      addToast({ type: 'error', title: '无权访问该页面', description: '已写入权限审计，无法通过菜单或快捷入口绕过。' });
+      return;
+    }
     const group = navGroups
       .flatMap(g => g.items)
       .find(item => item.children?.some(c => c.id === page) || item.id === page);
@@ -383,11 +482,20 @@ export default function App() {
       case 'doctors':          return <DoctorMaster />;
       case 'varieties':        return <VarietyManage addToast={addToast} currentRole={currentRole} />;
       case 'variety-auth':     return <VarietyAuth addToast={addToast} currentRole={currentRole} />;
-      case 'price-config':     return <PriceConfig addToast={addToast} currentRole={currentRole} />;
+      case 'price-base':       return <PriceConfig key="base" addToast={addToast} currentRole={currentRole} kind="base" />;
+      case 'price-gs':         return <PriceConfig key="gs" addToast={addToast} currentRole={currentRole} kind="gs" />;
+      case 'price-report':     return <PriceConfig key="report" addToast={addToast} currentRole={currentRole} kind="report" />;
       case 'settlement':       return <Settlement addToast={addToast} currentRole={currentRole} navigate={navigate} />;
       case 'inspection':       return <InspectionWorkbench addToast={addToast} />;
       case 'evidence-chain':   return <EvidenceChainReview addToast={addToast} />;
       case 'audit-log':        return <AuditLog />;
+      case 'rep-filing':       return <RepFilingManage addToast={addToast} currentRole={currentRole} />;
+      case 'vendor-access':    return <VendorAccessManage addToast={addToast} currentRole={currentRole} />;
+      case 'roles':            return <RoleManage addToast={addToast} />;
+      case 'user-grants':      return <UserGrantManage addToast={addToast} />;
+      case 'perm-audit':       return <PermissionAudit />;
+      case 'role-preview':     return <RolePreview addToast={addToast} navigate={navigate} />;
+      case 'baiyee-ai':        return <BaiyeeAI navigate={navigate} />;
       default:                 return <StubPage title={pageLabels[currentPage] || currentPage} />;
     }
   }
@@ -402,44 +510,77 @@ export default function App() {
 
   const roles: Role[] = ['药厂合规部门', '药厂销售部门', '服务提供商'];
 
-  // 预算计划/价目/授权/创建任务 = 药厂销售专属（服务商不可见预算）；任务执行两角色都见，合规只读
-  const visibleNavGroups = navGroups.map(group => ({
-    ...group,
-    items: group.items
-      .filter(item => {
-        if (item.id === 'budget-plan' && currentRole !== '药厂销售部门') return false;
-        return true;
-      })
-      .map(item => {
-        if (item.id === 'master-group') {
-          const children = (item.children ?? []).filter(c => {
-            if (c.id === 'variety-auth' && currentRole !== '药厂销售部门') return false;
-            if (c.id === 'varieties' && currentRole === '服务提供商') return false;
-            return true;
-          });
+  const visibleNavGroups = navGroups
+    .map(group => ({
+      ...group,
+      items: group.items
+        .map(item => {
+          if (!item.children) {
+            if (item.disabled) return item;
+            return visiblePages.has(item.id) ? item : null;
+          }
+          const children = item.children.filter(c => c.disabled || visiblePages.has(c.id));
+          if (!children.some(c => !c.disabled && visiblePages.has(c.id))) return null;
           return { ...item, children };
-        }
-        if (item.id === 'config-group') {
-          const children = (item.children ?? []).filter(c => {
-            if (c.id === 'price-config' && currentRole !== '药厂销售部门') return false;
-            return true;
-          });
-          return { ...item, children };
-        }
-        return item;
-      }),
-  }));
+        })
+        .filter((item): item is NavItem => item !== null),
+    }))
+    .filter(group => group.items.length > 0);
+
+  useEffect(() => {
+    const controlled = RESOURCE_PAGES.some(p => p.id === currentPage);
+    if (controlled && currentPage !== 'dashboard' && !visiblePages.has(currentPage)) {
+      setCurrentPage('dashboard');
+    }
+  }, [visiblePages, currentPage]);
+
+  const previewOrgName = preview ? (orgs.find(o => o.id === preview.orgId)?.name ?? '') : '';
+  const previewUserName = preview?.userId ? users.find(u => u.id === preview.userId)?.name : undefined;
+  const isBaiyeeAI = currentPage === 'baiyee-ai';
+  const reducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const demoMs = reducedMotion ? 0 : 200;
+
+  function openMobileDemo() {
+    if (mobileDemoCloseTimer.current) {
+      window.clearTimeout(mobileDemoCloseTimer.current);
+      mobileDemoCloseTimer.current = null;
+    }
+    setShowUserMenu(false);
+    setMobileDemoOpen(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setMobileDemoShown(true));
+    });
+  }
+
+  function closeMobileDemo() {
+    setMobileDemoShown(false);
+    if (mobileDemoCloseTimer.current) window.clearTimeout(mobileDemoCloseTimer.current);
+    mobileDemoCloseTimer.current = window.setTimeout(() => {
+      setMobileDemoOpen(false);
+      mobileDemoCloseTimer.current = null;
+    }, demoMs);
+  }
+
+  useEffect(() => {
+    if (!mobileDemoOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMobileDemo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileDemoOpen, demoMs]);
 
   return (
-    <TaskDataProvider>
-    <div style={{ display: 'flex', height: '100%', background: '#F5F7F8', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100%', background: isBaiyeeAI ? '#F7F7F5' : '#F5F7F8', overflow: 'hidden' }}>
 
-      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+      {/* Unmount original chrome on baiyee-AI. Do not hide with CSS: a later `display:'flex'` in this object previously overrode `none`. */}
+      {!isBaiyeeAI && (
       <aside style={{
+        display: 'flex',
         width: SIDEBAR_W,
         flexShrink: 0,
-        background: '#111827',
-        display: 'flex',
+        background: 'var(--color-sidebar)',
         flexDirection: 'column',
         overflow: 'hidden',
         transition: 'width 200ms cubic-bezier(0.25,0.46,0.45,0.94)',
@@ -449,34 +590,13 @@ export default function App() {
         {/* Logo */}
         <div style={{
           padding: sidebarCollapsed ? '16px 8px' : '16px 16px',
-          borderBottom: '1px solid #1F2937',
+          borderBottom: '1px solid var(--color-sidebar-divider)',
           display: 'flex',
           alignItems: 'center',
           gap: 10,
           flexShrink: 0,
         }}>
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: '8px',
-            background: 'linear-gradient(135deg, #176B5B, #248A5A)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <Activity size={18} style={{ color: '#fff' }} />
-          </div>
-          {!sidebarCollapsed && (
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#F9FAFB', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                药合作系统
-              </div>
-              <div style={{ fontSize: 10, color: '#4ADE80', letterSpacing: '0.05em', marginTop: 1 }}>
-                AI 运营控制台 V3
-              </div>
-            </div>
-          )}
+          <BrandLogo collapsed={sidebarCollapsed} />
         </div>
 
         {/* Nav */}
@@ -486,7 +606,7 @@ export default function App() {
               {group.label && !sidebarCollapsed && (
                 <div style={{
                   padding: '10px 8px 4px',
-                  fontSize: 10,
+                  fontSize: 'var(--fs-10)',
                   fontWeight: 700,
                   color: '#4B5563',
                   textTransform: 'uppercase',
@@ -496,7 +616,7 @@ export default function App() {
                 </div>
               )}
               {group.label && sidebarCollapsed && gi > 0 && (
-                <div style={{ height: 1, background: '#1F2937', margin: '8px 4px' }} />
+                <div style={{ height: 1, background: 'var(--color-sidebar-divider)', margin: '8px 4px' }} />
               )}
               {group.items.map(item => (
                 <NavGroup
@@ -524,8 +644,8 @@ export default function App() {
             width: 24,
             height: 24,
             borderRadius: '50%',
-            background: '#1F2937',
-            border: '1px solid #374151',
+            background: 'var(--color-sidebar-elev)',
+            border: '1px solid var(--color-sidebar-line)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -540,7 +660,7 @@ export default function App() {
 
         {/* Bottom: user */}
         <div style={{
-          borderTop: '1px solid #1F2937',
+          borderTop: '1px solid var(--color-sidebar-divider)',
           padding: sidebarCollapsed ? '12px 8px' : '12px 12px',
           flexShrink: 0,
         }}>
@@ -553,17 +673,17 @@ export default function App() {
               marginBottom: 10,
               padding: '4px 8px',
               borderRadius: '4px',
-              background: 'rgba(74,222,128,0.06)',
+              background: 'color-mix(in srgb, var(--color-sidebar-accent) 6%, transparent)',
             }}>
               <span style={{
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: '#4ADE80',
-                boxShadow: '0 0 6px rgba(74,222,128,0.6)',
+                background: 'var(--color-sidebar-accent)',
+                boxShadow: '0 0 6px color-mix(in srgb, var(--color-sidebar-accent) 60%, transparent)',
                 flexShrink: 0,
               }} />
-              <span style={{ fontSize: 11, color: '#4B5563' }}>数据已同步 · 09:30</span>
+              <span style={{ fontSize: 'var(--fs-11)', color: '#4B5563' }}>数据已同步 · 09:30</span>
             </div>
           )}
 
@@ -589,11 +709,11 @@ export default function App() {
                 width: 30,
                 height: 30,
                 borderRadius: '8px',
-                background: 'linear-gradient(135deg, #176B5B, #2F6BCE)',
+                background: 'linear-gradient(135deg, var(--color-brand), #2F6BCE)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 13,
+                fontSize: 'var(--fs-13)',
                 fontWeight: 700,
                 color: '#fff',
                 flexShrink: 0,
@@ -602,8 +722,8 @@ export default function App() {
               </div>
               {!sidebarCollapsed && (
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: '#E5E7EB', lineHeight: 1 }}>演示账号</div>
-                  <div style={{ fontSize: 11, color: '#4ADE80', marginTop: 2 }}>{currentRole}</div>
+                  <div style={{ fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-sidebar-text)', lineHeight: 1 }}>演示账号</div>
+                  <div style={{ fontSize: 'var(--fs-11)', color: 'var(--color-sidebar-accent)', marginTop: 2 }}>{currentRole}</div>
                 </div>
               )}
             </button>
@@ -614,29 +734,35 @@ export default function App() {
                 bottom: '100%',
                 left: 0,
                 right: 0,
-                background: '#1F2937',
-                border: '1px solid #374151',
+                background: 'var(--color-sidebar-elev)',
+                border: '1px solid var(--color-sidebar-line)',
                 borderRadius: '8px',
                 padding: '8px',
                 marginBottom: 4,
                 boxShadow: '0 8px 24px rgba(0,0,0,0.30)',
                 zIndex: 100,
               }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#4B5563', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: 4 }}>
+                <div style={{ fontSize: 'var(--fs-11)', fontWeight: 600, color: '#4B5563', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: 4 }}>
                   角色切换
                 </div>
                 {roles.map(role => (
                   <button
                     key={role}
-                    onClick={() => { setCurrentRole(role); setShowUserMenu(false); setCurrentPage('dashboard'); addToast({ type: 'info', title: `已切换角色：${role}`, description: '首页内容已按当前角色刷新。' }); }}
+                    onClick={() => {
+                      if (preview) exitPreview();
+                      setCurrentRole(role);
+                      setShowUserMenu(false);
+                      setCurrentPage('dashboard');
+                      addToast({ type: 'info', title: `已切换角色：${role}`, description: '菜单与首页已按当前角色权限刷新。' });
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       width: '100%',
                       padding: '7px 8px',
-                      fontSize: 13,
-                      color: currentRole === role ? '#4ADE80' : '#D1D5DB',
-                      background: currentRole === role ? 'rgba(74,222,128,0.08)' : 'none',
+                      fontSize: 'var(--fs-13)',
+                      color: currentRole === role ? 'var(--color-sidebar-accent)' : 'var(--color-sidebar-text)',
+                      background: currentRole === role ? 'color-mix(in srgb, var(--color-sidebar-accent) 8%, transparent)' : 'none',
                       border: 'none',
                       borderRadius: '4px',
                       cursor: 'pointer',
@@ -649,14 +775,40 @@ export default function App() {
                     <Users size={13} /> {role}
                   </button>
                 ))}
-                <div style={{ height: 1, background: '#374151', margin: '8px 0' }} />
+                <div style={{ height: 1, background: 'var(--color-sidebar-line)', margin: '8px 0' }} />
+                <div style={{ fontSize: 'var(--fs-11)', fontWeight: 600, color: '#4B5563', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: 4 }}>
+                  演示场景
+                </div>
+                <button
+                  type="button"
+                  onClick={openMobileDemo}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    width: '100%',
+                    padding: '7px 8px',
+                    fontSize: 'var(--fs-13)',
+                    color: 'var(--color-sidebar-text)',
+                    background: 'none',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    gap: 8,
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                >
+                  <Smartphone size={13} /> 医药代表移动端
+                </button>
+                <div style={{ height: 1, background: 'var(--color-sidebar-line)', margin: '8px 0' }} />
                 <button
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     width: '100%',
                     padding: '7px 8px',
-                    fontSize: 13,
+                    fontSize: 'var(--fs-13)',
                     color: '#C73A3A',
                     background: 'none',
                     border: 'none',
@@ -675,15 +827,25 @@ export default function App() {
           </div>
         </div>
       </aside>
+      )}
 
       {/* ── Main content ──────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
+        {preview && !isBaiyeeAI && (
+          <PreviewBanner
+            roleName={effectiveRole.name}
+            orgName={previewOrgName}
+            userName={previewUserName}
+            onExit={() => { exitPreview(); setCurrentPage('role-preview'); addToast({ type: 'info', title: '已退出预览模式' }); }}
+          />
+        )}
+
         {/* Top bar */}
-        <header style={{
+        {!isBaiyeeAI && <header style={{
           height: 52,
           background: '#FFFFFF',
-          borderBottom: '1px solid #E5E7EB',
+          borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
           padding: '0 20px',
@@ -697,8 +859,8 @@ export default function App() {
               <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {i > 0 && <ChevronRight size={13} style={{ color: '#D1D5DB' }} />}
                 <span style={{
-                  fontSize: 13,
-                  color: i === breadcrumb.length - 1 ? '#1F2937' : '#9CA3AF',
+                  fontSize: 'var(--fs-13)',
+                  color: i === breadcrumb.length - 1 ? 'var(--color-text-1)' : '#9CA3AF',
                   fontWeight: i === breadcrumb.length - 1 ? 600 : 400,
                 }}>
                   {crumb}
@@ -706,7 +868,7 @@ export default function App() {
               </span>
             ))}
             {breadcrumb.length === 0 && (
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>工作台</span>
+              <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>工作台</span>
             )}
           </nav>
 
@@ -718,23 +880,26 @@ export default function App() {
             height: 32,
             padding: '0 12px',
             background: '#F9FAFB',
-            border: '1px solid #E5E7EB',
+            border: '1px solid var(--color-border)',
             borderRadius: '6px',
             width: 240,
             cursor: 'text',
           }}>
             <Search size={13} style={{ color: '#9CA3AF', flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: '#9CA3AF' }}>全局搜索…</span>
+            <span style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>全局搜索…</span>
             <span style={{
               marginLeft: 'auto',
-              fontSize: 11,
+              fontSize: 'var(--fs-11)',
               color: '#D1D5DB',
               padding: '1px 5px',
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               borderRadius: '3px',
               fontFamily: "'JetBrains Mono', monospace",
             }}>⌘K</span>
           </div>
+
+          {/* Display preferences (personal, all roles) */}
+          <DisplaySettingsMenu onNotice={title => addToast({ type: 'info', title })} />
 
           {/* Notification */}
           <button
@@ -748,7 +913,7 @@ export default function App() {
               height: 36,
               borderRadius: '8px',
               background: 'none',
-              border: '1px solid #E5E7EB',
+              border: '1px solid var(--color-border)',
               cursor: 'pointer',
               color: '#6B7280',
             }}
@@ -766,7 +931,7 @@ export default function App() {
               background: '#C73A3A',
               border: '1px solid #fff',
               color: '#fff',
-              fontSize: 10,
+              fontSize: 'var(--fs-10)',
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
@@ -784,31 +949,46 @@ export default function App() {
             gap: 8,
             padding: '0 12px',
             height: 36,
-            border: '1px solid #E5E7EB',
+            border: '1px solid var(--color-border)',
             borderRadius: '8px',
             cursor: 'pointer',
             background: '#F9FAFB',
           }}>
             <Building2 size={14} style={{ color: '#9CA3AF' }} />
-            <span style={{ fontSize: 13, color: '#374151', fontWeight: 500 }}>百益健康科技</span>
+            <span style={{ fontSize: 'var(--fs-13)', color: '#374151', fontWeight: 500 }}>百益健康科技</span>
             <span style={{
-              fontSize: 11,
+              fontSize: 'var(--fs-11)',
               padding: '2px 6px',
               borderRadius: '9999px',
-              background: '#E8F4F1',
-              color: '#176B5B',
+              background: 'var(--color-brand-subtle)',
+              color: 'var(--color-brand)',
               fontWeight: 600,
             }}>
               {currentRole}
             </span>
           </div>
-        </header>
+        </header>}
 
         {/* Page content */}
-        <main style={{ flex: 1, overflow: 'auto' }}>
+        <main style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: isBaiyeeAI ? 'hidden' : 'auto' }}>
           {renderPage()}
         </main>
       </div>
+
+      {mobileDemoOpen && (
+        <div
+          className="demo-scene-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1400,
+            opacity: mobileDemoShown ? 1 : 0,
+            transition: reducedMotion ? 'none' : `opacity ${demoMs}ms ease`,
+          }}
+        >
+          <RepAppointmentMobileDemo onExit={closeMobileDemo} reducedMotion={reducedMotion} />
+        </div>
+      )}
 
       {/* Toast notifications */}
       <ToastContainer messages={toasts} onDismiss={dismissToast} />
@@ -821,6 +1001,5 @@ export default function App() {
         />
       )}
     </div>
-    </TaskDataProvider>
   );
 }

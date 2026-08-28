@@ -28,11 +28,11 @@ export function Pagination({ page, pageSize, total, onChange }: PaginationProps)
     minWidth: 30,
     height: 30,
     padding: '0 6px',
-    fontSize: 13,
+    fontSize: 'var(--fs-13)',
     fontWeight: active ? 600 : 400,
-    color: active ? '#176B5B' : disabled ? '#D1D5DB' : '#374151',
-    background: active ? '#E8F4F1' : 'none',
-    border: active ? '1px solid #176B5B' : '1px solid #E5E7EB',
+    color: active ? 'var(--color-brand)' : disabled ? '#D1D5DB' : '#374151',
+    background: active ? 'var(--color-brand-subtle)' : 'none',
+    border: active ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
     borderRadius: '6px',
     cursor: disabled ? 'not-allowed' : 'pointer',
     transition: 'all 120ms ease',
@@ -46,7 +46,7 @@ export function Pagination({ page, pageSize, total, onChange }: PaginationProps)
       justifyContent: 'space-between',
       padding: '12px 0',
     }}>
-      <span style={{ fontSize: 13, color: '#9CA3AF' }}>
+      <span style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>
         共 <strong style={{ color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>{total.toLocaleString()}</strong> 条，
         第 {start}–{end} 条
       </span>

@@ -99,8 +99,8 @@ export function AIInsightCard({
           width: 32,
           height: 32,
           borderRadius: '8px',
-          background: '#E8F4F1',
-          color: '#176B5B',
+          background: 'var(--color-brand-subtle)',
+          color: 'var(--color-brand)',
           flexShrink: 0,
         }}>
           <Sparkles size={16} />
@@ -111,7 +111,7 @@ export function AIInsightCard({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <span style={{
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 fontWeight: 600,
                 padding: '2px 7px',
                 borderRadius: '9999px',
@@ -121,7 +121,7 @@ export function AIInsightCard({
                 AI · {severityLabel[severity]}
               </span>
               <span style={{
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 padding: '2px 7px',
                 borderRadius: '9999px',
                 color: confidenceTone.fg,
@@ -153,13 +153,13 @@ export function AIInsightCard({
           </div>
 
           {/* Title */}
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#1F2937', marginBottom: (!compactCollapsed || isExpanded) ? 6 : 0 }}>
+          <div style={{ fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)', marginBottom: (!compactCollapsed || isExpanded) ? 6 : 0 }}>
             {title}
           </div>
 
           {/* Conclusion */}
           {(!compactCollapsed || isExpanded) && (
-            <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.6, marginBottom: isExpanded ? 0 : 12 }}>
+            <div style={{ fontSize: 'var(--fs-13)', color: '#667085', lineHeight: 1.6, marginBottom: isExpanded ? 0 : 12 }}>
               {conclusion}
             </div>
           )}
@@ -174,10 +174,10 @@ export function AIInsightCard({
                   alignItems: 'center',
                   gap: 4,
                   padding: '4px 10px',
-                  fontSize: 12,
+                  fontSize: 'var(--fs-12)',
                   color: '#667085',
                   background: '#FFFFFF',
-                  border: '1px solid #E5E7EB',
+                  border: '1px solid var(--color-border)',
                   borderRadius: '6px',
                   cursor: 'pointer',
                 }}
@@ -192,10 +192,10 @@ export function AIInsightCard({
                     alignItems: 'center',
                     gap: 4,
                     padding: '4px 10px',
-                    fontSize: 12,
-                    color: '#176B5B',
-                    background: '#E8F4F1',
-                    border: '1px solid #E8F4F1',
+                    fontSize: 'var(--fs-12)',
+                    color: 'var(--color-brand)',
+                    background: 'var(--color-brand-subtle)',
+                    border: '1px solid var(--color-brand-subtle)',
                     borderRadius: '6px',
                     cursor: 'pointer',
                     fontWeight: 600,
@@ -223,30 +223,30 @@ export function AIInsightCard({
             marginBottom: 16
           }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+              <div style={{ fontSize: 'var(--fs-11)', fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
                 判断依据
               </div>
-              <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{basis}</div>
+              <div style={{ fontSize: 'var(--fs-13)', color: '#374151', lineHeight: 1.6 }}>{basis}</div>
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+              <div style={{ fontSize: 'var(--fs-11)', fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
                 建议动作
               </div>
-              <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{suggestion}</div>
+              <div style={{ fontSize: 'var(--fs-13)', color: '#374151', lineHeight: 1.6 }}>{suggestion}</div>
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
-            <span style={{ fontSize: 12, color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 4 }}>
               <Clock size={12} /> 数据范围：{dataRange}
             </span>
-            <span style={{ fontSize: 12, color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 4 }}>
               <ShieldAlert size={12} /> 人工确认：{confirmationNote}
             </span>
           </div>
 
           {feedback && (
-            <div style={{ marginBottom: 12, fontSize: 12, color: feedback === 'valid' ? '#248A5A' : '#C77A16', fontWeight: 600 }}>
+            <div style={{ marginBottom: 12, fontSize: 'var(--fs-12)', color: feedback === 'valid' ? '#248A5A' : '#C77A16', fontWeight: 600 }}>
               已标记为{feedback === 'valid' ? '有效' : '误报'}。
             </div>
           )}
@@ -271,7 +271,7 @@ export function AIInsightCard({
                 alignItems: 'center',
                 gap: 4,
                 padding: '4px 8px',
-                fontSize: 12,
+                fontSize: 'var(--fs-12)',
                 color: '#667085',
                 background: 'none',
                 border: 'none',

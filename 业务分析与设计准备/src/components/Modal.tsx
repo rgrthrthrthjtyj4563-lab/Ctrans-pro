@@ -55,10 +55,10 @@ export function Modal({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '16px 20px',
-          borderBottom: '1px solid #E5E7EB',
+          borderBottom: '1px solid var(--color-border)',
           flexShrink: 0,
         }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#1F2937' }}>{title}</h3>
+          <h3 style={{ margin: 0, fontSize: 'var(--fs-16)', fontWeight: 600, color: 'var(--color-text-1)' }}>{title}</h3>
           <button
             onClick={onClose}
             style={{
@@ -81,7 +81,7 @@ export function Modal({
             gap: 10,
             justifyContent: 'flex-end',
             padding: '12px 20px',
-            borderTop: '1px solid #E5E7EB',
+            borderTop: '1px solid var(--color-border)',
             flexShrink: 0,
           }}>
             {footer}

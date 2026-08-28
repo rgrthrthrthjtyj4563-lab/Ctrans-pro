@@ -37,7 +37,7 @@ function ToastItem({ msg, onDismiss }: { msg: ToastMessage; onDismiss: (id: stri
       gap: 12,
       alignItems: 'flex-start',
       background: '#FFFFFF',
-      border: '1px solid #E5E7EB',
+      border: '1px solid var(--color-border)',
       borderLeft: `4px solid ${s.borderColor}`,
       borderRadius: '8px',
       padding: '12px 14px',
@@ -50,9 +50,9 @@ function ToastItem({ msg, onDismiss }: { msg: ToastMessage; onDismiss: (id: stri
         <Icon size={16} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#1F2937' }}>{msg.title}</div>
+        <div style={{ fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)' }}>{msg.title}</div>
         {msg.description && (
-          <div style={{ fontSize: 13, color: '#667085', marginTop: 2 }}>{msg.description}</div>
+          <div style={{ fontSize: 'var(--fs-13)', color: '#667085', marginTop: 2 }}>{msg.description}</div>
         )}
       </div>
       <button

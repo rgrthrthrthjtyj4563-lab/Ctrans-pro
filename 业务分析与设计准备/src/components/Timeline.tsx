@@ -1,6 +1,22 @@
 import { CheckCircle, XCircle, Clock, Edit, FileText, AlertCircle } from 'lucide-react';
 
-type EventType = '提交' | '审核通过' | '审核驳回' | '修改' | '创建' | '绩效' | '结算' | '撤销';
+type EventType =
+  | '提交'
+  | '审核通过'
+  | '审核驳回'
+  | '修改'
+  | '创建'
+  | '绩效'
+  | '结算'
+  | '撤销'
+  | '冻结'
+  | '解冻'
+  | '补件'
+  | '核验'
+  | '准入'
+  | '尽调'
+  | '复审'
+  | '退出';
 
 interface TimelineEvent {
   id: string;
@@ -22,9 +38,17 @@ const eventConfig: Record<EventType, { icon: typeof CheckCircle; color: string; 
   '审核通过':{ icon: CheckCircle, color: '#248A5A', bg: '#E6F5ED', label: '审核通过' },
   '审核驳回':{ icon: XCircle,    color: '#C73A3A', bg: '#FEECEC', label: '审核驳回' },
   '修改':   { icon: Edit,        color: '#C77A16', bg: '#FEF3E2', label: '修改记录' },
-  '绩效':   { icon: CheckCircle, color: '#176B5B', bg: '#E8F4F1', label: '打绩效' },
-  '结算':   { icon: CheckCircle, color: '#176B5B', bg: '#E8F4F1', label: '结算完结' },
+  '绩效':   { icon: CheckCircle, color: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', label: '打绩效' },
+  '结算':   { icon: CheckCircle, color: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', label: '结算完结' },
   '撤销':   { icon: AlertCircle, color: '#374151', bg: '#F3F4F6', label: '撤销操作' },
+  '冻结':   { icon: AlertCircle, color: '#C73A3A', bg: '#FEECEC', label: '冻结' },
+  '解冻':   { icon: CheckCircle, color: '#248A5A', bg: '#E6F5ED', label: '解冻复核' },
+  '补件':   { icon: Edit,        color: '#C77A16', bg: '#FEF3E2', label: '要求补件' },
+  '核验':   { icon: FileText,    color: '#2F6BCE', bg: '#EBF2FE', label: '备案核验' },
+  '准入':   { icon: CheckCircle, color: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', label: '准入通过' },
+  '尽调':   { icon: Clock,       color: '#2F6BCE', bg: '#EBF2FE', label: '尽职调查' },
+  '复审':   { icon: Clock,       color: '#C77A16', bg: '#FEF3E2', label: '复审' },
+  '退出':   { icon: XCircle,     color: '#374151', bg: '#F3F4F6', label: '退出合作' },
 };
 
 export function Timeline({ events }: TimelineProps) {
@@ -68,10 +92,10 @@ export function Timeline({ events }: TimelineProps) {
             {/* Content */}
             <div style={{ flex: 1, paddingBottom: isLast ? 0 : 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>{cfg.label}</span>
+                <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>{cfg.label}</span>
                 {event.role && (
                   <span style={{
-                    fontSize: 11,
+                    fontSize: 'var(--fs-11)',
                     padding: '1px 6px',
                     borderRadius: '3px',
                     background: '#F3F4F6',
@@ -81,7 +105,7 @@ export function Timeline({ events }: TimelineProps) {
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: event.comment ? 6 : 0 }}>
+              <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginBottom: event.comment ? 6 : 0 }}>
                 {event.operator} · {event.time}
               </div>
               {event.comment !== undefined && (
@@ -90,7 +114,7 @@ export function Timeline({ events }: TimelineProps) {
                   padding: '8px 12px',
                   background: '#F9FAFB',
                   borderRadius: '6px',
-                  fontSize: 13,
+                  fontSize: 'var(--fs-13)',
                   color: '#374151',
                   borderLeft: `3px solid ${cfg.color}`,
                 }}>
@@ -98,7 +122,7 @@ export function Timeline({ events }: TimelineProps) {
                 </div>
               )}
               {event.detail && (
-                <div style={{ marginTop: 4, fontSize: 12, color: '#667085' }}>{event.detail}</div>
+                <div style={{ marginTop: 4, fontSize: 'var(--fs-12)', color: '#667085' }}>{event.detail}</div>
               )}
             </div>
           </div>

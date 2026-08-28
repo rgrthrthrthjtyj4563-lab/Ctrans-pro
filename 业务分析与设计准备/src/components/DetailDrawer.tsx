@@ -60,12 +60,12 @@ export function DetailDrawer({ open, title, subtitle, width = 560, onClose, chil
           justifyContent: 'space-between',
           padding: '0 20px',
           height: 56,
-          borderBottom: '1px solid #E5E7EB',
+          borderBottom: '1px solid var(--color-border)',
           flexShrink: 0,
         }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#1F2937' }}>{title}</div>
-            {subtitle && <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 1 }}>{subtitle}</div>}
+            <div style={{ fontSize: 'var(--fs-15)', fontWeight: 600, color: 'var(--color-text-1)' }}>{title}</div>
+            {subtitle && <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 1 }}>{subtitle}</div>}
           </div>
           <button
             onClick={onClose}
@@ -99,7 +99,7 @@ export function DetailDrawer({ open, title, subtitle, width = 560, onClose, chil
         {footer && (
           <div style={{
             padding: '14px 20px',
-            borderTop: '1px solid #E5E7EB',
+            borderTop: '1px solid var(--color-border)',
             display: 'flex',
             gap: 8,
             justifyContent: 'flex-end',
@@ -130,7 +130,7 @@ export function FieldGroup({ title, children }: FieldGroupProps) {
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{
-        fontSize: 12,
+        fontSize: 'var(--fs-12)',
         fontWeight: 600,
         color: '#9CA3AF',
         textTransform: 'uppercase',
@@ -163,8 +163,8 @@ interface FieldItemProps {
 export function FieldItem({ label, value, span }: FieldItemProps) {
   return (
     <div style={{ gridColumn: span ? '1 / -1' : undefined }}>
-      <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 14, color: '#1F2937', fontWeight: 400, wordBreak: 'break-all' }}>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 'var(--fs-14)', color: 'var(--color-text-1)', fontWeight: 400, wordBreak: 'break-all' }}>
         {value || <span style={{ color: '#D1D5DB' }}>—</span>}
       </div>
     </div>

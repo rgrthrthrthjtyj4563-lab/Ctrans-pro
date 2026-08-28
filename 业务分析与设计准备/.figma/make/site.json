@@ -1,5 +1,10 @@
 {
-  "description": "Analyzes business data to classify fields, map pages, define statuses, and identify conflicts ensuring accurate, compliant UI design for complex systems.",
+  "title": "药合作系统",
+  "description": "药合作系统高保真原型：任务、预算、合规与 AI 工作台。",
+  "language": "zh-CN",
+  "icons": {
+    "icon": "/favicon.svg"
+  },
   "robots": {
     "index": false
   },

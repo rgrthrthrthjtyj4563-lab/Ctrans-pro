@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, PencilLine, BarChart2 } from 'lucide-react';
+import { Plus, PencilLine, BarChart2, Eye } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { Button } from '../components/Button';
@@ -25,16 +25,16 @@ interface Props {
 }
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', height: 36, padding: '0 10px', fontSize: 13,
-  border: '1px solid #E5E7EB', borderRadius: 6, outline: 'none', fontFamily: 'inherit',
+  width: '100%', height: 36, padding: '0 10px', fontSize: 'var(--fs-13)',
+  border: '1px solid var(--color-border)', borderRadius: 6, outline: 'none', fontFamily: 'inherit',
 };
 
 const th: React.CSSProperties = {
-  padding: '10px 10px', textAlign: 'right', fontSize: 12, fontWeight: 600,
-  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', whiteSpace: 'nowrap',
+  padding: '10px 10px', textAlign: 'right', fontSize: 'var(--fs-12)', fontWeight: 600,
+  color: '#9CA3AF', background: '#F9FAFB', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
 const td: React.CSSProperties = {
-  padding: '10px 10px', fontSize: 13, color: '#1F2937', borderBottom: '1px solid #F3F4F6',
+  padding: '10px 10px', fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', borderBottom: '1px solid #F3F4F6',
   textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap',
 };
 const tdText: React.CSSProperties = { ...td, textAlign: 'left', fontFamily: 'inherit', whiteSpace: 'normal' };
@@ -47,12 +47,12 @@ function evenSplit(yearAmount: number): number[] {
 }
 
 function StatCard({ label, value, tone, hint }: { label: string; value: string; tone: 'brand' | 'warning' | 'neutral'; hint?: string }) {
-  const color = tone === 'brand' ? '#176B5B' : tone === 'warning' ? '#C77A16' : '#1F2937';
+  const color = tone === 'brand' ? 'var(--color-brand)' : tone === 'warning' ? '#C77A16' : '#1F2937';
   return (
-    <div style={{ flex: 1, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '16px 20px', minWidth: 200 }}>
-      <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, fontFamily: "'JetBrains Mono', monospace" }}>{value}</div>
-      {hint && <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>{hint}</div>}
+    <div style={{ flex: 1, background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: '16px 20px', minWidth: 200 }}>
+      <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 'var(--fs-22)', fontWeight: 700, color, fontFamily: "'JetBrains Mono', monospace" }}>{value}</div>
+      {hint && <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
@@ -69,7 +69,7 @@ function ChipSelect({
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
       {options.length === 0 ? (
-        <span style={{ fontSize: 12, color: '#9CA3AF' }}>{placeholder || '无可选项'}</span>
+        <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{placeholder || '无可选项'}</span>
       ) : options.map((opt) => {
         const on = value.includes(opt);
         return (
@@ -79,11 +79,11 @@ function ChipSelect({
             disabled={disabled}
             onClick={() => onChange(on ? value.filter((x) => x !== opt) : [...value, opt])}
             style={{
-              padding: '4px 10px', borderRadius: 16, fontSize: 12,
+              padding: '4px 10px', borderRadius: 16, fontSize: 'var(--fs-12)',
               cursor: disabled ? 'not-allowed' : 'pointer',
-              border: on ? '1px solid #176B5B' : '1px solid #E5E7EB',
-              background: on ? '#E8F4F1' : '#fff',
-              color: on ? '#176B5B' : '#344054',
+              border: on ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
+              background: on ? 'var(--color-brand-subtle)' : '#fff',
+              color: on ? 'var(--color-brand)' : '#344054',
               opacity: disabled ? 0.6 : 1,
             }}
           >
@@ -216,7 +216,7 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
           />
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'auto' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
             <thead>
               <tr>
@@ -231,6 +231,9 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
               ) : rows.map((p) => {
                 const actual = actualAmountOf(p, tasks);
                 const rowDiff = budgetDiffOf(p, tasks);
+                const linkedTask = tasks.find((task) => task.provider === p.provider
+                  && task.varieties.some((variety) => p.varieties.includes(variety))
+                  && (p.regions.includes(REGION_NATIONWIDE) || task.regions.some((region) => p.regions.includes(region))));
                 return (
                   <tr key={p.id}>
                     <td style={tdText}>{p.year}</td>
@@ -245,6 +248,11 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
                     <td style={tdText}>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {canWrite && <Button variant="ghost" size="sm" icon={<PencilLine size={13} />} onClick={() => openEdit(p)}>编辑</Button>}
+                        {linkedTask && (
+                          <Button variant="ghost" size="sm" icon={<Eye size={13} />} onClick={() => navigate('task-dispatch', { taskId: linkedTask.id })}>
+                            查看任务详情
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -277,24 +285,24 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
           </>
         }
       >
-        {formError && <div style={{ padding: '8px 12px', background: '#FEECEC', border: '1px solid #FECACA', borderRadius: 6, color: '#C73A3A', fontSize: 13, marginBottom: 10 }}>{formError}</div>}
+        {formError && <div style={{ padding: '8px 12px', background: '#FEECEC', border: '1px solid #FECACA', borderRadius: 6, color: '#C73A3A', fontSize: 'var(--fs-13)', marginBottom: 10 }}>{formError}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <label style={{ display: 'block' }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>年度</div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>年度</div>
             <select value={fYear} onChange={(e) => setFYear(Number(e.target.value))} style={inputStyle}>
               <option value={2026}>2026</option>
               <option value={2027}>2027</option>
             </select>
           </label>
           <label style={{ display: 'block' }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>服务商</div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>服务商</div>
             <select value={fProvider} onChange={(e) => onPickProvider(e.target.value)} style={inputStyle}>
               <option value="">请选择服务商</option>
               {providers.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
           <label style={{ display: 'block', gridColumn: '1 / -1' }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>覆盖品种（多选，须在该服务商授权范围内）</div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>覆盖品种（多选，须在该服务商授权范围内）</div>
             <ChipSelect
               options={createVarietyOpts}
               value={fVarieties}
@@ -303,7 +311,7 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
             />
           </label>
           <label style={{ display: 'block', gridColumn: '1 / -1' }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>覆盖地区（多选，须在该服务商授权范围内）</div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>覆盖地区（多选，须在该服务商授权范围内）</div>
             <ChipSelect
               options={authorizedRegions.length ? authorizedRegions : []}
               value={fRegions}
@@ -312,7 +320,7 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
             />
           </label>
           <label style={{ display: 'block' }}>
-            <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>年度预算（￥）</div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>年度预算（￥）</div>
             <input
               type="number"
               value={fYearAmount}
@@ -327,11 +335,11 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
           </label>
         </div>
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>月度预算（默认按年度预算均摊，可逐月修改）</div>
+          <div style={{ fontSize: 'var(--fs-13)', fontWeight: 650, marginBottom: 8 }}>月度预算（默认按年度预算均摊，可逐月修改）</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
             {fMonths.map((m, i) => (
               <label key={i} style={{ display: 'block' }}>
-                <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4 }}>{i + 1}月</div>
+                <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF', marginBottom: 4 }}>{i + 1}月</div>
                 <input
                   type="number"
                   value={m}
@@ -341,7 +349,7 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
               </label>
             ))}
           </div>
-          <div style={{ marginTop: 8, fontSize: 12, color: '#667085' }}>
+          <div style={{ marginTop: 8, fontSize: 'var(--fs-12)', color: '#667085' }}>
             月度合计 {formatCNY(fMonths.reduce((s, m) => s + m, 0))}；与年度预算的差异仅提示，不阻断保存。
           </div>
         </div>
@@ -359,22 +367,22 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
           </>
         }
       >
-        {formError && <div style={{ padding: '8px 12px', background: '#FEECEC', border: '1px solid #FECACA', borderRadius: 6, color: '#C73A3A', fontSize: 13, marginBottom: 10 }}>{formError}</div>}
+        {formError && <div style={{ padding: '8px 12px', background: '#FEECEC', border: '1px solid #FECACA', borderRadius: 6, color: '#C73A3A', fontSize: 'var(--fs-13)', marginBottom: 10 }}>{formError}</div>}
         {editYearLocked && (
-          <div style={{ padding: '8px 12px', background: '#F3F4F6', borderRadius: 6, color: '#667085', fontSize: 13, marginBottom: 10 }}>
+          <div style={{ padding: '8px 12px', background: '#F3F4F6', borderRadius: 6, color: '#667085', fontSize: 'var(--fs-13)', marginBottom: 10 }}>
             该年度已结束，整行锁定，不可修改。
           </div>
         )}
         {!editYearLocked && editFrozen.length > 0 && (
-          <div style={{ padding: '8px 12px', background: '#FEF3E2', border: '1px solid #FDE68A', borderRadius: 6, color: '#C77A16', fontSize: 13, marginBottom: 10 }}>
+          <div style={{ padding: '8px 12px', background: '#FEF3E2', border: '1px solid #FDE68A', borderRadius: 6, color: '#C77A16', fontSize: 'var(--fs-13)', marginBottom: 10 }}>
             {editFrozen.map((m) => `${m}月`).join('、')} 该服务商有任务执行中，月度预算已冻结；年度预算与未执行月份可改。
           </div>
         )}
-        <div style={{ fontSize: 12, color: '#667085', marginBottom: 12 }}>
+        <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 12 }}>
           覆盖品种：{formatCoverage(editRow?.varieties ?? [])}　覆盖地区：{formatCoverage(editRow?.regions ?? [])}
         </div>
         <label style={{ display: 'block', marginBottom: 14, maxWidth: 280 }}>
-          <div style={{ fontSize: 12, color: '#667085', marginBottom: 6 }}>年度预算（￥）</div>
+          <div style={{ fontSize: 'var(--fs-12)', color: '#667085', marginBottom: 6 }}>年度预算（￥）</div>
           <input
             type="number"
             value={eYearAmount}
@@ -384,7 +392,7 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
           />
         </label>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 650 }}>月度预算</div>
+          <div style={{ fontSize: 'var(--fs-13)', fontWeight: 650 }}>月度预算</div>
           <Button
             variant="outline"
             size="sm"
@@ -402,7 +410,7 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
             const locked = editYearLocked || editFrozen.includes(i + 1);
             return (
               <label key={i} style={{ display: 'block' }}>
-                <div style={{ fontSize: 11, color: locked ? '#C77A16' : '#9CA3AF', marginBottom: 4 }}>
+                <div style={{ fontSize: 'var(--fs-11)', color: locked ? '#C77A16' : '#9CA3AF', marginBottom: 4 }}>
                   {i + 1}月{locked && !editYearLocked ? ' · 冻结' : ''}
                 </div>
                 <input
@@ -416,7 +424,7 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
             );
           })}
         </div>
-        <div style={{ marginTop: 8, fontSize: 12, color: '#667085' }}>
+        <div style={{ marginTop: 8, fontSize: 'var(--fs-12)', color: '#667085' }}>
           月度合计 {formatCNY(eMonths.reduce((s, m) => s + m, 0))}，年度预算 {formatCNY(eYearAmount)}；调整后以最新金额参与预算执行分析。
         </div>
       </Modal>
