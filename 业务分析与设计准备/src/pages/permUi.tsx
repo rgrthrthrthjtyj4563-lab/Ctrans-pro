@@ -1,6 +1,15 @@
-import type { CSSProperties, ReactNode } from 'react';
-import { AlertTriangle, Eye } from 'lucide-react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { AlertTriangle, ChevronDown, ChevronRight, Eye } from 'lucide-react';
 import { Button } from '../components/Button';
+import {
+  ORG_TYPE_LABEL,
+  orgChildren,
+  orgDescendantIds,
+  orgPathLabel,
+  usersInSubtree,
+  type PermOrg,
+  type PermUser,
+} from '../data/permissions';
 
 export const inputStyle: CSSProperties = {
   width: '100%',
@@ -218,6 +227,162 @@ export function ChipSelect({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+export function OrgTree({
+  orgs,
+  selectedId,
+  onSelect,
+  users = [],
+  defaultExpandedIds,
+  showSearch,
+  canSelect,
+}: {
+  orgs: PermOrg[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  users?: PermUser[];
+  defaultExpandedIds?: string[];
+  showSearch?: boolean;
+  canSelect?: (org: PermOrg) => boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    if (defaultExpandedIds?.length) return new Set(defaultExpandedIds);
+    return new Set(orgs.filter(o => o.type === 'platform' || o.type === 'pharma').map(o => o.id));
+  });
+
+  const q = query.trim().toLowerCase();
+  const visibleIds = useMemo(() => {
+    if (!q) return null;
+    const hit = new Set<string>();
+    for (const org of orgs) {
+      const nameHit = org.name.toLowerCase().includes(q);
+      const peopleHit = usersInSubtree(users, orgs, org.id).some(
+        u => u.name.toLowerCase().includes(q) || u.account.toLowerCase().includes(q),
+      );
+      if (!nameHit && !peopleHit) continue;
+      for (const id of orgDescendantIds(orgs, org.id)) hit.add(id);
+      let current: PermOrg | undefined = org;
+      const guard = new Set<string>();
+      while (current && !guard.has(current.id)) {
+        guard.add(current.id);
+        hit.add(current.id);
+        current = current.parentId ? orgs.find(o => o.id === current!.parentId) : undefined;
+      }
+    }
+    return hit;
+  }, [orgs, q, users]);
+
+  const roots = orgChildren(orgs);
+
+  function toggle(id: string) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function renderNode(org: PermOrg, depth: number): ReactNode {
+    if (visibleIds && !visibleIds.has(org.id)) return null;
+    const children = orgChildren(orgs, org.id);
+    const visibleChildren = visibleIds ? children.filter(c => visibleIds.has(c.id)) : children;
+    const hasChildren = visibleChildren.length > 0;
+    const open = q ? true : expanded.has(org.id);
+    const selected = selectedId === org.id;
+    const selectable = canSelect ? canSelect(org) : true;
+    const count = usersInSubtree(users, orgs, org.id).length;
+    return (
+      <div key={org.id}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '6px 8px',
+            paddingLeft: 8 + depth * 14,
+            borderRadius: 6,
+            cursor: selectable ? 'pointer' : 'not-allowed',
+            opacity: selectable ? 1 : 0.4,
+            background: selected ? 'var(--color-brand-subtle)' : 'transparent',
+            color: selected ? 'var(--color-brand)' : 'var(--color-text-1)',
+          }}
+          onClick={() => { if (selectable) onSelect(org.id); }}
+        >
+          <button
+            type="button"
+            aria-label={open ? '折叠' : '展开'}
+            onClick={e => {
+              e.stopPropagation();
+              if (hasChildren) toggle(org.id);
+            }}
+            style={{
+              width: 18,
+              height: 18,
+              border: 'none',
+              background: 'transparent',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: hasChildren ? '#9CA3AF' : 'transparent',
+              cursor: hasChildren ? 'pointer' : 'default',
+              flexShrink: 0,
+            }}
+          >
+            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-13)', fontWeight: selected ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {org.name}
+          </span>
+          <span style={{ fontSize: 'var(--fs-12)', color: '#667085', flexShrink: 0 }}>{ORG_TYPE_LABEL[org.type]}</span>
+          <span style={{
+            minWidth: 18,
+            height: 18,
+            padding: '0 5px',
+            borderRadius: 999,
+            background: '#F3F4F6',
+            color: '#374151',
+            fontSize: 'var(--fs-11)',
+            fontWeight: 600,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            {count}
+          </span>
+        </div>
+        {open && hasChildren && visibleChildren.map(child => renderNode(child, depth + 1))}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+      {showSearch && (
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="搜索部门或人员"
+          style={{ ...inputStyle, marginBottom: 8, flexShrink: 0 }}
+        />
+      )}
+      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {roots.map(root => renderNode(root, 0))}
+        {visibleIds && visibleIds.size === 0 && (
+          <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', padding: '12px 8px' }}>没有匹配的组织</div>
+        )}
+      </div>
+      {selectedId && (
+        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', paddingTop: 8, flexShrink: 0, lineHeight: 1.4 }}>
+          {orgPathLabel(orgs, selectedId)}
+        </div>
+      )}
     </div>
   );
 }

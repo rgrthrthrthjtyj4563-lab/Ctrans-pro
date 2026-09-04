@@ -1,0 +1,1239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>绩效管理 · UI 设计预览</title>
+<style>
+  :root {
+    --brand: #176B5B;
+    --brand-dark: #0F5044;
+    --brand-soft: #E8F4F1;
+    --info: #2F6BCE;
+    --info-soft: #EBF2FE;
+    --warn: #C77A16;
+    --warn-soft: #FEF3E2;
+    --danger: #C73A3A;
+    --danger-soft: #FEECEC;
+    --success: #248A5A;
+    --success-soft: #E6F5ED;
+    --neutral-fg: #374151;
+    --neutral-bg: #F3F4F6;
+    --bg: #F5F7F8;
+    --card: #FFFFFF;
+    --text: #1F2937;
+    --muted: #667085;
+    --line: #E5E7EB;
+    --line-strong: #D0D5DD;
+    --disabled: #98A2B3;
+    --sidebar: #111827;
+    --sidebar-active: #17342B;
+    --sidebar-accent: #4ADE80;
+    --sans: Inter, "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.5715; }
+  button { font-family: inherit; }
+  .mono { font-family: var(--mono); }
+
+  /* ===== 预览控制条（预览专用，非产品元素） ===== */
+  .preview-bar { position: sticky; top: 0; z-index: 60; background: var(--sidebar); color: #fff; display: flex; align-items: center; gap: 12px; padding: 10px 24px; flex-wrap: wrap; }
+  .bar-title { font-weight: 600; font-size: 14px; }
+  .bar-badge { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: rgba(199,122,22,.18); color: #FDB022; border: 1px solid rgba(253,176,34,.4); }
+  .bar-sep { flex: 1; }
+  .bar-label { font-size: 12px; color: #98A2B3; }
+  .seg { display: inline-flex; background: #1F2937; border-radius: 6px; padding: 2px; gap: 2px; }
+  .seg button { border: none; background: transparent; color: #98A2B3; font-size: 13px; padding: 4px 14px; border-radius: 4px; cursor: pointer; }
+  .seg button.active { background: #fff; color: #111827; font-weight: 600; }
+  .seg button:focus-visible { outline: 2px solid #7DA3F5; outline-offset: 1px; }
+
+  .page { max-width: 1400px; margin: 0 auto; padding: 20px 24px 72px; }
+  .preview-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .app-frame { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .section-marker { display: flex; align-items: center; gap: 10px; margin: 30px 0 12px; font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--muted); }
+  .section-marker::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* ===== 页头 ===== */
+  .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+  .page-title { font-size: 20px; font-weight: 600; }
+  .page-desc { color: var(--muted); margin-top: 4px; font-size: 13px; }
+  .crumb { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .crumb b { color: var(--text); font-weight: 600; }
+
+  /* ===== 演示身份条（设计元素：产品内为演示控件，非登录角色） ===== */
+  .idbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #FFFDF5; border: 1px dashed #E3C587; border-radius: 8px; padding: 8px 14px; margin-bottom: 14px; }
+  .idbar .tag { font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border-radius: 4px; padding: 1px 6px; flex: none; }
+  .idbar .lbl { font-size: 12px; color: var(--muted); flex: none; }
+  .idseg { display: inline-flex; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 2px; gap: 2px; }
+  .idseg button { border: none; background: transparent; color: var(--muted); font-size: 12px; padding: 3px 14px; border-radius: 999px; cursor: pointer; }
+  .idseg button.active { background: var(--brand); color: #fff; font-weight: 600; }
+  .idbar .hint { font-size: 12px; color: var(--muted); }
+
+  /* ===== 统计卡 ===== */
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stat { flex: 1; min-width: 160px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 20px; font-weight: 600; margin-top: 4px; font-family: var(--mono); }
+  .stat .v small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+
+  /* ===== 筛选条 ===== */
+  .filters { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  .f { display: flex; flex-direction: column; gap: 4px; }
+  .f label { font-size: 12px; color: var(--muted); }
+  .f input, .f select { height: 32px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; font-size: 13px; font-family: inherit; background: #fff; color: var(--text); min-width: 150px; }
+  .f input:focus-visible, .f select:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+  /* ===== 按钮 ===== */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 6px; border: 1px solid transparent; font-size: 13px; cursor: pointer; height: 32px; padding: 0 16px; transition: background .16s ease, border-color .16s ease; }
+  .btn.primary { background: var(--brand); color: #fff; font-weight: 500; }
+  .btn.primary:hover { background: var(--brand-dark); }
+  .btn.ghost { background: #fff; border-color: var(--line-strong); color: var(--text); }
+  .btn.ghost:hover { border-color: var(--brand); color: var(--brand); }
+  .btn.danger { background: var(--danger); color: #fff; font-weight: 500; }
+  .btn.danger-ghost { background: #fff; border-color: var(--line-strong); color: var(--danger); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.sm { height: 28px; padding: 0 12px; font-size: 12px; }
+  .lnk { border: none; background: none; padding: 0; font-size: 13px; cursor: pointer; color: var(--text); }
+  .lnk:hover { color: var(--brand); text-decoration: underline; }
+  .lnk.brand { color: var(--brand); font-weight: 500; }
+  .lnk.danger { color: var(--danger); }
+  .lnk:disabled { color: var(--disabled); cursor: not-allowed; text-decoration: none; }
+
+  /* ===== 表格 ===== */
+  .tblcard { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+  table.tbl { width: 100%; border-collapse: collapse; min-width: 1080px; }
+  .tbl th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); background: #F9FAFB; padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .tbl td { font-size: 12.5px; padding: 9px 10px; border-bottom: 1px solid #F3F4F6; vertical-align: middle; white-space: nowrap; }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl tr:hover td { background: #FAFBFC; }
+  .tbl .num { font-family: var(--mono); }
+  .tbl .sub { font-size: 11px; color: var(--muted); display: block; }
+  .tbl .ops { display: flex; gap: 12px; align-items: center; }
+
+  /* ===== 状态胶囊 ===== */
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+  .p-neutral { color: var(--neutral-fg); background: var(--neutral-bg); }
+  .p-info    { color: var(--info); background: var(--info-soft); }
+  .p-success { color: var(--success); background: var(--success-soft); }
+  .p-warning { color: var(--warn); background: var(--warn-soft); }
+  .p-danger  { color: var(--danger); background: var(--danger-soft); }
+  .p-brand   { color: var(--brand); background: var(--brand-soft); }
+  .p-muted   { color: var(--muted); background: #F5F5F5; }
+  .chip { display: inline-flex; align-items: center; border-radius: 999px; font-size: 11px; padding: 1px 8px; font-weight: 500; }
+  .chip.outline-info { color: var(--info); border: 1px solid var(--info); background: #fff; }
+  .chip.soft-brand { color: var(--brand); background: var(--brand-soft); }
+
+  /* ===== 分页 ===== */
+  .pager { display: flex; justify-content: space-between; align-items: center; padding: 12px 4px 0; font-size: 12px; color: var(--muted); }
+  .pager .pgs { display: flex; gap: 6px; }
+  .pager .pg { min-width: 26px; height: 26px; border: 1px solid var(--line); background: #fff; border-radius: 6px; display: grid; place-items: center; font-size: 12px; cursor: pointer; }
+  .pager .pg.cur { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+  /* ===== 提示条 ===== */
+  .note { display: flex; gap: 10px; align-items: flex-start; border-radius: 8px; padding: 10px 14px; font-size: 12.5px; margin-bottom: 14px; }
+  .note.info { background: var(--info-soft); color: #1D4ED8; }
+  .note.warn { background: var(--warn-soft); color: #9A5B0B; }
+  .note.brand { background: var(--brand-soft); color: var(--brand-dark); }
+
+  /* ===== 弹窗（居中 Modal） ===== */
+  .mask { position: fixed; inset: 0; background: rgba(16,24,40,.48); z-index: 100; display: none; align-items: center; justify-content: center; padding: 24px; }
+  .mask.open { display: flex; }
+  .panel { background: #fff; border-radius: 12px; width: min(600px, 94vw); max-height: 88vh; overflow: auto; box-shadow: 0 16px 40px rgba(0,0,0,.14), 0 8px 16px -8px rgba(0,0,0,.1); }
+  .panel.small { width: min(440px, 94vw); }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .panel-title { font-size: 16px; font-weight: 600; }
+  .panel-close { border: none; background: none; font-size: 18px; color: var(--muted); cursor: pointer; line-height: 1; padding: 4px; border-radius: 6px; }
+  .panel-close:hover { background: var(--neutral-bg); color: var(--text); }
+  .panel-body { padding: 18px 20px; }
+  .panel-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
+
+  /* 表单 */
+  .objline { background: var(--brand-soft); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--brand-dark); font-weight: 500; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .fieldrow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px dashed #EEF0F2; }
+  .fieldrow:last-of-type { border-bottom: none; }
+  .fieldrow .fl { font-size: 13px; color: var(--text); }
+  .fieldrow .fl small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .fieldrow .fr { display: flex; align-items: center; gap: 10px; }
+  .amt { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+  .amt-input { height: 34px; width: 158px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 14px 0 10px; font-family: var(--mono); font-size: 14px; text-align: right; }
+  .amt-input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+  .coef { font-family: var(--mono); font-size: 13px; min-width: 56px; text-align: center; border-radius: 6px; padding: 3px 8px; }
+  .coef.ok { color: var(--success); background: var(--success-soft); }
+  .coef.bad { color: var(--danger); background: var(--danger-soft); }
+  .err { display: none; font-size: 12.5px; color: var(--danger); background: var(--danger-soft); border-radius: 6px; padding: 8px 12px; margin-top: 12px; }
+  .err.show { display: block; }
+
+  /* 确认弹窗 */
+  .cf-icon { width: 40px; height: 40px; border-radius: 999px; display: grid; place-items: center; font-size: 20px; margin-bottom: 12px; }
+  .cf-icon.danger { background: var(--danger-soft); color: var(--danger); }
+  .cf-icon.warn { background: var(--warn-soft); color: var(--warn); }
+  .cf-icon.brand { background: var(--brand-soft); color: var(--brand); }
+  .cf-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  .cf-body { font-size: 13px; color: var(--text); }
+  .cf-body ul { margin: 8px 0 0; padding-left: 18px; }
+  .cf-body li { margin-bottom: 4px; }
+  .cf-kv { background: #F9FAFB; border-radius: 8px; padding: 10px 12px; font-size: 12.5px; margin-top: 10px; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+  .cf-kv b { color: var(--muted); font-weight: 500; }
+
+  /* ===== 结算对账单（单据预览，复刻现网样式） ===== */
+  .stmt-paper { background: #fff; }
+  .stmt-title { text-align: center; font-size: 20px; font-weight: 600; letter-spacing: .45em; text-indent: .45em; margin: 2px 0  16px; }
+  .stmt-info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 12px; margin-bottom: 14px; }
+  .stmt-info .red { color: var(--danger); font-weight: 600; }
+  table.stmt-t { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  table.stmt-t th { background: #1F2937; color: #fff; font-weight: 500; font-size: 11.5px; padding: 6px 8px; border: 1px solid #374151; text-align: center; line-height: 1.4; }
+  table.stmt-t td { border: 1px solid #374151; padding: 6px 8px; font-size: 11.5px; }
+  table.stmt-t .r { text-align: right; font-family: var(--mono); }
+  table.stmt-t .c { text-align: center; }
+  .stmt-amount { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 13px; }
+  .stmt-amount .num { font-family: var(--mono); font-weight: 600; font-size: 15px; }
+  .stmt-decl { background: #F2F4F7; border-radius: 6px; padding: 10px 14px; font-size: 10.5px; color: #475467; line-height: 1.7; margin-top: 14px; }
+  .stmt-decl b { display: block; margin-bottom: 2px; }
+  .stmt-qr { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 12px; font-size: 11px; color: var(--muted); }
+  .stmt-qr .qrbox { width: 64px; height: 64px; border: 1px solid var(--line-strong); background: repeating-conic-gradient(#E5E7EB 0 25%, #fff 0 50%) 0 0 / 12px 12px; }
+
+  /* ===== 设计说明 ===== */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+  .card-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .card .ref { font-size: 11px; color: var(--muted); background: var(--neutral-bg); border-radius: 4px; padding: 1px 6px; font-weight: 400; }
+  .rule-t { width: 100%; border-collapse: collapse; }
+  .rule-t td, .rule-t th { font-size: 12.5px; padding: 8px 10px; border-bottom: 1px solid #F3F4F6; text-align: left; vertical-align: top; }
+  .rule-t th { color: var(--muted); font-weight: 500; background: #F9FAFB; }
+  .rule-t .rid { font-family: var(--mono); color: var(--brand); white-space: nowrap; font-weight: 600; }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .lg-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .lg-cap { font-size: 12px; color: var(--muted); margin-right: 2px; }
+
+  /* 迷你侧栏 */
+  .navdemo { display: flex; gap: 16px; align-items: flex-start; }
+  .mininav { width: 216px; flex: none; background: var(--sidebar); border-radius: 10px; padding: 12px 10px; font-size: 12.5px; color: #D1D5DB; }
+  .mn-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; }
+  .mn-group { color: #6B7280; font-size: 10.5px; padding: 10px 10px 4px; letter-spacing: .06em; }
+  .mn-item.active { background: var(--sidebar-active); color: #fff; box-shadow: inset 3px 0 0 var(--sidebar-accent); }
+  .mn-item.child { padding-left: 26px; }
+  .mn-item.child.active { box-shadow: none; }
+  .mn-item.child.active::before { content: "●"; color: var(--sidebar-accent); font-size: 8px; }
+  .navdemo .exp { font-size: 12.5px; color: var(--muted); line-height: 1.8; }
+
+  /* 身份切换作用域：.scope[data-id="wg"] 下隐藏服务商动作，反之隐藏工作组动作 */
+  .scope[data-id="p"] .a2 { display: none; }
+  .scope[data-id="wg"] .a1 { display: none; }
+
+  @media (max-width: 760px) {
+    .page { padding: 12px 12px 48px; }
+    .app-frame { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ 预览控制条（非产品元素） ═══ -->
+<div class="preview-bar">
+  <span class="bar-title">绩效管理 · UI 设计预览</span>
+  <span class="bar-badge">设计稿 V1.6</span>
+  <span class="bar-sep"></span>
+  <span class="bar-label">切页：</span>
+  <div class="seg" id="seg">
+    <button data-v="page1" class="active">团队工作质量评价</button>
+    <button data-v="page2">服务专员绩效</button>
+    <button data-v="flow">打绩效流程演示</button>
+    <button data-v="notes">设计说明</button>
+  </div>
+</div>
+
+<main class="page">
+
+<!-- ════════════════════════════ 视图 1：团队工作质量评价 ════════════════════════════ -->
+<section class="view active" id="view-page1">
+  <p class="preview-note">按「服务商 × 品种 × 考核月 × 流程类型」汇总成批次，一个批次打一次绩效，不按任务逐条。</p>
+  <div class="app-frame scope" id="scope1" data-id="p">
+    <div class="crumb">业务管理 <span style="color:#D0D5DD">/</span> <b>绩效管理</b> <span style="color:#D0D5DD">/</span> 团队工作质量评价</div>
+    <div class="page-head">
+      <div>
+        <div class="page-title">团队工作质量评价</div>
+        <div class="page-desc">服务商给工作组打绩效；三级直达链没有工作组，服务商一对一给服务专员打。</div>
+      </div>
+      <button class="btn ghost sm" onclick="openModal('m-export')">导出批次快照</button>
+    </div>
+
+    <!-- 演示身份条：设计元素（原型演示控件，非登录角色） -->
+    <div class="idbar">
+      <span class="tag">原型演示</span>
+      <span class="lbl">当前操作身份</span>
+      <div class="idseg" data-scope="scope1">
+        <button data-id="p" class="active">服务商</button>
+        <button data-id="wg">工作组（阶段二）</button>
+      </div>
+      <span class="hint">身份条仅用于演示切换；药厂不参与绩效，登录后看不到本模块。</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">待处理</div><div class="v">2 <small>未打绩效</small></div></div>
+      <div class="stat"><div class="k">已生效</div><div class="v">3 <small>个批次</small></div></div>
+      <div class="stat"><div class="k">已撤销</div><div class="v">1 <small>个批次</small></div></div>
+      <div class="stat"><div class="k">批次总数</div><div class="v">6 <small>个</small></div></div>
+    </div>
+
+    <div class="filters">
+      <div class="f"><label>绩效批次号</label><input placeholder="请输入批次号" /></div>
+      <div class="f"><label>服务提供方</label><select><option>全部</option><option selected>程秋明发企</option></select></div>
+      <div class="f"><label>品种</label><select><option>全部</option><option selected>优甲乐 100片装</option><option>百赛松 30mg</option></select></div>
+      <div class="f"><label>被评价方（工作组）</label><select><option>全部</option><option>程秋明团队</option><option>程秋明二团队</option></select></div>
+      <div class="f"><label>流程类型</label><select><option>全部</option><option>四级链</option><option>三级直达</option></select></div>
+      <div class="f"><label>状态</label><select><option>全部</option><option>未打绩效</option><option>草稿</option><option>已生效</option><option>已撤销</option></select></div>
+      <div class="f"><label>考核月份</label><select><option>2026-07</option><option selected>2026-08</option><option>2026-09</option></select></div>
+      <button class="btn primary">查询</button>
+      <button class="btn ghost">重置</button>
+    </div>
+
+    <div class="tblcard">
+      <table class="tbl" style="min-width:1150px">
+        <thead>
+          <tr>
+            <th style="width:34px"><input type="checkbox" /></th>
+            <th>绩效批次号</th><th>流程类型</th><th>考核月份</th><th>服务提供方</th><th>被评价对象</th><th>品种</th>
+            <th style="text-align:right">工作量</th><th style="text-align:right">默认金额</th><th style="text-align:right">实发金额</th><th>质量系数</th><th>状态</th><th style="width:235px">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td class="num">PF-202608-012</td>
+            <td><span class="chip soft-brand">四级链</span></td>
+            <td>2026-08</td>
+            <td>程秋明发企</td>
+            <td>程秋明团队<span class="sub mono">cakin26</span></td>
+            <td>优甲乐 100片装</td>
+            <td class="num" style="text-align:right">21 次</td>
+            <td class="num" style="text-align:right">￥2,100.00</td>
+            <td class="num" style="text-align:right">￥2,100.00</td>
+            <td><span class="coef ok mono">1.00</span></td>
+            <td><span class="pill p-success"><span class="dot"></span>已生效</span></td>
+            <td>
+              <div class="ops">
+                <button class="lnk" onclick="openModal('m-view')">查看</button>
+                <button class="lnk brand a2" onclick="openModal('m-stage2')">给服务专员打绩效</button>
+                <button class="lnk a1" onclick="openModal('m-revoke1block')">撤销</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td class="num">PF-202608-013</td>
+            <td><span class="chip soft-brand">四级链</span></td>
+            <td>2026-08</td>
+            <td>程秋明发企</td>
+            <td>程秋明二团队<span class="sub mono">cakin31</span></td>
+            <td>优甲乐 100片装</td>
+            <td class="num" style="text-align:right">12 次</td>
+            <td class="num" style="text-align:right">￥1,200.00</td>
+            <td class="num" style="text-align:right"><span style="color:var(--muted)">—</span></td>
+            <td><span style="color:var(--muted)">—</span></td>
+            <td><span class="pill p-neutral"><span class="dot"></span>未打绩效</span></td>
+            <td>
+              <div class="ops">
+                <button class="lnk" onclick="openModal('m-view')">查看</button>
+                <button class="lnk brand a1" onclick="openModal('m-stage1')">打绩效</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td class="num">PF-202608-014</td>
+            <td><span class="chip outline-info">三级直达</span></td>
+            <td>2026-08</td>
+            <td>程秋明发企</td>
+            <td><span style="color:var(--muted)">直达专员 ×1</span></td>
+            <td>优甲乐 100片装</td>
+            <td class="num" style="text-align:right">8 次</td>
+            <td class="num" style="text-align:right">￥800.00</td>
+            <td class="num" style="text-align:right">￥800.00</td>
+            <td><span style="color:var(--muted)">—</span></td>
+            <td><span class="pill p-success"><span class="dot"></span>已生效</span></td>
+            <td>
+              <div class="ops">
+                <button class="lnk" onclick="openModal('m-view')">查看</button>
+                <button class="lnk a1" onclick="openModal('m-revoke-direct')">撤销</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td class="num">PF-202608-015</td>
+            <td><span class="chip outline-info">三级直达</span></td>
+            <td>2026-08</td>
+            <td>程秋明发企</td>
+            <td><span style="color:var(--muted)">直达专员 ×3</span></td>
+            <td>优甲乐 100片装</td>
+            <td class="num" style="text-align:right">13 次</td>
+            <td class="num" style="text-align:right">￥1,300.00</td>
+            <td class="num" style="text-align:right"><span style="color:var(--muted)">—</span></td>
+            <td><span style="color:var(--muted)">—</span></td>
+            <td><span class="pill p-neutral"><span class="dot"></span>未打绩效</span></td>
+            <td>
+              <div class="ops">
+                <button class="lnk" onclick="openModal('m-view')">查看</button>
+                <button class="lnk brand a1" onclick="openModal('m-direct')">打绩效</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td class="num">PF-202607-088</td>
+            <td><span class="chip soft-brand">四级链</span></td>
+            <td>2026-07</td>
+            <td>程秋明发企</td>
+            <td>程秋明团队<span class="sub mono">cakin26</span></td>
+            <td>优甲乐 100片装</td>
+            <td class="num" style="text-align:right">19 次</td>
+            <td class="num" style="text-align:right">￥1,900.00</td>
+            <td class="num" style="text-align:right">￥1,900.00</td>
+            <td><span class="coef ok mono">1.00</span></td>
+            <td><span class="pill p-success"><span class="dot"></span>已生效</span></td>
+            <td>
+              <div class="ops">
+                <button class="lnk" onclick="openModal('m-view')">查看</button>
+                <button class="lnk" onclick="openModal('m-export')">导出</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td class="num">PF-202607-086</td>
+            <td><span class="chip soft-brand">四级链</span></td>
+            <td>2026-07</td>
+            <td>程秋明发企</td>
+            <td>程秋明团队<span class="sub mono">cakin26</span></td>
+            <td>百赛松 30mg</td>
+            <td class="num" style="text-align:right">13 次</td>
+            <td class="num" style="text-align:right">￥1,300.00</td>
+            <td class="num" style="text-align:right"><span style="color:var(--muted)">—</span></td>
+            <td><span style="color:var(--muted)">—</span></td>
+            <td><span class="pill p-muted"><span class="dot"></span>已撤销</span></td>
+            <td>
+              <div class="ops">
+                <button class="lnk" onclick="openModal('m-view')">查看</button>
+                <button class="lnk brand a1" onclick="openModal('m-stage1')">重新发起</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span>共 6 条 · 第 1 / 1 页</span>
+      <div class="pgs"><span class="pg">‹</span><span class="pg cur">1</span><span class="pg">›</span></div>
+    </div>
+
+    <div class="note info" style="margin-top:14px">
+      <span>ⓘ</span>
+      <div>同一月里若同时有四级链和三级直达任务，会分成两个批次、分开打绩效，互不影响。已撤销的批次可重新打绩效。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 视图 2：服务专员绩效 ════════════════════════════ -->
+<section class="view" id="view-page2">
+  <p class="preview-note">服务专员维度明细：工作组只看本组，服务专员只看本人（只读）。</p>
+  <div class="app-frame scope" id="scope2" data-id="wg">
+    <div class="crumb">业务管理 <span style="color:#D0D5DD">/</span> <b>绩效管理</b> <span style="color:#D0D5DD">/</span> 服务专员绩效</div>
+    <div class="page-head">
+      <div>
+        <div class="page-title">服务专员绩效</div>
+        <div class="page-desc">服务专员维度绩效明细 · 四级链同挂阶段一批次号；三级直达链批次直接挂专员、不出现工作组记录</div>
+      </div>
+    </div>
+
+    <div class="idbar">
+      <span class="tag">原型演示</span>
+      <span class="lbl">当前操作身份</span>
+      <div class="idseg" data-scope="scope2">
+        <button data-id="p">服务商</button>
+        <button data-id="wg" class="active">工作组（阶段二）</button>
+      </div>
+      <span class="hint">本组视角默认按登录工作组过滤；专员登录仅见本人记录（只读）；服务商可见全部</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">待处理</div><div class="v">2 <small>未打绩效</small></div></div>
+      <div class="stat"><div class="k">已生效</div><div class="v">3 <small>条</small></div></div>
+      <div class="stat"><div class="k">实发合计</div><div class="v">￥2,470.00</div></div>
+      <div class="stat"><div class="k">本月条数</div><div class="v">5</div></div>
+    </div>
+
+    <div class="filters">
+      <div class="f"><label>服务提供商</label><select><option>全部</option><option selected>程秋明发企</option></select></div>
+      <div class="f"><label>工作组</label><select><option>全部</option><option selected>程秋明团队</option><option>程秋明二团队</option></select></div>
+      <div class="f"><label>服务专员</label><select><option>全部</option><option>程插美</option><option>汪志强</option><option>李文静</option><option>周航</option><option>蒋莉</option></select></div>
+      <div class="f"><label>品种</label><select><option>全部</option><option selected>优甲乐 100片装</option></select></div>
+      <div class="f"><label>流程类型</label><select><option>全部</option><option>四级链</option><option>三级直达</option></select></div>
+      <div class="f"><label>状态</label><select><option>全部</option><option>未打绩效</option><option>草稿</option><option>已生效</option><option>已撤销</option></select></div>
+      <div class="f"><label>考核月份</label><select><option>2026-07</option><option selected>2026-08</option><option>2026-09</option></select></div>
+      <button class="btn primary">查询</button>
+      <button class="btn ghost">重置</button>
+    </div>
+
+    <div class="tblcard">
+      <table class="tbl" style="min-width:1160px">
+        <thead>
+          <tr>
+            <th>绩效批次号</th><th>流程类型</th><th>考核月份</th><th>服务提供商</th><th>工作组</th><th>品种</th><th>服务专员</th>
+            <th style="text-align:right">完成工作量</th><th style="text-align:right">默认金额</th><th style="text-align:right">实发金额</th>
+            <th>上限校验</th><th>状态</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num">PF-202608-012</td><td><span class="chip soft-brand">四级链</span></td><td>2026-08</td><td>程秋明发企</td><td>程秋明团队</td><td>优甲乐 100片装</td>
+            <td>程插美<span class="sub mono">cakin27</span></td>
+            <td class="num" style="text-align:right">9 次</td><td class="num" style="text-align:right">￥900.00</td><td class="num" style="text-align:right">￥900.00</td>
+            <td><span class="coef ok mono">✓ 上限内</span></td>
+            <td><span class="pill p-success"><span class="dot"></span>已生效</span></td>
+            <td><button class="lnk" onclick="openModal('m-view2')">查看</button></td>
+          </tr>
+          <tr>
+            <td class="num">PF-202608-012</td><td><span class="chip soft-brand">四级链</span></td><td>2026-08</td><td>程秋明发企</td><td>程秋明团队</td><td>优甲乐 100片装</td>
+            <td>汪志强<span class="sub mono">cakin28</span></td>
+            <td class="num" style="text-align:right">7 次</td><td class="num" style="text-align:right">￥700.00</td><td class="num" style="text-align:right">￥770.00</td>
+            <td><span class="coef ok mono">✓ 上限内</span></td>
+            <td><span class="pill p-success"><span class="dot"></span>已生效</span></td>
+            <td><button class="lnk" onclick="openModal('m-view2')">查看</button></td>
+          </tr>
+          <tr>
+            <td class="num">PF-202608-012</td><td><span class="chip soft-brand">四级链</span></td><td>2026-08</td><td>程秋明发企</td><td>程秋明团队</td><td>优甲乐 100片装</td>
+            <td>李文静<span class="sub mono">cakin29</span></td>
+            <td class="num" style="text-align:right">5 次</td><td class="num" style="text-align:right">￥500.00</td><td class="num" style="text-align:right"><span style="color:var(--muted)">待确认</span></td>
+            <td><span style="color:var(--muted)">—</span></td>
+            <td><span class="pill p-neutral"><span class="dot"></span>未打绩效</span></td>
+            <td><button class="lnk brand a2" onclick="openModal('m-stage2')">去打绩效</button></td>
+          </tr>
+          <tr>
+            <td class="num">PF-202608-014</td><td><span class="chip outline-info">三级直达</span></td><td>2026-08</td><td>程秋明发企</td><td><span style="color:var(--muted)">—（直达）</span></td><td>优甲乐 100片装</td>
+            <td>周航<span class="sub mono">cakin35</span></td>
+            <td class="num" style="text-align:right">8 次</td><td class="num" style="text-align:right">￥800.00</td><td class="num" style="text-align:right">￥800.00</td>
+            <td><span class="coef ok mono">✓ 上限内</span></td>
+            <td><span class="pill p-success"><span class="dot"></span>已生效</span></td>
+            <td><button class="lnk" onclick="openModal('m-view2')">查看</button></td>
+          </tr>
+          <tr>
+            <td class="num">PF-202608-015</td><td><span class="chip outline-info">三级直达</span></td><td>2026-08</td><td>程秋明发企</td><td><span style="color:var(--muted)">—（直达）</span></td><td>优甲乐 100片装</td>
+            <td>蒋莉<span class="sub mono">cakin36</span></td>
+            <td class="num" style="text-align:right">6 次</td><td class="num" style="text-align:right">￥600.00</td><td class="num" style="text-align:right"><span style="color:var(--muted)">待确认</span></td>
+            <td><span style="color:var(--muted)">—</span></td>
+            <td><span class="pill p-neutral"><span class="dot"></span>未打绩效</span></td>
+            <td><button class="lnk brand a1" onclick="openModal('m-direct')">去打绩效</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn" style="margin-top:14px">
+      <span>ⓘ</span>
+      <div>本页聚焦绩效金额本身；支付域（实名/银行卡/渠道/合同/支付状态等）不在本模块呈现。四级链的专员绩效由工作组一对一打出，与工作组自身被评金额互不约束。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 视图 3：打绩效流程演示 ════════════════════════════ -->
+<section class="view" id="view-flow">
+  <p class="preview-note">对应文档第 3 章 · 表单与校验交互演示（真实交互，可输入试算）</p>
+
+  <div class="section-marker">3.0 绩效校验配置 · 系统管理·绩效系数配置（演示：改配置即时联动表单校验）</div>
+  <div class="app-frame">
+    <p class="preview-note">落点：配置 &amp; 分析 → 系统管理 → 绩效系数配置，仅系统管理员可改；两组配置打绩效表单提交时实时读取（非创建时快照）：<b>质量系数区间 → 阶段一</b>（服务商给工作组打）；<b>专员实发上限 X% → 阶段二与直达</b>（给专员打）。</p>
+    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+      <div class="f"><label>质量系数下限（阶段一）</label><input id="cfg-lo" type="number" min="0" step="0.01" value="0.60" style="width:140px" /></div>
+      <div class="f"><label>质量系数上限（阶段一）</label><input id="cfg-hi" type="number" min="0" step="0.01" value="1.20" style="width:140px" /></div>
+      <div class="f"><label>专员实发上限 X%（阶段二/直达）</label><input id="cfg-x" type="number" min="1" step="1" value="120" style="width:140px" /></div>
+      <button class="btn primary" onclick="saveCfg()">保存配置</button>
+      <span id="cfg-hint" style="font-size:12px;color:var(--muted)">当前生效：系数区间 0.60 – 1.20 · 专员上限 120%</span>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:10px 0 0">试算提示：① 系数上限改 1.10 保存 → 阶段一实发改到系数 1.15 会按 1.10 阻断；② X 改成 100 保存 → 阶段二实发 510 会按上限 ￥500.00 阻断。</p>
+  </div>
+
+  <div class="section-marker">3.1 阶段一 · 服务商给工作组打绩效（绩效考核表单）</div>
+  <div class="app-frame">
+    <p class="preview-note">入口：任务执行列表行「打绩效」/ 任务详情绩效区块。表单复刻手册图 6 骨架，但金额区简化为「默认金额（只读）+ 实发金额（可改）+ 质量系数（实时）」。</p>
+    <button class="btn primary" onclick="openModal('m-stage1')">打开「绩效考核」表单</button>
+    <span style="font-size:12px;color:var(--muted);margin-left:10px">试算提示：把实发金额改成 2800 可见越界阻断；改成 0 可见零值阻断。</span>
+  </div>
+
+  <div class="section-marker">3.2 阶段二 · 工作组给服务专员打绩效（一对一，按专员逐条）</div>
+  <div class="app-frame">
+    <p class="preview-note">入口：批次行「给服务专员打绩效」（定位到本批未打绩效的专员）/ 服务专员绩效页行内「去打绩效」。表单只看这一位专员：<b>明细=该专员的分项业务（业务项 × 完成工作量 × 对私单价，逐项小计+合计），被评价方=该专员</b>；实发 ≤ 完成工作量金额 × X% 即可提交，<b>与阶段一金额互不约束</b>；另需录入<b>服务评定（四维打分）</b>，随结算单留档。</p>
+    <button class="btn primary" onclick="openModal('m-stage2')">打开「给服务专员打绩效」表单（演示：李文静）</button>
+    <span style="font-size:12px;color:var(--muted);margin-left:10px">试算提示：把实发金额改成 650 可见超上限阻断；改成 0 可见零值阻断。</span>
+  </div>
+
+  <div class="section-marker">3.3 三级直达链 · 服务商直接给服务专员打绩效（一对一，同阶段二规则）</div>
+  <div class="app-frame">
+    <p class="preview-note">执行链配为三级（不经工作组）时，服务商按专员逐条直接打绩效，<b>不产生工作组绩效记录</b>。表单与阶段二同构：明细=该专员完成的业务，实发 ≤ 完成工作量金额 × X%。</p>
+    <button class="btn primary" onclick="openModal('m-direct')">打开「直达打绩效」表单（演示：蒋莉）</button>
+    <span style="font-size:12px;color:var(--muted);margin-left:10px">试算提示：把实发金额改成 800 可见超上限阻断。</span>
+  </div>
+
+  <div class="section-marker">3.4 撤销（危险操作 · ConfirmDialog）</div>
+  <div class="app-frame" style="display:flex;gap:12px;flex-wrap:wrap">
+    <button class="btn danger-ghost" onclick="openModal('m-revoke2')">撤销阶段二（正常）</button>
+    <button class="btn danger-ghost" onclick="openModal('m-revoke1block')">撤销阶段一（先二后一阻断演示）</button>
+    <button class="btn danger-ghost" onclick="openModal('m-revoke-direct')">撤销直达绩效（服务商直接撤销）</button>
+  </div>
+</section>
+
+<!-- ════════════════════════════ 视图 4：设计说明 ════════════════════════════ -->
+<section class="view" id="view-notes">
+  <p class="preview-note">本页非产品界面：用大白话把关键口径说清楚，供确认。</p>
+
+  <div class="card">
+    <div class="card-title">菜单落位</div>
+    <div class="navdemo">
+      <div class="mininav">
+        <div class="mn-item">工作台</div>
+        <div class="mn-group">业务管理</div>
+        <div class="mn-item">预算计划</div>
+        <div class="mn-item">任务执行</div>
+        <div class="mn-item">医院拜访</div>
+        <div class="mn-group">绩效管理 ★新增一级分组</div>
+        <div class="mn-item child active">团队工作质量评价</div>
+        <div class="mn-item child">服务专员绩效</div>
+        <div class="mn-item child">结算明细 <span style="color:#6B7280;font-size:10px">（补挂）</span></div>
+        <div class="mn-group">配置 &amp; 分析</div>
+        <div class="mn-item">价目管理</div>
+        <div class="mn-item">系统管理</div>
+        <div class="mn-item child">执行链路配置</div>
+        <div class="mn-item child">绩效系数配置 <span style="color:#6B7280;font-size:10px">（新增）</span></div>
+      </div>
+      <div class="exp">
+        · 一级分组<b>「绩效管理」</b>，下面挂三个入口：团队工作质量评价、服务专员绩效、结算明细<br>
+        · 结算明细是现有页面，补挂到这个分组里<br>
+        · <b>药厂登录后看不到「绩效管理」这组菜单</b>（绩效只在服务商、工作组、服务专员之间流转）<br>
+        · <b>「绩效系数配置」</b>挂在配置 &amp; 分析 → 系统管理下，仅系统管理员可改，维护质量系数区间<br>
+        · 菜单需要在权限配置里注册，分组和页面两个都配齐才会显示
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">核心规则（大白话版）</div>
+    <table class="rule-t">
+      <tr><td>怎么分批</td><td>按「服务商 × 品种 × 考核月 × 流程类型」汇总成一个批次，一个批次打一次，不按任务逐条。同一月既有四级链又有三级直达时，分成两个批次，各算各的。</td></tr>
+      <tr><td>金额怎么来</td><td>系统按已完成工作量算出「默认金额」预填，可以人工改成「实发金额」。</td></tr>
+      <tr><td>怎么校验（阶段一）</td><td>质量系数 = 实发金额 ÷ 默认金额，须在配置区间内（默认 0.60–1.20，含边界）；金额 ≤ 0 不能提交。</td></tr>
+      <tr><td>怎么校验（阶段二/直达）</td><td>只看这一位专员完成的工作量：实发金额不大于「完成工作量金额 × X%」（X 可配置，默认 120%）即可提交。</td></tr>
+      <tr><td>四级链金额关系</td><td>先给工作组打绩效（阶段一），工作组再一对一给每位专员打（阶段二）；两级金额互不约束，各定各的。</td></tr>
+      <tr><td>三级直达链</td><td>没有工作组，服务商一对一给专员打绩效，校验同阶段二（工作量上限 X%）。</td></tr>
+      <tr><td>撤销顺序</td><td>四级链要先撤销专员绩效，再撤销工作组绩效；三级直达由服务商直接撤销。</td></tr>
+      <tr><td>撤销后</td><td>已撤销的绩效，对应的已完成工作量解冻，可以重新打绩效。</td></tr>
+      <tr><td>和结算的关系</td><td>绩效和对公结算是两条独立的流程，互不影响；绩效随时可以撤销重打。</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">绩效校验配置</div>
+    <table class="rule-t">
+      <tr><td>落点</td><td>配置 &amp; 分析 → 系统管理 → 绩效系数配置（新增轻量页，一页管两项）</td></tr>
+      <tr><td>内容</td><td>① 质量系数区间：阶段一用（默认 0.60–1.20，约束 0 &lt; 下限 &lt; 上限）；② 专员实发上限 X%：阶段二与直达用（默认 120%）</td></tr>
+      <tr><td>读取方式</td><td>打绩效表单提交时<b>实时读取</b>当前配置做校验，不做创建时快照（两项都是校验规则，不是金额/链路数据）</td></tr>
+      <tr><td>维护者</td><td>仅系统管理员可改，服务商 / 工作组 / 服务专员不可见不可改</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">状态色</div>
+    <div class="legend" style="margin-bottom:10px">
+      <span class="lg-cap">批次/记录状态（四态）</span>
+      <div class="lg-group">
+        <span class="pill p-neutral"><span class="dot"></span>未打绩效</span>
+        <span class="pill p-warning"><span class="dot"></span>草稿</span>
+        <span class="pill p-success"><span class="dot"></span>已生效</span>
+        <span class="pill p-muted"><span class="dot"></span>已撤销</span>
+      </div>
+    </div>
+    <div class="legend" style="margin-bottom:10px">
+      <span class="lg-cap">链型标签</span>
+      <div class="lg-group">
+        <span class="chip soft-brand">四级链</span>
+        <span class="chip outline-info">三级直达</span>
+      </div>
+      <span class="lg-cap" style="margin-left:12px">审核状态</span>
+      <div class="lg-group">
+        <span class="pill p-neutral"><span class="dot"></span>草稿</span>
+        <span class="pill p-warning"><span class="dot"></span>待审核</span>
+        <span class="pill p-success"><span class="dot"></span>已通过</span>
+        <span class="pill p-danger"><span class="dot"></span>已驳回</span>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:8px 0 0">「未打绩效」是还没打时的初始状态，其余三种是打过之后的状态。</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">谁能做什么</div>
+    <table class="rule-t">
+      <tr><th></th><th>药厂</th><th>服务商</th><th>工作组</th><th>服务专员</th></tr>
+      <tr><td><b>阶段一</b> 打绩效 / 撤销</td><td style="color:var(--muted)">不可见</td><td style="color:var(--success);font-weight:600">✓</td><td>✗</td><td>✗</td></tr>
+      <tr><td><b>阶段二</b> 生成 / 编辑 / 撤销</td><td style="color:var(--muted)">不可见</td><td>仅链路切走后的遗留收尾</td><td style="color:var(--success);font-weight:600">✓</td><td>✗</td></tr>
+      <tr><td><b>直达链</b> 打绩效 / 撤销</td><td style="color:var(--muted)">不可见</td><td style="color:var(--success);font-weight:600">✓</td><td>✗（不经工作组）</td><td>✗</td></tr>
+      <tr><td><b>两个结果页</b> 查看</td><td style="color:var(--muted)">不可见</td><td>✓ 全部</td><td>✓ 本组</td><td>本人（只读）</td></tr>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<!-- ════════════════════════════ 弹窗层 ════════════════════════════ -->
+
+<!-- 阶段一：绩效考核表单 -->
+<div class="mask" id="m-stage1">
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">绩效考核</span><button class="panel-close" onclick="closeModal('m-stage1')">✕</button></div>
+    <div class="panel-body">
+      <div class="objline">程秋明发企 → 程秋明团队 · 优甲乐 100片装 · 2026年8月 · 四级链 <span class="chip soft-brand" style="margin-left:auto">阶段一</span></div>
+
+      <div style="margin-top:14px">
+        <div class="fieldrow">
+          <span class="fl">医院拜访<small>已完成 21 次 × ￥100（对私单价）· 只计已完成工作量</small></span>
+          <span class="fr amt num">￥2,100.00</span>
+        </div>
+        <div class="fieldrow">
+          <span class="fl">默认金额（系统计算，只读）<small>按已完成工作量 × 对私单价得出，创建时固化</small></span>
+          <span class="fr amt num">￥2,100.00</span>
+        </div>
+        <div class="fieldrow">
+          <span class="fl">实发金额<small>可人工调整；修改后质量系数实时计算</small></span>
+          <span class="fr">
+            <span style="font-size:13px;color:var(--muted)">￥</span>
+            <input class="amt-input" id="s1amt" type="number" min="0" step="0.01" value="2100" />
+            <span class="coef ok mono" id="s1coef">1.00</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="err" id="s1err"></div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:10px" id="s1-range-note">质量系数 = 实发金额 ÷ 默认金额，须在 0.60–1.20 之间（含边界）。默认或实发金额 ≤ 0 时不能提交。质量系数校验仅用于阶段一（服务商给工作组打绩效）。</div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-stage1')">取消</button>
+      <button class="btn primary" id="s1ok" onclick="fakeSubmit('阶段一绩效已提交生效；计入的已完成工作量已冻结')">提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- 阶段二：给服务专员打绩效（一对一） -->
+<div class="mask" id="m-stage2">
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">给服务专员打绩效 <span class="chip soft-brand">阶段二 · 一对一</span></span><button class="panel-close" onclick="closeModal('m-stage2')">✕</button></div>
+    <div class="panel-body">
+      <div class="objline">程秋明团队 → 李文静 · 优甲乐 100片装 · 2026年8月 · 批次 PF-202608-012 <span class="chip soft-brand" style="margin-left:auto">被评价方：服务专员</span></div>
+
+      <div style="margin-top:14px;font-size:13px;font-weight:600">业务明细（李文静本批完成的业务，只计已完成）</div>
+      <div class="tblcard" style="box-shadow:none;margin-top:8px">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>业务分项</th><th style="text-align:right">完成工作量</th><th style="text-align:right">对私单价</th><th style="text-align:right">小计</th></tr></thead>
+          <tbody>
+            <tr><td>医院拜访 · 日访</td><td class="num" style="text-align:right">4 次</td><td class="num" style="text-align:right">￥100.00</td><td class="num" style="text-align:right">￥400.00</td></tr>
+            <tr><td>医院拜访 · 夜访</td><td class="num" style="text-align:right">1 次</td><td class="num" style="text-align:right">￥100.00</td><td class="num" style="text-align:right">￥100.00</td></tr>
+            <tr><td><b>合计</b></td><td class="num" style="text-align:right"><b>5 次</b></td><td></td><td class="num" style="text-align:right"><b>￥500.00</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:4px">
+        <div class="fieldrow">
+          <span class="fl">默认金额（系统计算，只读）<small>= 业务明细合计（已完成工作量 × 对私单价）</small></span>
+          <span class="fr amt num">￥500.00</span>
+        </div>
+        <div class="fieldrow">
+          <span class="fl">上限金额（只读）<small>完成工作量金额 × X%，系统管理·绩效系数配置实时读取</small></span>
+          <span class="fr amt num" id="s2cap">￥600.00</span>
+        </div>
+        <div class="fieldrow">
+          <span class="fl">实发金额<small>可人工调整；须大于 0 且不超上限；与阶段一金额互不约束</small></span>
+          <span class="fr">
+            <span style="font-size:13px;color:var(--muted)">￥</span>
+            <input class="amt-input" id="s2amt" type="number" min="0" step="0.01" value="500" />
+            <span class="coef ok mono" id="s2coef">✓</span>
+          </span>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;font-size:13px;font-weight:600">服务评定（四维打分，随结算单留档）</div>
+      <div class="tblcard" style="box-shadow:none;margin-top:8px">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>评定维度</th><th style="text-align:right">权重</th><th style="text-align:right">评分（0–1）</th></tr></thead>
+          <tbody>
+            <tr><td>服务程序 / 制度 / 职业道德遵循</td><td class="num" style="text-align:right">20%</td><td style="text-align:right"><input class="amt-input evin" data-ev="s2" data-w="0.20" type="number" min="0" max="1" step="0.01" value="0.85" style="width:110px" /></td></tr>
+            <tr><td>服务态度及专业水平反馈</td><td class="num" style="text-align:right">25%</td><td style="text-align:right"><input class="amt-input evin" data-ev="s2" data-w="0.25" type="number" min="0" max="1" step="0.01" value="0.85" style="width:110px" /></td></tr>
+            <tr><td>服务记录准确性 / 相关性 / 完整性</td><td class="num" style="text-align:right">35%</td><td style="text-align:right"><input class="amt-input evin" data-ev="s2" data-w="0.35" type="number" min="0" max="1" step="0.01" value="0.85" style="width:110px" /></td></tr>
+            <tr><td>服务预算匹配度</td><td class="num" style="text-align:right">20%</td><td style="text-align:right"><input class="amt-input evin" data-ev="s2" data-w="0.20" type="number" min="0" max="1" step="0.01" value="0.85" style="width:110px" /></td></tr>
+            <tr><td><b>评价结果合计（加权）</b></td><td class="num" style="text-align:right">100%</td><td style="text-align:right"><b class="mono" id="s2-ev-total">0.85</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="err" id="s2err"></div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:10px" id="s2-cap-note">实发金额不大于上限 ￥600.00（完成工作量金额 × 120%）即可提交；本批进度：程插美 ✓ · 汪志强 ✓ · 李文静 待打。</div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-stage2')">取消</button>
+      <button class="btn primary" id="s2ok" onclick="fakeSubmit('李文静绩效已生效；本批 3 位专员绩效已全部完成')">提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- 撤销阶段二（按专员单条） -->
+<div class="mask" id="m-revoke2">
+  <div class="panel small">
+    <div class="panel-body">
+      <div class="cf-icon danger">⚠</div>
+      <div class="cf-title">撤销服务专员绩效？</div>
+      <div class="cf-body">
+        确定撤销汪志强这条绩效？撤销后恢复未打绩效，这部分工作量可重新打绩效；<b>按专员逐条撤销</b>，不影响本批其他专员的绩效。
+        <div class="cf-kv">
+          <b>被评价方</b><span>汪志强（程秋明团队）</span>
+          <b>涉及金额</b><span class="mono">￥770.00</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-revoke2')">取消</button>
+      <button class="btn danger" onclick="fakeSubmit('汪志强的专员绩效已撤销，工作量占用解除')">确认撤销</button>
+    </div>
+  </div>
+</div>
+
+<!-- 撤销直达绩效（服务商直接撤销单条） -->
+<div class="mask" id="m-revoke-direct">
+  <div class="panel small">
+    <div class="panel-body">
+      <div class="cf-icon danger">⚠</div>
+      <div class="cf-title">撤销直达绩效？</div>
+      <div class="cf-body">
+        确定撤销周航这条直达绩效？撤销后这部分工作量可重新打绩效；按专员逐条撤销。
+        <div class="cf-kv">
+          <b>被评价方</b><span>周航（直达专员）</span>
+          <b>涉及金额</b><span class="mono">￥800.00</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-revoke-direct')">取消</button>
+      <button class="btn danger" onclick="fakeSubmit('周航的直达绩效已撤销，工作量占用解除')">确认撤销</button>
+    </div>
+  </div>
+</div>
+
+<!-- 撤销阶段一（先二后一阻断） -->
+<div class="mask" id="m-revoke1block">
+  <div class="panel small">
+    <div class="panel-body">
+      <div class="cf-icon warn">ⓘ</div>
+      <div class="cf-title">无法撤销工作组绩效</div>
+      <div class="cf-body">
+        该批次还有 2 条专员绩效已生效。请先撤销专员绩效，再撤销工作组绩效。
+        <div class="cf-kv">
+          <b>规则</b><span>撤销顺序：先撤销专员绩效，再撤销工作组绩效</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn primary" onclick="closeModal('m-revoke1block')">知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- 三级直达链：直达打绩效（一对一） -->
+<div class="mask" id="m-direct">
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">直达打绩效 <span class="chip outline-info">三级直达链 · 一对一</span></span><button class="panel-close" onclick="closeModal('m-direct')">✕</button></div>
+    <div class="panel-body">
+      <div class="objline">程秋明发企 → 蒋莉 · 优甲乐 100片装 · 2026年8月 · 批次 PF-202608-015 <span class="chip outline-info" style="margin-left:auto;background:#fff">不产生工作组记录</span></div>
+
+      <div style="margin-top:14px;font-size:13px;font-weight:600">业务明细（蒋莉本批完成的业务，只计已完成）</div>
+      <div class="tblcard" style="box-shadow:none;margin-top:8px">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>业务分项</th><th style="text-align:right">完成工作量</th><th style="text-align:right">对私单价</th><th style="text-align:right">小计</th></tr></thead>
+          <tbody>
+            <tr><td>医院拜访 · 日访</td><td class="num" style="text-align:right">4 次</td><td class="num" style="text-align:right">￥100.00</td><td class="num" style="text-align:right">￥400.00</td></tr>
+            <tr><td>医院拜访 · 夜访</td><td class="num" style="text-align:right">2 次</td><td class="num" style="text-align:right">￥100.00</td><td class="num" style="text-align:right">￥200.00</td></tr>
+            <tr><td><b>合计</b></td><td class="num" style="text-align:right"><b>6 次</b></td><td></td><td class="num" style="text-align:right"><b>￥600.00</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:4px">
+        <div class="fieldrow">
+          <span class="fl">默认金额（系统计算，只读）<small>= 业务明细合计（已完成工作量 × 对私单价）</small></span>
+          <span class="fr amt num">￥600.00</span>
+        </div>
+        <div class="fieldrow">
+          <span class="fl">上限金额（只读）<small>完成工作量金额 × X%，系统管理·绩效系数配置实时读取</small></span>
+          <span class="fr amt num" id="d-cap">￥720.00</span>
+        </div>
+        <div class="fieldrow">
+          <span class="fl">实发金额<small>可人工调整；须大于 0 且不超上限；每条独立提交</small></span>
+          <span class="fr">
+            <span style="font-size:13px;color:var(--muted)">￥</span>
+            <input class="amt-input" id="d-amt" type="number" min="0" step="0.01" value="660" />
+            <span class="coef ok mono" id="d-coef">✓</span>
+          </span>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;font-size:13px;font-weight:600">服务评定（四维打分，随结算单留档）</div>
+      <div class="tblcard" style="box-shadow:none;margin-top:8px">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>评定维度</th><th style="text-align:right">权重</th><th style="text-align:right">评分（0–1）</th></tr></thead>
+          <tbody>
+            <tr><td>服务程序 / 制度 / 职业道德遵循</td><td class="num" style="text-align:right">20%</td><td style="text-align:right"><input class="amt-input evin" data-ev="d" data-w="0.20" type="number" min="0" max="1" step="0.01" value="0.90" style="width:110px" /></td></tr>
+            <tr><td>服务态度及专业水平反馈</td><td class="num" style="text-align:right">25%</td><td style="text-align:right"><input class="amt-input evin" data-ev="d" data-w="0.25" type="number" min="0" max="1" step="0.01" value="0.90" style="width:110px" /></td></tr>
+            <tr><td>服务记录准确性 / 相关性 / 完整性</td><td class="num" style="text-align:right">35%</td><td style="text-align:right"><input class="amt-input evin" data-ev="d" data-w="0.35" type="number" min="0" max="1" step="0.01" value="0.90" style="width:110px" /></td></tr>
+            <tr><td>服务预算匹配度</td><td class="num" style="text-align:right">20%</td><td style="text-align:right"><input class="amt-input evin" data-ev="d" data-w="0.20" type="number" min="0" max="1" step="0.01" value="0.90" style="width:110px" /></td></tr>
+            <tr><td><b>评价结果合计（加权）</b></td><td class="num" style="text-align:right">100%</td><td style="text-align:right"><b class="mono" id="d-ev-total">0.90</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="err" id="d-err"></div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:10px" id="d-cap-note">实发金额不大于上限 ￥720.00（完成工作量金额 × 120%）即可提交；本批其余专员（周海涛、许倩）逐条同样操作。</div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-direct')">取消</button>
+      <button class="btn primary" id="d-ok" onclick="fakeSubmit('蒋莉直达绩效已生效；本批其余专员逐条继续')">提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批次详情（查看） -->
+<div class="mask" id="m-view">
+  <div class="panel" style="width:min(720px,94vw)">
+    <div class="panel-head"><span class="panel-title">批次详情</span><button class="panel-close" onclick="closeModal('m-view')">✕</button></div>
+    <div class="panel-body">
+      <div class="objline">PF-202608-012 · 四级链 <span class="chip soft-brand" style="margin-left:auto">已生效</span></div>
+
+      <div class="cf-kv" style="grid-template-columns:auto 1fr auto 1fr;margin-top:14px">
+        <b>考核月份</b><span>2026年8月</span><b>品种</b><span>优甲乐 100片装</span>
+        <b>服务商</b><span>程秋明发企</span><b>被评价对象</b><span>程秋明团队</span>
+      </div>
+
+      <div style="margin-top:16px;font-size:13px;font-weight:600">金额</div>
+      <div class="cf-kv" style="grid-template-columns:auto 1fr auto 1fr">
+        <b>完成工作量</b><span>21 次</span><b>默认金额</b><span class="mono">￥2,100.00</span>
+        <b>实发金额</b><span class="mono">￥2,100.00</span><b>质量系数</b><span class="coef ok mono" style="justify-self:start">1.00</span>
+      </div>
+
+      <div style="margin-top:16px;font-size:13px;font-weight:600">专员明细（阶段二 · 逐条一对一）</div>
+      <div class="tblcard" style="box-shadow:none;margin-top:8px">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>服务专员</th><th style="text-align:right">完成工作量</th><th style="text-align:right">默认金额</th><th style="text-align:right">实发金额</th><th>上限校验</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr><td>程插美<span class="sub mono">cakin27</span></td><td class="num" style="text-align:right">9 次</td><td class="num" style="text-align:right">￥900.00</td><td class="num" style="text-align:right">￥900.00</td><td><span class="coef ok mono">✓</span></td><td><button class="lnk" onclick="openModal('m-view2')">查看</button></td></tr>
+            <tr><td>汪志强<span class="sub mono">cakin28</span></td><td class="num" style="text-align:right">7 次</td><td class="num" style="text-align:right">￥700.00</td><td class="num" style="text-align:right">￥770.00</td><td><span class="coef ok mono">✓</span></td><td><button class="lnk" onclick="openModal('m-view2')">查看</button></td></tr>
+            <tr><td>李文静<span class="sub mono">cakin29</span></td><td class="num" style="text-align:right">5 次</td><td class="num" style="text-align:right">￥500.00</td><td class="num" style="text-align:right"><span style="color:var(--muted)">待确认</span></td><td><span style="color:var(--muted)">—</span></td><td><button class="lnk" onclick="openModal('m-view2')">查看</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:16px;font-size:13px;font-weight:600">操作记录</div>
+      <div class="cf-kv" style="grid-template-columns:auto 1fr auto 1fr">
+        <b>操作人</b><span>程秋明发企</span><b>操作时间</b><span>2026-08-31 17:20</span>
+        <b>动作</b><span>阶段一提交生效</span><b>备注</b><span>—</span>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn primary" onclick="closeModal('m-view')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 专员绩效详情（服务专员绩效页·查看，一对一） -->
+<div class="mask" id="m-view2">
+  <div class="panel" style="width:min(720px,94vw)">
+    <div class="panel-head"><span class="panel-title">专员绩效详情</span><button class="panel-close" onclick="closeModal('m-view2')">✕</button></div>
+    <div class="panel-body">
+      <div class="objline">PF-202608-012 · 四级链 · 阶段二 <span class="chip soft-brand" style="margin-left:auto">已生效</span></div>
+
+      <div class="cf-kv" style="grid-template-columns:auto 1fr auto 1fr;margin-top:14px">
+        <b>考核月份</b><span>2026年8月</span><b>品种</b><span>优甲乐 100片装</span>
+        <b>服务提供商</b><span>程秋明发企</span><b>被评价方</b><span>汪志强（程秋明团队）</span>
+      </div>
+
+      <div style="margin-top:16px;font-size:13px;font-weight:600">业务明细（该专员本批完成的业务，只计已完成）</div>
+      <div class="tblcard" style="box-shadow:none;margin-top:8px">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>业务分项</th><th style="text-align:right">完成工作量</th><th style="text-align:right">对私单价</th><th style="text-align:right">小计</th></tr></thead>
+          <tbody>
+            <tr><td>医院拜访 · 日访</td><td class="num" style="text-align:right">5 次</td><td class="num" style="text-align:right">￥100.00</td><td class="num" style="text-align:right">￥500.00</td></tr>
+            <tr><td>医院拜访 · 夜访</td><td class="num" style="text-align:right">2 次</td><td class="num" style="text-align:right">￥100.00</td><td class="num" style="text-align:right">￥200.00</td></tr>
+            <tr><td><b>合计</b></td><td class="num" style="text-align:right"><b>7 次</b></td><td></td><td class="num" style="text-align:right"><b>￥700.00</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:14px;font-size:13px;font-weight:600">金额</div>
+      <div class="cf-kv" style="grid-template-columns:auto 1fr auto 1fr">
+        <b>默认金额</b><span class="mono">￥700.00（= 业务明细合计）</span><b>上限金额</b><span class="mono">￥840.00</span>
+        <b>实发金额</b><span class="mono">￥770.00</span><b>上限校验</b><span style="color:var(--success);font-weight:500">✓ 未超上限</span>
+      </div>
+
+      <div style="margin-top:14px;font-size:13px;font-weight:600">服务评定（打绩效时录入，随结算单留档）</div>
+      <div class="tblcard" style="box-shadow:none;margin-top:8px">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>评定维度</th><th style="text-align:right">权重</th><th style="text-align:right">评分</th></tr></thead>
+          <tbody>
+            <tr><td>服务程序 / 制度 / 职业道德遵循</td><td class="num" style="text-align:right">20%</td><td class="num" style="text-align:right">0.85</td></tr>
+            <tr><td>服务态度及专业水平反馈</td><td class="num" style="text-align:right">25%</td><td class="num" style="text-align:right">0.85</td></tr>
+            <tr><td>服务记录准确性 / 相关性 / 完整性</td><td class="num" style="text-align:right">35%</td><td class="num" style="text-align:right">0.85</td></tr>
+            <tr><td>服务预算匹配度</td><td class="num" style="text-align:right">20%</td><td class="num" style="text-align:right">0.85</td></tr>
+            <tr><td><b>评价结果合计（加权）</b></td><td class="num" style="text-align:right">100%</td><td class="num" style="text-align:right"><b>0.85</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:16px;font-size:13px;font-weight:600">操作记录</div>
+      <div class="cf-kv" style="grid-template-columns:auto 1fr auto 1fr">
+        <b>操作人</b><span>程秋明团队</span><b>操作时间</b><span>2026-08-31 17:42</span>
+        <b>动作</b><span>阶段二提交生效</span><b>备注</b><span>—</span>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-view2')">关闭</button>
+      <button class="btn primary" onclick="openModal('m-statement')">下载结算单</button>
+    </div>
+  </div>
+</div>
+
+<!-- 专员结算单（下载预览，样式复刻现网结算对账单） -->
+<div class="mask" id="m-statement">
+  <div class="panel" style="width:min(780px,94vw)">
+    <div class="panel-head"><span class="panel-title">结算对账单 · 下载预览</span><button class="panel-close" onclick="closeModal('m-statement')">✕</button></div>
+    <div class="panel-body stmt-paper">
+      <div class="stmt-title">结算对账单</div>
+      <div class="stmt-info">
+        <span>结 算 时 段：2026年08月01日 - 2026年08月31日</span>
+        <span>制 单 时 间：2026-08-31 17:42</span>
+        <span>总 包 方：程秋明发企（签章）</span>
+        <span>服务提供方：<span class="red">汪志强</span>（服务专员 cakin28）</span>
+        <span>服 务 品 种：优甲乐 100片装</span>
+        <span>对 账 单 编 号：PF-202608-012-S02</span>
+      </div>
+
+      <table class="stmt-t">
+        <thead><tr><th style="width:44px">序号</th><th>服务项目</th><th>服务金额小计</th><th>服务成果验收</th><th>结算金额</th><th>备注</th></tr></thead>
+        <tbody>
+          <tr><td class="c">1</td><td>医院拜访 · 日访</td><td class="r">500.00</td><td class="c">合格</td><td class="r">—</td><td></td></tr>
+          <tr><td class="c">2</td><td>医院拜访 · 夜访</td><td class="r">200.00</td><td class="c">合格</td><td class="r">—</td><td></td></tr>
+          <tr><td class="c">合计</td><td></td><td class="r">700.00</td><td></td><td class="r">770.00</td><td></td></tr>
+        </tbody>
+      </table>
+
+      <table class="stmt-t">
+        <thead>
+          <tr>
+            <th rowspan="2" style="width:76px">服务评定</th>
+            <th>服务程序/制度/<br>职业道德遵循</th><th>服务态度及<br>专业水平反馈</th><th>服务记录准确性/<br>相关性/完整性</th><th>服务预算<br>匹配度</th><th>评价结果<br>合计</th>
+          </tr>
+          <tr><th>20%</th><th>25%</th><th>35%</th><th>20%</th><th>100%</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="c">评分</td><td class="c">0.85</td><td class="c">0.85</td><td class="c">0.85</td><td class="c">0.85</td><td class="c"><b>0.85</b></td></tr>
+        </tbody>
+      </table>
+
+      <div class="stmt-amount">
+        <span>最终结算金额（大写）：<b>柒佰柒拾元整</b></span>
+        <span>最终结算金额：<span class="num">￥770.00</span></span>
+      </div>
+
+      <div class="stmt-decl">
+        <b>特别声明</b>
+        1. 本人/本单位自愿接受并同意采用本平台合作之总包方发布的服务任务，认可总包方对服务过程的记录与服务成果的验收结果。<br>
+        2. 本人/本单位已知悉并确认服务费结算金额以本对账单所载数额为准，服务费将在对账单确认后 3 个工作日内结算支付。<br>
+        3. 若对上述服务内容、服务时段及结算金额等存有异议，应于本单送达后 3 个工作日内向总包方提出，逾期视为无异议。<br>
+        4. 本对账单所涉业务属实，提供的开票信息及收款账户信息真实、合法、有效，否则本人/本单位承担由此引发的一切责任。<br>
+        5. 本对账单一经生成不得涂改，涂改无效；如需变更须由双方另行确认。<br>
+        6. 本对账单一式两份，总包方与本人/本单位各执一份，具有同等法律效力。
+      </div>
+
+      <div class="stmt-qr"><span>扫码验证</span><div class="qrbox"></div></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-statement')">关闭</button>
+      <button class="btn primary" onclick="fakeSubmit('结算对账单 PDF 已生成下载（演示）')">下载 PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- 导出快照（单向） -->
+<div class="mask" id="m-export">
+  <div class="panel small">
+    <div class="panel-body">
+      <div class="cf-icon brand">⬇</div>
+      <div class="cf-title">导出批次快照</div>
+      <div class="cf-body">
+        导出为单向快照文件（CSV/Excel），供归档与线下核对；<b>系统不提供导入回填</b>。
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost" onclick="closeModal('m-export')">取消</button>
+      <button class="btn primary" onclick="fakeSubmit('快照已生成下载（演示）')">导出</button>
+    </div>
+  </div>
+</div>
+
+<!-- 演示用 toast -->
+<div id="toast" style="position:fixed;left:50%;bottom:32px;transform:translateX(-50%) translateY(20px);background:#111827;color:#fff;border-radius:8px;padding:10px 18px;font-size:13px;opacity:0;transition:all .2s ease;z-index:200;pointer-events:none;max-width:80vw"></div>
+
+<script>
+/* ── 视图切换 ── */
+function switchTo(v){
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('active', b.dataset.v===v));
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('#seg button').forEach(b=>b.addEventListener('click',()=>switchTo(b.dataset.v)));
+
+/* ── 演示身份条 ── */
+document.querySelectorAll('.idseg').forEach(seg=>{
+  const scope=document.getElementById(seg.dataset.scope);
+  seg.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+    seg.querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    scope.dataset.id=b.dataset.id;
+  }));
+});
+
+/* ── 弹窗 ── */
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.mask').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') document.querySelectorAll('.mask.open').forEach(m=>m.classList.remove('open')); });
+
+/* ── 演示 toast ── */
+let toastTimer=null;
+function fakeSubmit(msg){
+  document.querySelectorAll('.mask.open').forEach(m=>m.classList.remove('open'));
+  const t=document.getElementById('toast');
+  t.textContent='✓ '+msg; t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; },2600);
+}
+
+/* ── 绩效校验配置（系统管理·绩效系数配置，打绩效实时读取） ──
+   CFG.lo/hi  质量系数区间，仅阶段一（服务商给工作组）
+   CFG.cap    专员实发上限比例，阶段二与直达（实发 ≤ 完成工作量金额 × cap） */
+const CFG={ lo:0.6, hi:1.2, cap:1.2 };
+function rangeLabel(){ return CFG.lo.toFixed(2)+' – '+CFG.hi.toFixed(2); }
+function capLabel(){ return (CFG.cap*100).toFixed(0)+'%'; }
+function saveCfg(){
+  const lo=parseFloat(document.getElementById('cfg-lo').value);
+  const hi=parseFloat(document.getElementById('cfg-hi').value);
+  const x=parseFloat(document.getElementById('cfg-x').value);
+  if(!(lo>0)||!(hi>0)||!(lo<hi)){
+    document.getElementById('cfg-hint').textContent='系数区间无效：需满足 0 < 下限 < 上限';
+    return;
+  }
+  if(!(x>0)){
+    document.getElementById('cfg-hint').textContent='专员上限 X 无效：需大于 0';
+    return;
+  }
+  CFG.lo=lo; CFG.hi=hi; CFG.cap=x/100;
+  document.getElementById('cfg-hint').textContent='当前生效：系数区间 '+rangeLabel()+' · 专员上限 '+capLabel();
+  const n1=document.getElementById('s1-range-note'); if(n1) n1.textContent='质量系数 = 实发金额 ÷ 默认金额，须在 '+rangeLabel()+' 之间（含边界）。默认或实发金额 ≤ 0 时不能提交。质量系数校验仅用于阶段一（服务商给工作组打绩效）。';
+  calcS1(); calcS2(); calcD();
+  fakeSubmit('配置已更新：系数区间 '+rangeLabel()+' · 专员上限 '+capLabel());
+}
+
+/* ── 阶段一：质量系数实时 ── */
+const DEF1=2100;
+const s1amt=document.getElementById('s1amt'), s1coef=document.getElementById('s1coef'),
+      s1err=document.getElementById('s1err'), s1ok=document.getElementById('s1ok');
+function fmt(n){ return '￥'+Number(n).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function calcS1(){
+  const v=parseFloat(s1amt.value);
+  if(!(v>0)){ s1coef.textContent='—'; s1coef.className='coef bad mono';
+    s1err.textContent='实发金额必须大于 0：无法计算质量系数，阻断提交。'; s1err.classList.add('show'); s1ok.disabled=true; return; }
+  const c=v/DEF1;
+  s1coef.textContent=c.toFixed(2); 
+  const ok=c>=CFG.lo&&c<=CFG.hi;
+  s1coef.className='coef mono '+(ok?'ok':'bad');
+  if(!ok){ s1err.textContent='质量系数 '+c.toFixed(2)+' 超出 '+rangeLabel()+' 的范围，不能提交。'; s1err.classList.add('show'); }
+  else s1err.classList.remove('show');
+  s1ok.disabled=!ok;
+}
+s1amt.addEventListener('input',calcS1); calcS1();
+
+/* ── 服务评定（四维加权，随结算单留档，不参与实发金额计算） ── */
+function evalOk(form){
+  const ins=[...document.querySelectorAll('input[data-ev="'+form+'"]')];
+  let sum=0, ok=ins.length>0;
+  ins.forEach(i=>{
+    const v=parseFloat(i.value);
+    if(isNaN(v)||v<0||v>1){ ok=false; i.style.borderColor='var(--danger)'; }
+    else { i.style.borderColor=''; sum+=v*parseFloat(i.dataset.w); }
+  });
+  const t=document.getElementById(form+'-ev-total');
+  if(t) t.textContent=ok?sum.toFixed(2):'—';
+  return ok;
+}
+document.querySelectorAll('input[data-ev]').forEach(i=>i.addEventListener('input',()=>{
+  const f=i.dataset.ev; evalOk(f);
+  if(f==='s2') calcS2(); else calcD();
+}));
+
+/* ── 阶段二：一对一，工作量上限校验（不走系数、无合计约束） ── */
+const DEF2=500;
+const s2amt=document.getElementById('s2amt'), s2coef=document.getElementById('s2coef'),
+      s2err=document.getElementById('s2err'), s2okBtn=document.getElementById('s2ok'),
+      s2capEl=document.getElementById('s2cap');
+function calcS2(){
+  const cap=DEF2*CFG.cap;
+  s2capEl.textContent=fmt(cap);
+  const v=parseFloat(s2amt.value);
+  let ok=false, msg='';
+  if(!(v>0)){ s2coef.textContent='✕'; s2coef.className='coef bad mono'; msg='实发金额必须大于 0：不能提交。'; }
+  else{
+    ok=v<=cap+1e-9;
+    s2coef.textContent=ok?'✓':'✕'; s2coef.className='coef mono '+(ok?'ok':'bad');
+    if(!ok) msg='实发金额不得大于上限 '+fmt(cap)+'（完成工作量金额 × '+capLabel()+'），不能提交。';
+  }
+  if(ok && !evalOk('s2')){ ok=false; msg='服务评定每项须在 0–1 之间（两位小数）。'; }
+  if(msg){ s2err.textContent=msg; s2err.classList.add('show'); } else s2err.classList.remove('show');
+  s2okBtn.disabled=!ok;
+  const note=document.getElementById('s2-cap-note');
+  if(note) note.textContent='实发金额不大于上限 '+fmt(cap)+'（完成工作量金额 × '+capLabel()+'）即可提交；本批进度：程插美 ✓ · 汪志强 ✓ · 李文静 待打。';
+}
+s2amt.addEventListener('input',calcS2); calcS2();
+
+/* ── 三级直达链：一对一，工作量上限校验（同阶段二规则） ── */
+const DEFD=600;
+const dAmt=document.getElementById('d-amt'), dCoefEl=document.getElementById('d-coef'),
+      dErrEl=document.getElementById('d-err'), dOkBtn=document.getElementById('d-ok'),
+      dCapEl=document.getElementById('d-cap');
+function calcD(){
+  const cap=DEFD*CFG.cap;
+  dCapEl.textContent=fmt(cap);
+  const v=parseFloat(dAmt.value);
+  let ok=false, msg='';
+  if(!(v>0)){ dCoefEl.textContent='✕'; dCoefEl.className='coef bad mono'; msg='实发金额必须大于 0：不能提交。'; }
+  else{
+    ok=v<=cap+1e-9;
+    dCoefEl.textContent=ok?'✓':'✕'; dCoefEl.className='coef mono '+(ok?'ok':'bad');
+    if(!ok) msg='实发金额不得大于上限 '+fmt(cap)+'（完成工作量金额 × '+capLabel()+'），不能提交。';
+  }
+  if(ok && !evalOk('d')){ ok=false; msg='服务评定每项须在 0–1 之间（两位小数）。'; }
+  if(msg){ dErrEl.textContent=msg; dErrEl.classList.add('show'); } else dErrEl.classList.remove('show');
+  dOkBtn.disabled=!ok;
+  const note=document.getElementById('d-cap-note');
+  if(note) note.textContent='实发金额不大于上限 '+fmt(cap)+'（完成工作量金额 × '+capLabel()+'）即可提交；本批其余专员（周海涛、许倩）逐条同样操作。';
+}
+dAmt.addEventListener('input',calcD); calcD();
+</script>
+</body>
+</html>

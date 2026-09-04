@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, Dispatch, DragEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject, SetStateAction } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -13,6 +13,9 @@ import {
   Clock3,
   FileSearch,
   FolderKanban,
+  GripVertical,
+  LayoutGrid,
+  Maximize2,
   RotateCcw,
   ShieldAlert,
   TrendingUp,
@@ -29,6 +32,9 @@ import { Button } from '../components/Button';
 import { RiskTag, Tag } from '../components/StatusTag';
 import type { ToastMessage } from '../components/Toast';
 import { getRoleDashboardData, repFilingAnalysis } from '../data/mockData';
+import { useDashboardLayout } from '../hooks/useDashboardLayout';
+import type { SectionSize, SectionSizeSpec } from '../utils/dashboardGrid';
+import { GRID_COLUMNS, applyMove, clampSize, packLayout, sizeSpec } from '../utils/dashboardGrid';
 import type {
   DashboardMessage,
   DashboardMetric,
@@ -119,8 +125,8 @@ function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <section style={sectionCardStyle()}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+    <section style={sectionCardStyle({ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' })}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexShrink: 0 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>{title}</h2>
           {subtitle && <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>{subtitle}</p>}
@@ -144,7 +150,7 @@ function SectionCard({
           </button>
         )}
       </div>
-      {children}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>{children}</div>
     </section>
   );
 }
@@ -163,7 +169,7 @@ function TrendPanel({ data }: { data: DashboardRoleData['trend'] }) {
 
   return (
     <SectionCard title={data.title} subtitle={data.subtitle}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 220px', gap: 16, alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 16, alignItems: 'center' }}>
         <div>
           <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 180, display: 'block' }} aria-hidden="true">
             {[0.25, 0.5, 0.75].map(line => (
@@ -414,7 +420,7 @@ function QuickActionsPanel({
 }) {
   return (
     <SectionCard title="快捷入口">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 10, alignContent: 'start' }}>
         {items.map(item => (
           <button
             key={item.id}
@@ -487,8 +493,8 @@ function TaskListPanel({
   );
 }
 
-// ─── 药厂销售部门：销售运营工作台（P1 首页重组） ────────────────────
-// 依据《药厂销售部门首页优化文档 V1.0》：
+// ─── 药厂统一工作台：销售运营 + 合规风险（板块可配置） ────────────────────
+// 依据《药厂销售部门首页优化文档 V1.0》与工作台统一决策：
 // 待办/关注分离、任务交付概览 + 聚合、指标口径修正（执行中≠完成进度、
 // 里程碑判延误、金额分阶段）、AI 五段式紧凑入口、颜色纪律（常态无红框）。
 
@@ -654,14 +660,14 @@ function WorkbenchTodoPanel({
   listRef?: RefObject<HTMLDivElement | null>;
 }) {
   return (
-    <section style={sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column' })}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 8px' }}>
+    <section style={sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' })}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 8px', flexShrink: 0 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>我的待办</h2>
           <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>全部未完成，含历史事项 · 按逾期与到期时间排序</p>
         </div>
       </div>
-      <div ref={listRef} style={{ padding: '0 16px 14px' }}>
+      <div ref={listRef} style={{ padding: '0 16px 14px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {todos.length === 0 ? (
           <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 'var(--fs-13)', color: '#98A2B3' }}>当前筛选范围内暂无待办事项</div>
         ) : (
@@ -762,8 +768,8 @@ function WorkbenchTaskOverviewPanel({
   const displayed = showAll ? tasks : tasks.slice(0, 5);
 
   return (
-    <section style={sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column' })}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 10px', flexWrap: 'wrap' }}>
+    <section style={sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' })}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 10px', flexWrap: 'wrap', flexShrink: 0 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>任务交付概览</h2>
           <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>
@@ -794,7 +800,7 @@ function WorkbenchTaskOverviewPanel({
       </div>
 
       {aggMode === 'task' ? (
-        <div style={{ padding: '0 16px 14px' }}>
+        <div style={{ padding: '0 16px 14px', flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div style={{ overflowX: 'auto' }}>
             <div style={{ minWidth: 900 }}>
               <div
@@ -926,7 +932,7 @@ function WorkbenchTaskOverviewPanel({
           </div>
         </div>
       ) : (
-        <div style={{ padding: '0 16px 14px' }}>
+        <div style={{ padding: '0 16px 14px', flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div style={{ overflowX: 'auto' }}>
             <div style={{ minWidth: 640 }}>
               <div
@@ -1006,9 +1012,11 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
         borderRadius: 12,
         display: 'flex',
         flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '14px 16px 10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '14px 16px 10px', flexShrink: 0 }}>
         <div
           style={{
             width: 30,
@@ -1037,41 +1045,533 @@ function WorkbenchAIPanel({ ai, navigate }: { ai: SalesWorkbenchData['ai']; navi
           {expanded ? '收起' : '展开分析'} <ChevronDown size={13} style={{ transform: expanded ? 'rotate(180deg)' : 'none' }} />
         </button>
       </div>
-      <div style={{ padding: '0 16px 12px', fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)', lineHeight: 1.7 }}>{ai.summary}</div>
-      {expanded && (
-        <div
-          style={{
-            padding: '12px 16px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-            borderTop: '1px dashed #CFE5DE',
-            margin: '0 16px',
-          }}
-        >
-          {sections.map(section => (
-            <div key={section.label} style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 10, alignItems: 'baseline' }}>
-              <span style={{ padding: '2px 0', borderRadius: 6, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700, textAlign: 'center' }}>
-                {section.label}
-              </span>
-              <span style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>{section.content}</span>
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-            {ai.actions.map((action, index) => (
-              <Button key={action.label} size="sm" variant={index === 0 ? 'primary' : 'outline'} onClick={() => navigate(action.target)}>
-                {action.label}
-              </Button>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '0 16px 12px', fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)', lineHeight: 1.7 }}>{ai.summary}</div>
+        {expanded && (
+          <div
+            style={{
+              padding: '12px 16px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              borderTop: '1px dashed #CFE5DE',
+              margin: '0 16px',
+            }}
+          >
+            {sections.map(section => (
+              <div key={section.label} style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 10, alignItems: 'baseline' }}>
+                <span style={{ padding: '2px 0', borderRadius: 6, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700, textAlign: 'center' }}>
+                  {section.label}
+                </span>
+                <span style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>{section.content}</span>
+              </div>
             ))}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+              {ai.actions.map((action, index) => (
+                <Button key={action.label} size="sm" variant={index === 0 ? 'primary' : 'outline'} onClick={() => navigate(action.target)}>
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+            <div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>AI 仅提供参考，所有操作需人工确认；不自动改变任何单据状态。</div>
           </div>
-          <div style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>AI 仅提供参考，所有操作需人工确认；不自动改变任何单据状态。</div>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }
 
-function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWorkbenchData; navigate: (page: PageId) => void }) {
+// 板块注册表：新增板块只需 ① 注册 sectionIds ② 在对应 SIZE_SPECS 声明尺寸规格
+// （默认/最小/最大，列为 1~12、行为 1~N）③ 提供 render —— 网格摆放、拖拽、
+// 缩放、持久化全部由 SectionBoard + useDashboardLayout 承接，无需改动首页结构。
+interface DashboardSectionDef {
+  id: string;
+  title: string;
+  category: '销售' | '合规' | '通用';
+  defaultVisible: boolean;
+  render: () => ReactNode;
+}
+
+// 尺寸规格（列 × 行，行高见 SectionBoard rowHeight）：不同类型卡片各自的默认/最小/最大
+const PHARMA_SIZE_SPECS: Record<string, SectionSizeSpec> = {
+  summary: sizeSpec(12, 1, 6, 1, 12, 2),
+  ai: sizeSpec(8, 6, 4, 3, 12, 16),
+  'quick-actions': sizeSpec(4, 6, 3, 3, 8, 16),
+  todos: sizeSpec(12, 5, 6, 3, 12, 16),
+  'task-overview': sizeSpec(12, 6, 6, 4, 12, 16),
+  'compliance-kpi': sizeSpec(12, 2, 6, 2, 12, 6),
+  'compliance-queue': sizeSpec(12, 6, 5, 4, 12, 16),
+  'filing-analysis': sizeSpec(12, 4, 6, 3, 12, 16),
+  distribution: sizeSpec(6, 5, 4, 3, 12, 16),
+  spotlight: sizeSpec(12, 5, 6, 3, 12, 16),
+};
+
+const PROVIDER_SIZE_SPECS: Record<string, SectionSizeSpec> = {
+  metrics: sizeSpec(12, 2, 6, 2, 12, 8),
+  queue: sizeSpec(7, 6, 5, 4, 12, 16),
+  ai: sizeSpec(5, 6, 4, 4, 12, 16),
+  trend: sizeSpec(7, 4, 5, 3, 12, 16),
+  ranking: sizeSpec(5, 4, 4, 3, 12, 16),
+  'quick-actions': sizeSpec(12, 3, 4, 2, 12, 8),
+  spotlight: sizeSpec(12, 4, 6, 3, 12, 16),
+  'recent-operations': sizeSpec(6, 4, 4, 3, 12, 16),
+  'audit-tip': sizeSpec(12, 2, 6, 1, 12, 6),
+};
+
+const PHARMA_SECTION_IDS = [
+  'summary',
+  'ai',
+  'quick-actions',
+  'todos',
+  'task-overview',
+  'compliance-kpi',
+  'compliance-queue',
+  'filing-analysis',
+  'distribution',
+  'spotlight',
+];
+const PHARMA_DEFAULT_HIDDEN = ['filing-analysis', 'distribution', 'spotlight'];
+
+const PROVIDER_SECTION_IDS = [
+  'metrics',
+  'queue',
+  'ai',
+  'trend',
+  'ranking',
+  'quick-actions',
+  'spotlight',
+  'recent-operations',
+  'audit-tip',
+];
+const PROVIDER_DEFAULT_HIDDEN = ['recent-operations', 'audit-tip'];
+
+function LayoutCustomizeButton({ editing, onToggle }: { editing: boolean; onToggle: () => void }) {
+  return (
+    <Button variant={editing ? 'primary' : 'outline'} size="sm" icon={<LayoutGrid size={14} />} onClick={onToggle}>
+      {editing ? '完成' : '自定义板块'}
+    </Button>
+  );
+}
+
+function LayoutEditBanner({ onReset }: { onReset: () => void }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '8px 14px',
+        background: 'var(--color-brand-subtle)',
+        border: '1px dashed var(--color-border)',
+        borderRadius: 8,
+      }}
+    >
+      <span style={{ fontSize: 'var(--fs-13)', color: '#475467' }}>
+        拖拽卡片调整位置 · 拖动卡片右缘/下缘/右下角调整大小 · 勾选控制板块显示 · 按 Esc 退出
+      </span>
+      <Button variant="outline" size="sm" onClick={onReset}>
+        恢复默认
+      </Button>
+    </div>
+  );
+}
+
+type ResizeEdge = 'e' | 's' | 'se';
+
+function SectionShell({
+  section,
+  size,
+  position,
+  editing,
+  hidden,
+  dragging,
+  resizing,
+  shellRef,
+  onToggle,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  onResizeStart,
+}: {
+  section: DashboardSectionDef;
+  size: SectionSize;
+  position: { x: number; y: number };
+  editing: boolean;
+  hidden: boolean;
+  dragging: boolean;
+  resizing: boolean;
+  shellRef?: (el: HTMLDivElement | null) => void;
+  onToggle: () => void;
+  onDragStart: (e: DragEvent<HTMLDivElement>) => void;
+  onDragOver: (e: DragEvent<HTMLDivElement>) => void;
+  onDrop: (e: DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+  onResizeStart: (e: ReactPointerEvent<HTMLDivElement>, edge: ResizeEdge) => void;
+}) {
+  const strip = editing && hidden;
+  // 编辑模式下工具条（拖拽把手/显示勾选）占卡片顶部约 30px：
+  // Shell 变为 flex 列让工具条真实占位，内容区吃剩余高度，保证内容不溢出压到下一张卡；
+  // 因此编辑模式可见卡至少占 2 行（与 SectionBoard 的 effective 高度提升保持一致）。
+  const editingCard = editing && !strip;
+  return (
+    <div
+      ref={shellRef}
+      className="dashboard-section-shell"
+      data-section-id={section.id}
+      draggable={editing}
+      onDragStart={
+        editing
+          ? e => {
+              const target = e.target as HTMLElement;
+              if (target.closest('input, label, button, [data-no-drag]')) {
+                e.preventDefault();
+                return;
+              }
+              onDragStart(e);
+            }
+          : undefined
+      }
+      onDragOver={editing ? onDragOver : undefined}
+      onDrop={editing ? onDrop : undefined}
+      onDragEnd={editing ? onDragEnd : undefined}
+      style={{
+        minWidth: 0,
+        position: 'relative',
+        display: editingCard ? 'flex' : undefined,
+        flexDirection: editingCard ? 'column' : undefined,
+        gridColumn: strip ? '1 / -1' : `${position.x + 1} / span ${size.w}`,
+        gridRow: `span ${strip ? 1 : editing ? Math.max(size.h, 2) : size.h}`,
+        opacity: dragging ? 0.4 : editing && hidden ? 0.55 : 1,
+        borderRadius: 12,
+        border: editing ? '1px dashed var(--color-border)' : '1px solid transparent',
+        background: editing ? '#FFFFFF' : undefined,
+        outline: resizing ? '2px solid var(--color-brand)' : undefined,
+        outlineOffset: resizing ? 1 : undefined,
+        cursor: editing ? 'grab' : undefined,
+        userSelect: editing ? 'none' : undefined,
+        scrollMarginTop: 8,
+      }}
+    >
+      {editing && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 4px', flexShrink: 0 }}>
+          <span
+            title="拖拽调整顺序"
+            aria-label="拖拽调整顺序"
+            style={{ display: 'inline-flex', color: '#98A2B3', cursor: 'grab', flexShrink: 0 }}
+          >
+            <GripVertical size={16} aria-hidden />
+          </span>
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 'var(--fs-12)',
+              color: '#344054',
+              cursor: 'pointer',
+            }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <input type="checkbox" checked={!hidden} onChange={onToggle} />
+            显示
+          </label>
+          <span style={{ flex: 1 }} />
+          <span
+            style={{
+              fontSize: 'var(--fs-11)',
+              fontWeight: 600,
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: '#F3F4F6',
+              color: '#667085',
+            }}
+          >
+            {section.category}
+          </span>
+        </div>
+      )}
+      {editing && hidden ? (
+        <div style={{ padding: '2px 12px 6px', fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)' }}>
+          {section.title}
+        </div>
+      ) : (
+        <div
+          style={
+            editingCard
+              ? { pointerEvents: 'none', flex: 1, minHeight: 0 }
+              : { pointerEvents: editing ? 'none' : undefined, height: '100%' }
+          }
+        >
+          {section.render()}
+        </div>
+      )}
+      {editing && !hidden && (
+        <>
+          <div
+            data-no-drag
+            className="dsb-resize"
+            title="拖动调整宽度"
+            onPointerDown={e => onResizeStart(e, 'e')}
+            style={{ position: 'absolute', top: 28, bottom: 28, right: -5, width: 10, cursor: 'ew-resize', zIndex: 20, touchAction: 'none', borderRadius: 5 }}
+          />
+          <div
+            data-no-drag
+            className="dsb-resize"
+            title="拖动调整高度"
+            onPointerDown={e => onResizeStart(e, 's')}
+            style={{ position: 'absolute', left: 28, right: 28, bottom: -5, height: 10, cursor: 'ns-resize', zIndex: 20, touchAction: 'none', borderRadius: 5 }}
+          />
+          <div
+            data-no-drag
+            title="拖动调整大小"
+            onPointerDown={e => onResizeStart(e, 'se')}
+            style={{
+              position: 'absolute',
+              right: -7,
+              bottom: -7,
+              width: 24,
+              height: 24,
+              cursor: 'nwse-resize',
+              zIndex: 21,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              touchAction: 'none',
+            }}
+          >
+            <span
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 999,
+                background: '#FFFFFF',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-brand)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 1px 3px rgba(16, 24, 40, 0.18)',
+              }}
+            >
+              <Maximize2 size={10} />
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const FALLBACK_SECTION_SPEC = sizeSpec(12, 4, 2, 2);
+
+function SectionBoard({
+  sections,
+  order,
+  hidden,
+  toggleVisible,
+  moveSection,
+  setSize,
+  sizes,
+  specs,
+  editing,
+  onExitEdit,
+  gap = 12,
+  rowHeight = 64,
+  sectionRefs,
+}: {
+  sections: DashboardSectionDef[];
+  order: string[];
+  hidden: string[];
+  toggleVisible: (id: string) => void;
+  moveSection: (fromId: string, toId: string, after?: boolean) => void;
+  setSize: (id: string, size: SectionSize) => void;
+  sizes: Record<string, SectionSize>;
+  specs: Record<string, SectionSizeSpec>;
+  editing: boolean;
+  onExitEdit: () => void;
+  gap?: number;
+  rowHeight?: number;
+  sectionRefs?: RefObject<Record<string, HTMLDivElement | null>>;
+}) {
+  const defById = useMemo(() => new Map(sections.map(section => [section.id, section])), [sections]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{ id: string; overId: string; place: 'before' | 'after' } | null>(null);
+  const [resizing, setResizing] = useState<{ id: string; w: number; h: number } | null>(null);
+  const dragIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) {
+      setDrag(null);
+      setResizing(null);
+      dragIdRef.current = null;
+      return;
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onExitEdit();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [editing, onExitEdit]);
+
+  // 有效尺寸 = 已保存尺寸（按规格钳制）+ 缩放中的实时预览；
+  // 坐标由 packLayout 从「顺序 + 尺寸」推导，因此拖拽/缩放过程中其余卡片实时避让，不会重叠。
+  const layout = useMemo(() => {
+    const effective: Record<string, SectionSize> = {};
+    for (const id of order) {
+      const spec = specs[id] ?? FALLBACK_SECTION_SPEC;
+      const saved = sizes[id] ?? { w: spec.w, h: spec.h };
+      effective[id] = editing && hidden.includes(id) ? { w: GRID_COLUMNS, h: 1 } : clampSize(saved, spec);
+    }
+    if (resizing) effective[resizing.id] = { w: resizing.w, h: resizing.h };
+    // 编辑模式可见卡至少占 2 行给工具条留位（与 SectionShell 的显示 span 一致）
+    if (editing) {
+      for (const id of order) {
+        if (!hidden.includes(id) && effective[id].h < 2) effective[id] = { ...effective[id], h: 2 };
+      }
+    }
+    const sequence = editing ? order : order.filter(id => !hidden.includes(id));
+    const arranged = drag ? applyMove(sequence, drag.id, drag.overId, drag.place === 'after') : sequence;
+    return { arranged, sizes: effective, positions: packLayout(arranged, effective) };
+  }, [order, hidden, sizes, specs, editing, drag, resizing]);
+
+  const beginResize = (id: string, e: ReactPointerEvent<HTMLDivElement>, edge: ResizeEdge) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const container = containerRef.current;
+    if (!container) return;
+    const spec = specs[id] ?? FALLBACK_SECTION_SPEC;
+    const start = (resizing?.id === id ? { w: resizing.w, h: resizing.h } : sizes[id]) ?? { w: spec.w, h: spec.h };
+    const colStep = (container.clientWidth + gap) / GRID_COLUMNS;
+    const rowStep = rowHeight + gap;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let latest: { id: string; w: number; h: number } | null = resizing?.id === id ? resizing : null;
+
+    const handleMove = (ev: PointerEvent) => {
+      const next = clampSize(
+        {
+          w: edge === 's' ? start.w : start.w + Math.floor((ev.clientX - startX) / colStep),
+          h: edge === 'e' ? start.h : start.h + Math.floor((ev.clientY - startY) / rowStep),
+        },
+        spec,
+      );
+      latest = { id, ...next };
+      setResizing(latest);
+    };
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      setResizing(null);
+      if (latest) setSize(latest.id, { w: latest.w, h: latest.h });
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  };
+
+  const commitDrag = () => {
+    if (drag) moveSection(drag.id, drag.overId, drag.place === 'after');
+    setDrag(null);
+    dragIdRef.current = null;
+  };
+
+  return (
+    <>
+      <style>{`
+        @media (max-width: 960px) {
+          .dashboard-section-grid { grid-auto-rows: auto !important; }
+          .dashboard-section-shell { grid-column: 1 / -1 !important; grid-row: auto !important; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .dashboard-section-shell { transition: none !important; }
+        }
+        .dsb-resize { transition: background 120ms ease; }
+        .dsb-resize:hover { background: rgba(16, 185, 129, 0.22); }
+      `}</style>
+      <div
+        ref={containerRef}
+        className="dashboard-section-grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
+          gridAutoRows: rowHeight,
+          gap,
+          position: 'relative',
+        }}
+        onDragOver={editing ? e => e.preventDefault() : undefined}
+        onDrop={
+          editing
+            ? e => {
+                e.preventDefault();
+                commitDrag();
+              }
+            : undefined
+        }
+      >
+        {layout.arranged.map(id => {
+          const section = defById.get(id);
+          if (!section) return null;
+          const spec = specs[id] ?? FALLBACK_SECTION_SPEC;
+          return (
+            <SectionShell
+              key={id}
+              section={section}
+              size={layout.sizes[id] ?? { w: spec.w, h: spec.h }}
+              position={layout.positions[id] ?? { x: 0, y: 0 }}
+              editing={editing}
+              hidden={hidden.includes(id)}
+              dragging={drag?.id === id}
+              resizing={resizing?.id === id}
+              shellRef={el => {
+                if (sectionRefs) sectionRefs.current[id] = el;
+              }}
+              onToggle={() => toggleVisible(id)}
+              onDragStart={e => {
+                dragIdRef.current = id;
+                e.dataTransfer.setData('text/plain', id);
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={e => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                const fromId = dragIdRef.current;
+                if (!fromId || fromId === id) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const place = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+                setDrag(prev =>
+                  prev && prev.id === fromId && prev.overId === id && prev.place === place ? prev : { id: fromId, overId: id, place },
+                );
+              }}
+              onDrop={e => {
+                e.preventDefault();
+                e.stopPropagation();
+                commitDrag();
+              }}
+              onDragEnd={() => {
+                setDrag(null);
+                dragIdRef.current = null;
+              }}
+              onResizeStart={(e, edge) => beginResize(id, e, edge)}
+            />
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function PharmaWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
+  const salesData = useMemo(() => getRoleDashboardData('药厂销售部门'), []);
+  const complianceData = useMemo(() => getRoleDashboardData('药厂合规部门'), []);
+  const workbench = salesData.salesWorkbench;
+  const layout = useDashboardLayout('pharma', PHARMA_SECTION_IDS, PHARMA_DEFAULT_HIDDEN, PHARMA_SIZE_SPECS);
+  const [editing, setEditing] = useState(false);
+  const exitEdit = useCallback(() => setEditing(false), []);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const hiddenRef = useRef(layout.hidden);
+  hiddenRef.current = layout.hidden;
+
   const [period, setPeriod] = useState<WorkbenchPeriod>('本月');
   const [selVarieties, setSelVarieties] = useState<string[]>([]);
   const [selRegions, setSelRegions] = useState<string[]>([]);
@@ -1079,7 +1579,14 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
   const [statusFilter, setStatusFilter] = useState<'执行中' | '异常' | null>(null);
   const [aggMode, setAggMode] = useState<'task' | 'region' | 'variety' | 'provider'>('task');
   const todoListRef = useRef<HTMLDivElement>(null);
-  const overviewRef = useRef<HTMLDivElement>(null);
+
+  const scrollToSection = (id: string) => {
+    if (hiddenRef.current.includes(id)) return;
+    sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const tasks = workbench?.tasks ?? [];
+  const todos = workbench?.todos ?? [];
 
   const hasFilter = selVarieties.length > 0 || selRegions.length > 0 || selProviders.length > 0;
 
@@ -1092,13 +1599,13 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
 
   const bizFiltered = useMemo(
     () =>
-      workbench.tasks.filter(
+      tasks.filter(
         task =>
           (selVarieties.length === 0 || task.varieties.some(value => selVarieties.includes(value))) &&
           (selRegions.length === 0 || task.regions.some(value => selRegions.includes(value))) &&
           (selProviders.length === 0 || selProviders.includes(task.provider)),
       ),
-    [workbench.tasks, selVarieties, selRegions, selProviders],
+    [tasks, selVarieties, selRegions, selProviders],
   );
 
   const range = PERIOD_RANGES[period];
@@ -1114,13 +1621,13 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
   const bizTaskNos = useMemo(() => new Set(bizFiltered.map(task => task.taskNo)), [bizFiltered]);
   const visibleTodos = useMemo(
     () =>
-      workbench.todos
+      todos
         .filter(todo => bizTaskNos.has(todo.taskId))
         .sort((a, b) => Number(b.overdue) - Number(a.overdue) || Number(!!b.dueToday) - Number(!!a.dueToday))
         .slice(0, 5),
-    [workbench.todos, bizTaskNos],
+    [todos, bizTaskNos],
   );
-  const outOfScopeTodos = workbench.todos.length - workbench.todos.filter(todo => bizTaskNos.has(todo.taskId)).length;
+  const outOfScopeTodos = todos.length - todos.filter(todo => bizTaskNos.has(todo.taskId)).length;
 
   const overviewTasks = useMemo(() => {
     const filtered = periodFiltered.filter(task =>
@@ -1156,27 +1663,237 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
     setter(prev => (prev.includes(value) ? prev.filter(item => item !== value) : [...prev, value]));
   };
 
-  const scrollTo = (ref: RefObject<HTMLDivElement | null>) => {
-    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const sections: DashboardSectionDef[] = useMemo(
+    () =>
+      workbench
+        ? [
+            {
+              id: 'summary',
+              title: '运营摘要',
+              category: '销售',
+              defaultVisible: true,
+              render: () => (
+                <section style={{ ...sectionCardStyle({ padding: '10px 16px' }), display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', height: '100%', overflow: 'hidden' }}>
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#667085', fontWeight: 600, flexShrink: 0 }}>运营摘要</span>
+                  <WorkbenchSummaryChip
+                    label="执行中任务"
+                    value={`${execCount} 项`}
+                    active={statusFilter === '执行中'}
+                    onClick={() => {
+                      setStatusFilter(prev => (prev === '执行中' ? null : '执行中'));
+                      scrollToSection('task-overview');
+                    }}
+                  />
+                  <WorkbenchSummaryChip
+                    label="异常任务"
+                    value={anomalyCount > 0 ? `${anomalyCount} 项` : '暂无异常'}
+                    tone={anomalyCount > 0 ? 'warning' : 'neutral'}
+                    active={statusFilter === '异常'}
+                    onClick={() => {
+                      setStatusFilter(prev => (prev === '异常' ? null : '异常'));
+                      scrollToSection('task-overview');
+                    }}
+                  />
+                  <WorkbenchSummaryChip
+                    label="待我处理"
+                    value={`${todos.length} 项`}
+                    hint="含历史事项"
+                    tone="brand"
+                    onClick={() => scrollToSection('todos')}
+                  />
+                  <span style={{ flex: 1 }} />
+                  <span style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>执行中 ≠ 完成进度 · 异常按任务去重 · 待我处理按待办计数</span>
+                </section>
+              ),
+            },
+            {
+              id: 'ai',
+              title: 'AI 分析',
+              category: '销售',
+              defaultVisible: true,
+              render: () => <WorkbenchAIPanel ai={workbench.ai} navigate={navigate} />,
+            },
+            {
+              id: 'quick-actions',
+              title: '常用入口',
+              category: '销售',
+              defaultVisible: true,
+              render: () => (
+                <section style={sectionCardStyle({ padding: '12px 16px', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' })}>
+                  <h2 style={{ margin: '0 0 10px', fontSize: 'var(--fs-14)', fontWeight: 700, color: 'var(--color-text-1)', flexShrink: 0 }}>常用入口</h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                    {workbench.quickActions.map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => navigate(item.target)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '9px 12px',
+                          background: '#F9FAFB',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <span>
+                          <span style={{ display: 'block', fontSize: 'var(--fs-13)', fontWeight: 600, color: '#374151' }}>{item.label}</span>
+                          <span style={{ display: 'block', fontSize: 'var(--fs-11)', color: '#667085', marginTop: 2 }}>{item.description}</span>
+                        </span>
+                        <ArrowRight size={14} color="#9CA3AF" />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ),
+            },
+            {
+              id: 'todos',
+              title: '我的待办',
+              category: '销售',
+              defaultVisible: true,
+              render: () => (
+                <WorkbenchTodoPanel todos={visibleTodos} outOfScopeCount={outOfScopeTodos} navigate={navigate} listRef={todoListRef} />
+              ),
+            },
+            {
+              id: 'task-overview',
+              title: '任务交付概览',
+              category: '销售',
+              defaultVisible: true,
+              render: () => (
+                <WorkbenchTaskOverviewPanel
+                  tasks={overviewTasks}
+                  aggMode={aggMode}
+                  onAggModeChange={setAggMode}
+                  aggRows={aggRows}
+                  periodLabel={period}
+                  hasFilter={hasFilter}
+                  onReset={resetFilters}
+                  onFilterVariety={value => setSelVarieties(prev => (prev.includes(value) ? prev : [...prev, value]))}
+                  onFilterRegion={value => setSelRegions(prev => (prev.includes(value) ? prev : [...prev, value]))}
+                  navigate={navigate}
+                />
+              ),
+            },
+            {
+              id: 'compliance-kpi',
+              title: '合规对象监测',
+              category: '合规',
+              defaultVisible: true,
+              render: () => (
+                <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10, alignContent: 'start', height: '100%', overflowY: 'auto' }}>
+                  {complianceData.metrics.map(metric => (
+                    <MetricCard
+                      key={metric.id}
+                      title={metric.title}
+                      value={metric.value}
+                      unit={metric.unit}
+                      subtitle={metric.subtitle}
+                      icon={getMetricIcon(metric)}
+                      iconColor={metric.iconColor}
+                      iconBg={metric.iconBg}
+                      urgency={metric.urgency}
+                      source={metric.source}
+                      compact
+                      onClick={() => {
+                        if (metric.target === 'dashboard') {
+                          scrollToSection('filing-analysis');
+                          return;
+                        }
+                        navigate(metric.target);
+                      }}
+                    />
+                  ))}
+                </section>
+              ),
+            },
+            {
+              id: 'compliance-queue',
+              title: '优先处理队列',
+              category: '合规',
+              defaultVisible: true,
+              render: () => (
+                <ComplianceQueuePanel
+                  items={complianceData.queue}
+                  navigate={page => {
+                    if (page === 'dashboard') {
+                      scrollToSection('filing-analysis');
+                      return;
+                    }
+                    navigate(page);
+                  }}
+                />
+              ),
+            },
+            {
+              id: 'filing-analysis',
+              title: '备案异常分析',
+              category: '合规',
+              defaultVisible: false,
+              render: () => <RepFilingAnalysisPanel />,
+            },
+            {
+              id: 'distribution',
+              title: '对象维度分布',
+              category: '合规',
+              defaultVisible: false,
+              render: () =>
+                complianceData.distribution ? (
+                  <StatListPanel title={complianceData.distribution.title} items={complianceData.distribution.items} />
+                ) : null,
+            },
+            {
+              id: 'spotlight',
+              title: '重点对象',
+              category: '合规',
+              defaultVisible: false,
+              render: () =>
+                complianceData.spotlight ? <StatListPanel title={complianceData.spotlight.title} items={complianceData.spotlight.items} /> : null,
+            },
+          ]
+        : [],
+    [
+      workbench,
+      execCount,
+      anomalyCount,
+      statusFilter,
+      todos.length,
+      navigate,
+      visibleTodos,
+      outOfScopeTodos,
+      overviewTasks,
+      aggMode,
+      aggRows,
+      period,
+      hasFilter,
+      complianceData.metrics,
+      complianceData.queue,
+      complianceData.distribution,
+      complianceData.spotlight,
+    ],
+  );
+
+  if (!workbench) return null;
 
   return (
     <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 1480 }}>
-      <style>{`
-        @media (max-width: 960px) {
-          .swb-split { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
+      {editing && <LayoutEditBanner onReset={layout.resetLayout} />}
 
       {/* 01 页面标题与范围 */}
       <section style={{ minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ margin: 0, fontSize: 'var(--fs-22)', fontWeight: 800, color: 'var(--color-text-1)' }}>{workbench.headline}</h1>
           <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-13)', color: '#667085' }}>
-            聚焦委托推广任务交付与协同处理 · 数据截至 {workbench.dataAsOf} · 时区 Asia/Shanghai
+            覆盖销售运营与合规风险的一体化看板 · 数据截至 {workbench.dataAsOf} · 时区 Asia/Shanghai
           </p>
         </div>
-        <div style={{ flexShrink: 0, fontSize: 'var(--fs-12)', color: '#667085' }}>AI 仅供参考，操作需人工确认</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>AI 仅供参考，操作需人工确认</span>
+          <LayoutCustomizeButton editing={editing} onToggle={() => setEditing(prev => !prev)} />
+        </div>
       </section>
 
       {/* 全局筛选 */}
@@ -1234,91 +1951,26 @@ function SalesWorkbenchDashboard({ workbench, navigate }: { workbench: SalesWork
         )}
       </section>
 
-      {/* 02 运营摘要 */}
-      <section style={{ ...sectionCardStyle({ padding: '10px 16px' }), display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 'var(--fs-12)', color: '#667085', fontWeight: 600, flexShrink: 0 }}>运营摘要</span>
-        <WorkbenchSummaryChip
-          label="执行中任务"
-          value={`${execCount} 项`}
-          active={statusFilter === '执行中'}
-          onClick={() => {
-            setStatusFilter(prev => (prev === '执行中' ? null : '执行中'));
-            scrollTo(overviewRef);
-          }}
-        />
-        <WorkbenchSummaryChip
-          label="异常任务"
-          value={anomalyCount > 0 ? `${anomalyCount} 项` : '暂无异常'}
-          tone={anomalyCount > 0 ? 'warning' : 'neutral'}
-          active={statusFilter === '异常'}
-          onClick={() => {
-            setStatusFilter(prev => (prev === '异常' ? null : '异常'));
-            scrollTo(overviewRef);
-          }}
-        />
-        <WorkbenchSummaryChip label="待我处理" value={`${workbench.todos.length} 项`} hint="含历史事项" tone="brand" onClick={() => scrollTo(todoListRef)} />
-        <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>执行中 ≠ 完成进度 · 异常按任务去重 · 待我处理按待办计数</span>
-      </section>
-
-      {/* 03 AI 分析 + 常用入口（提高布局权重：紧随运营摘要、默认展开、突出 AI） */}
-      <div className="swb-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.2fr) minmax(0, 1fr)', gap: 12, alignItems: 'stretch' }}>
-        <WorkbenchAIPanel ai={workbench.ai} navigate={navigate} />
-        <section style={sectionCardStyle({ padding: '12px 16px', display: 'flex', flexDirection: 'column' })}>
-          <h2 style={{ margin: '0 0 10px', fontSize: 'var(--fs-14)', fontWeight: 700, color: 'var(--color-text-1)' }}>常用入口</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-            {workbench.quickActions.map(item => (
-              <button
-                key={item.id}
-                onClick={() => navigate(item.target)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '9px 12px',
-                  background: '#F9FAFB',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                <span>
-                  <span style={{ display: 'block', fontSize: 'var(--fs-13)', fontWeight: 600, color: '#374151' }}>{item.label}</span>
-                  <span style={{ display: 'block', fontSize: 'var(--fs-11)', color: '#667085', marginTop: 2 }}>{item.description}</span>
-                </span>
-                <ArrowRight size={14} color="#9CA3AF" />
-              </button>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      {/* 04 我的待办（全宽） */}
-      <div style={{ scrollMarginTop: 8 }}>
-        <WorkbenchTodoPanel todos={visibleTodos} outOfScopeCount={outOfScopeTodos} navigate={navigate} listRef={todoListRef} />
-      </div>
-
-      {/* 05 任务交付概览 */}
-      <div ref={overviewRef} style={{ scrollMarginTop: 8 }}>
-        <WorkbenchTaskOverviewPanel
-          tasks={overviewTasks}
-          aggMode={aggMode}
-          onAggModeChange={setAggMode}
-          aggRows={aggRows}
-          periodLabel={period}
-          hasFilter={hasFilter}
-          onReset={resetFilters}
-          onFilterVariety={value => setSelVarieties(prev => (prev.includes(value) ? prev : [...prev, value]))}
-          onFilterRegion={value => setSelRegions(prev => (prev.includes(value) ? prev : [...prev, value]))}
-          navigate={navigate}
-        />
-      </div>
+      <SectionBoard
+        sections={sections}
+        order={layout.order}
+        hidden={layout.hidden}
+        toggleVisible={layout.toggleVisible}
+        moveSection={layout.moveSection}
+        setSize={layout.setSize}
+        sizes={layout.sizes}
+        specs={PHARMA_SIZE_SPECS}
+        editing={editing}
+        onExitEdit={exitEdit}
+        gap={12}
+        rowHeight={64}
+        sectionRefs={sectionRefs}
+      />
     </div>
   );
 }
 
-// ─── 药厂合规部门：整页骨架对齐药厂销售部门 ────────────────────
+// ─── 药厂合规板块（迁入统一工作台注册表复用） ────────────────────
 type ComplianceLayer = 'orange' | 'blue';
 
 const complianceLayerMeta: Record<ComplianceLayer, { bar: string; bg: string; tag: 'warning' | 'info'; label: string }> = {
@@ -1356,9 +2008,11 @@ function ComplianceQueuePanel({
     <section
       style={{
         ...sectionCardStyle({ padding: 0, display: 'flex', flexDirection: 'column' }),
+        height: '100%',
+        overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 10px', flexShrink: 0 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>优先处理队列</h2>
           <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>
@@ -1383,7 +2037,7 @@ function ComplianceQueuePanel({
         </button>
       </div>
 
-      <div style={{ padding: '0 16px 14px', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '0 16px 14px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'auto' }}>
         <div style={{ overflowX: 'auto' }}>
           <div style={{ minWidth: 760 }}>
             <div
@@ -1479,12 +2133,12 @@ function RepFilingAnalysisPanel() {
   const cols = '80px minmax(0, 1fr) 84px 92px';
 
   return (
-    <section style={sectionCardStyle({ padding: '12px 16px' })}>
+    <section style={sectionCardStyle({ padding: '12px 16px', height: '100%', overflow: 'auto' })}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <h2 style={{ margin: 0, fontSize: 'var(--fs-14)', fontWeight: 700, color: 'var(--color-text-1)' }}>备案异常分析</h2>
         <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>未备案专员的推广提交将被自动拦截</span>
       </div>
-      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <div
           style={{
             flexShrink: 0,
@@ -1541,145 +2195,204 @@ function RepFilingAnalysisPanel() {
   );
 }
 
-function ComplianceAdminDashboard({
-  data,
-  navigate,
-  insights,
-  feedbacks,
-  onDismissInsight,
-  onInsightFeedback,
-}: {
-  data: DashboardRoleData;
-  navigate: (page: PageId) => void;
-  insights: DashboardRoleData['insights'];
-  feedbacks: Record<string, 'valid' | 'false-positive'>;
-  onDismissInsight: (id: string) => void;
-  onInsightFeedback: (id: string, feedback: 'valid' | 'false-positive') => void;
-}) {
-  const filingRef = useRef<HTMLDivElement>(null);
-  const wrappedNavigate = (page: PageId) => {
-    if (page === 'dashboard') {
-      filingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-    navigate(page);
-  };
 
-  const summaryParts = [
-    '专员备案（人·资质）',
-    '供应商准入/资质（供应商·资质）',
-    '待随检任务（行为·过程）',
-    '证据链 AI 存疑（证据·事后审核）',
-  ];
+function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
+  const data = useMemo(() => getRoleDashboardData('服务提供商'), []);
+  const layout = useDashboardLayout('provider', PROVIDER_SECTION_IDS, PROVIDER_DEFAULT_HIDDEN, PROVIDER_SIZE_SPECS);
+  const [editing, setEditing] = useState(false);
+  const exitEdit = useCallback(() => setEditing(false), []);
+  const [dismissedInsights, setDismissedInsights] = useState<string[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Record<string, 'valid' | 'false-positive'>>({});
+  const visibleInsights = data.insights
+    .filter(item => !dismissedInsights.includes(item.id))
+    .sort((a, b) => insightOrder[a.severity] - insightOrder[b.severity]);
 
-  return (
-    <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* 页头 */}
-      <section style={{ minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        <div style={{ minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontSize: 'var(--fs-22)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-13)', color: '#667085', lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            合规管控生命周期：{summaryParts.join(' → ')}
-          </p>
-        </div>
-        <div style={{ flexShrink: 0, fontSize: 'var(--fs-12)', color: '#667085', whiteSpace: 'nowrap' }}>AI 仅供参考，操作需人工确认</div>
-      </section>
-
-      {/* KPI 行：四张对象卡 */}
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
-        {data.metrics.map(metric => (
-          <MetricCard
-            key={metric.id}
-            title={metric.title}
-            value={metric.value}
-            unit={metric.unit}
-            subtitle={metric.subtitle}
-            icon={getMetricIcon(metric)}
-            iconColor={metric.iconColor}
-            iconBg={metric.iconBg}
-            urgency={metric.urgency}
-            source={metric.source}
-            compact
-            onClick={() => wrappedNavigate(metric.target)}
-          />
-        ))}
-      </section>
-
-      {/* AI 洞察：完整六要素卡 */}
-      {insights.length > 0 && (
-        <section>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={16} color="var(--color-brand)" />
-              <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>AI 洞察</h2>
-              <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700 }}>
-                {insights.length} 条
-              </span>
+  const sections: DashboardSectionDef[] = useMemo(
+    () => [
+      {
+        id: 'metrics',
+        title: '承接指标',
+        category: '通用',
+        defaultVisible: true,
+        render: () => (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
+              gap: 16,
+              alignContent: 'start',
+              height: '100%',
+              overflowY: 'auto',
+            }}
+          >
+            {data.metrics.map(metric => {
+              const Icon = getMetricIcon(metric);
+              return (
+                <MetricCard
+                  key={metric.id}
+                  title={metric.title}
+                  value={metric.value}
+                  unit={metric.unit}
+                  delta={metric.delta}
+                  deltaLabel={metric.deltaLabel}
+                  subtitle={metric.subtitle}
+                  icon={Icon}
+                  iconColor={metric.iconColor}
+                  iconBg={metric.iconBg}
+                  urgency={metric.urgency}
+                  onClick={() => navigate(metric.target)}
+                />
+              );
+            })}
+          </div>
+        ),
+      },
+      {
+        id: 'queue',
+        title: '优先处理队列',
+        category: '通用',
+        defaultVisible: true,
+        render: () => <QueueTable items={data.queue} navigate={navigate} />,
+      },
+      {
+        id: 'ai',
+        title: 'AI 洞察',
+        category: '通用',
+        defaultVisible: true,
+        render: () => (
+          <section style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>AI 洞察</h2>
+                <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700 }}>
+                  {visibleInsights.length} 条
+                </span>
+              </div>
             </div>
-            <span style={{ fontSize: 'var(--fs-12)', color: '#98A2B3' }}>每条均含结论 / 依据 / 数据范围 / 置信度 / 建议动作 / 人工确认</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {insights.map(insight => (
-              <AIInsightCard
-                key={insight.id}
-                {...insight}
-                feedback={feedbacks[insight.id]}
-                onAction={() => wrappedNavigate(insight.target)}
-                onDismiss={onDismissInsight}
-                onFeedback={onInsightFeedback}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* 主行：优先处理队列 + 右侧快捷入口 */}
-      <section style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <ComplianceQueuePanel items={data.queue} navigate={wrappedNavigate} />
-        </div>
-        <div style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <section style={sectionCardStyle({ padding: '12px 16px', display: 'flex', flexDirection: 'column' })}>
-            <h2 style={{ margin: '0 0 12px 0', fontSize: 'var(--fs-14)', fontWeight: 700, color: 'var(--color-text-1)' }}>快捷入口</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {data.quickActions.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => wrappedNavigate(item.target)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 12px',
-                    background: '#F9FAFB',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: '#374151' }}>{item.label}</div>
-                    <div style={{ fontSize: 'var(--fs-11)', color: '#667085', marginTop: 2 }}>{item.description}</div>
-                  </div>
-                  <ArrowRight size={14} color="#9CA3AF" />
-                </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              {visibleInsights.map(insight => (
+                <AIInsightCard
+                  key={insight.id}
+                  {...insight}
+                  feedback={feedbacks[insight.id]}
+                  onAction={() => navigate(insight.target)}
+                  onDismiss={id => setDismissedInsights(prev => [...prev, id])}
+                  onFeedback={(id, fb) => setFeedbacks(prev => ({ ...prev, [id]: fb }))}
+                />
               ))}
             </div>
           </section>
+        ),
+      },
+      {
+        id: 'trend',
+        title: '任务/工作量趋势',
+        category: '通用',
+        defaultVisible: true,
+        render: () => <TrendPanel data={data.trend} />,
+      },
+      {
+        id: 'ranking',
+        title: '工作组排名',
+        category: '通用',
+        defaultVisible: true,
+        render: () => (data.ranking ? <StatListPanel title={data.ranking.title} items={data.ranking.items} /> : null),
+      },
+      {
+        id: 'quick-actions',
+        title: '快捷入口',
+        category: '通用',
+        defaultVisible: true,
+        render: () => <QuickActionsPanel items={data.quickActions} navigate={navigate} />,
+      },
+      {
+        id: 'spotlight',
+        title: '初审视角',
+        category: '通用',
+        defaultVisible: true,
+        render: () => (data.spotlight ? <StatListPanel title={data.spotlight.title} items={data.spotlight.items} /> : null),
+      },
+      {
+        id: 'recent-operations',
+        title: '最近操作',
+        category: '通用',
+        defaultVisible: false,
+        render: () => <RecentOperationsPanel items={data.recentOperations} navigate={navigate} />,
+      },
+      {
+        id: 'audit-tip',
+        title: '审计提示',
+        category: '通用',
+        defaultVisible: false,
+        render: () => (
+          <div style={{ ...sectionCardStyle({ background: '#F9FAFB' }), height: '100%', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-12)', fontWeight: 700, color: '#667085', marginBottom: 8 }}>
+              <TrendingUp size={14} />
+              审计提示
+            </div>
+            <div style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>
+              最近操作保留审计视角，消息待办保留行动视角，两者分开呈现，避免“发生了什么”和“接下来做什么”混在一起。
+            </div>
+          </div>
+        ),
+      },
+    ],
+    [data, navigate, visibleInsights, feedbacks],
+  );
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1480, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {editing && <LayoutEditBanner onReset={layout.resetLayout} />}
+
+      <section
+        style={{
+          ...sectionCardStyle(),
+          padding: 20,
+          background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FBFA 100%)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+              <Tag label={data.role} color="brand" />
+            </div>
+            <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
+            <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-14)', color: '#667085', lineHeight: 1.7 }}>{data.subtitle}</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end', flexShrink: 0 }}>
+            <LayoutCustomizeButton editing={editing} onToggle={() => setEditing(prev => !prev)} />
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                background: '#F9FAFB',
+                border: '1px solid var(--color-border)',
+                minWidth: 280,
+              }}
+            >
+              <div style={{ fontSize: 'var(--fs-12)', fontWeight: 700, color: 'var(--color-brand)', marginBottom: 6 }}>AI 呈现规范</div>
+              <div style={{ fontSize: 'var(--fs-12)', color: '#667085', lineHeight: 1.7 }}>
+                AI 仅提供参考，所有动作都需要人工确认；AI 不会自动改变任何单据状态。
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* 备案异常分析区块：专员异常备案卡下钻定位 */}
-      <div ref={filingRef} style={{ scrollMarginTop: 8 }}>
-        <RepFilingAnalysisPanel />
-      </div>
-
-      {/* 底部分析区：四对象分布 + 重点对象 */}
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
-        {data.distribution && <StatListPanel title={data.distribution.title} items={data.distribution.items} />}
-        {data.spotlight && <StatListPanel title={data.spotlight.title} items={data.spotlight.items} />}
-      </section>
+      <SectionBoard
+        sections={sections}
+        order={layout.order}
+        hidden={layout.hidden}
+        toggleVisible={layout.toggleVisible}
+        moveSection={layout.moveSection}
+        setSize={layout.setSize}
+        sizes={layout.sizes}
+        specs={PROVIDER_SIZE_SPECS}
+        editing={editing}
+        onExitEdit={exitEdit}
+        gap={16}
+        rowHeight={72}
+      />
     </div>
   );
 }
@@ -1693,173 +2406,9 @@ export function Dashboard({
   role: Role;
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
 }) {
-  const data = useMemo(() => getRoleDashboardData(role), [role]);
-  const [dismissedInsights, setDismissedInsights] = useState<string[]>([]);
-  const [feedbacks, setFeedbacks] = useState<Record<string, 'valid' | 'false-positive'>>({});
-  const isSalesAdmin = role === '药厂销售部门';
-  const isComplianceAdmin = role === '药厂合规部门';
-  const visibleInsights = data.insights
-    .filter(item => !dismissedInsights.includes(item.id))
-    .sort((a, b) => insightOrder[a.severity] - insightOrder[b.severity]);
-  const promoteQuickActions = isSalesAdmin || isComplianceAdmin;
-  const hideTrend = isSalesAdmin || isComplianceAdmin;
-  const hideRecentOperations = isSalesAdmin || isComplianceAdmin;
-  const hideDistribution = isComplianceAdmin;
-  const prioritizeQueue = isSalesAdmin;
-
-  useEffect(() => {
-    setDismissedInsights([]);
-    setFeedbacks({});
-  }, [role, data.insights]);
-
-  if (isComplianceAdmin) {
-    return (
-      <ComplianceAdminDashboard
-        data={data}
-        navigate={navigate}
-        insights={visibleInsights}
-        feedbacks={feedbacks}
-        onDismissInsight={id => setDismissedInsights(prev => [...prev, id])}
-        onInsightFeedback={(id, feedback) => setFeedbacks(prev => ({ ...prev, [id]: feedback }))}
-      />
-    );
+  void addToast;
+  if (role === '服务提供商') {
+    return <ProviderWorkbenchDashboard navigate={navigate} />;
   }
-
-  if (isSalesAdmin && data.salesWorkbench) {
-    return <SalesWorkbenchDashboard key={role} workbench={data.salesWorkbench} navigate={navigate} />;
-  }
-
-  return (
-    <div style={{ padding: 24, maxWidth: 1480 }}>
-      <section
-        style={{
-          ...sectionCardStyle(),
-          padding: 20,
-          marginBottom: 16,
-          background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FBFA 100%)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-              <Tag label={data.role} color="brand" />
-            </div>
-            <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
-            <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-14)', color: '#667085', lineHeight: 1.7 }}>{data.subtitle}</p>
-          </div>
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 12,
-              background: '#F9FAFB',
-              border: '1px solid var(--color-border)',
-              minWidth: 280,
-            }}
-          >
-            <div style={{ fontSize: 'var(--fs-12)', fontWeight: 700, color: 'var(--color-brand)', marginBottom: 6 }}>AI 呈现规范</div>
-            <div style={{ fontSize: 'var(--fs-12)', color: '#667085', lineHeight: 1.7 }}>
-              AI 仅提供参考，所有动作都需要人工确认；AI 不会自动改变任何单据状态。
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {data.taskList && (
-        <div style={{ marginBottom: 16 }}>
-          <TaskListPanel items={data.taskList} navigate={navigate} />
-        </div>
-      )}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: data.metrics.length >= 6 ? 'repeat(4, minmax(0, 1fr))' : `repeat(${Math.min(data.metrics.length, 5)}, minmax(0, 1fr))`,
-          gap: 16,
-          marginBottom: 16,
-        }}
-      >
-        {data.metrics.map(metric => {
-          const Icon = getMetricIcon(metric);
-          return (
-            <MetricCard
-              key={metric.id}
-              title={metric.title}
-              value={metric.value}
-              unit={metric.unit}
-              delta={metric.delta}
-              deltaLabel={metric.deltaLabel}
-              subtitle={metric.subtitle}
-              icon={Icon}
-              iconColor={metric.iconColor}
-              iconBg={metric.iconBg}
-              urgency={metric.urgency}
-              onClick={() => navigate(metric.target)}
-            />
-          );
-        })}
-      </div>
-
-      {promoteQuickActions && (
-        <div style={{ marginBottom: 16 }}>
-          <QuickActionsPanel items={data.quickActions} navigate={navigate} />
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 16, alignItems: 'start' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {prioritizeQueue && <QueueTable items={data.queue} navigate={navigate} />}
-
-          {visibleInsights.length > 0 && (
-            <section>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>AI 洞察</h2>
-                  <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700 }}>
-                    {visibleInsights.length} 条
-                  </span>
-                </div>
-                <span style={{ fontSize: 'var(--fs-12)', color: '#98A2B3' }}>每条均含结论 / 依据 / 数据范围 / 置信度 / 建议动作 / 人工确认</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {visibleInsights.map(insight => (
-                  <AIInsightCard
-                    key={insight.id}
-                          {...insight}
-                          feedback={feedbacks[insight.id]}
-                          onAction={() => navigate(insight.target)}
-                          onDismiss={id => setDismissedInsights(prev => [...prev, id])}
-                          onFeedback={(id, feedback) => setFeedbacks(prev => ({ ...prev, [id]: feedback }))}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {!hideTrend && <TrendPanel data={data.trend} />}
-
-          {data.comparisonTable && <ComparisonTablePanel data={data.comparisonTable} />}
-
-          {!prioritizeQueue && <QueueTable items={data.queue} navigate={navigate} />}
-
-          {!promoteQuickActions && <QuickActionsPanel items={data.quickActions} navigate={navigate} />}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {!hideRecentOperations && <RecentOperationsPanel items={data.recentOperations} navigate={navigate} />}
-          {data.ranking && <StatListPanel title={data.ranking.title} items={data.ranking.items} />}
-          {!hideDistribution && data.distribution && <StatListPanel title={data.distribution.title} items={data.distribution.items} />}
-          {data.spotlight && <StatListPanel title={data.spotlight.title} items={data.spotlight.items} />}
-          <div style={{ ...sectionCardStyle({ background: '#F9FAFB' }) }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-12)', fontWeight: 700, color: '#667085', marginBottom: 8 }}>
-              <TrendingUp size={14} />
-              审计提示
-            </div>
-            <div style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>
-              最近操作保留审计视角，消息待办保留行动视角，两者分开呈现，避免“发生了什么”和“接下来做什么”混在一起。
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <PharmaWorkbenchDashboard navigate={navigate} />;
 }

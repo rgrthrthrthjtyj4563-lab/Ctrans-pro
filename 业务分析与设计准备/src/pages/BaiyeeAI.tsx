@@ -6,7 +6,7 @@ type Intent = 'timed' | 'budget' | 'approval' | 'provider' | 'unknown';
 type Phase = 'running' | 'awaiting' | 'done' | 'cancelled';
 type Fields = { k: string; v: string }[];
 interface Step { title: string; summary: string; sandbox?: boolean; rows: Fields; notes?: string[]; }
-interface Query { title: string; conclusion: string; fields: Fields; anomalies?: string[]; range: string; period: string; action?: string; page?: 'analytics' | 'task-dispatch' | 'inspection'; }
+interface Query { title: string; conclusion: string; fields: Fields; anomalies?: string[]; range: string; period: string; action?: string; page?: 'analytics' | 'task-dispatch'; }
 interface Result { tone: 'success' | 'neutral'; title: string; fields: Fields; canUndo?: boolean; }
 interface Message { id: string; role: 'user' | 'ai'; kind: 'text' | 'process' | 'query' | 'result'; text?: string; query?: Query; result?: Result; attachments?: Attachment[]; }
 interface Attachment { id: string; name: string; size: number; mime: string; url: string; }
@@ -57,7 +57,7 @@ function intentOf(value: string): Intent { const t = value.replace(/\s/g, ''); i
 function stamp() { const d = new Date(), p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
 function queryFor(intent: Intent): Query | undefined {
   if (intent === 'budget') return { title: '本月预算执行', conclusion: '8 月预算执行偏慢，智联科技单月计划偏高、实际结算尚未跟上；整体无超支，但进度落后时间进度约 12 个百分点。', fields: [{ k: '月度预算合计', v: '￥148,000' }, { k: '已结算实际', v: '￥96,200' }, { k: '执行率', v: '65%（时间进度约 84%）' }, { k: '药厂', v: PHARMA }], anomalies: ['智联科技 8 月预算 ￥80,000，已结算 ￥36,000，进度明显落后。', '康晟云服 11–12 月未排预算，不影响本月，但四季度计划不完整。'], range: RANGE, period: PERIOD, action: '查看预算执行分析', page: 'analytics' };
-  if (intent === 'approval') return { title: '本周合规审批积压', conclusion: '积压主要来自证据链 AI 存疑与代表备案待核验，集中在合规复审环节，不是任务创建量突增。', fields: [{ k: '待处理审批', v: '23 条' }, { k: '证据链 AI 存疑', v: '11 条' }, { k: '代表备案待核验', v: '7 条' }, { k: '超区域授权待核', v: '5 条' }, { k: '涉及环节', v: '证据链复审、医药代表备案' }, { k: '建议动作', v: '优先关闭 11 条存疑证据；对 7 条备案发起催核' }], range: RANGE, period: '统计周期 2026-08-20 至 2026-08-26', action: '打开随检 / 证据链工作台', page: 'inspection' };
+  if (intent === 'approval') return { title: '本周合规审批积压', conclusion: '积压主要来自拜访审核与代表备案待核验，集中在合规审核环节，不是任务创建量突增。', fields: [{ k: '待处理审批', v: '23 条' }, { k: '拜访待审核', v: '22 条' }, { k: '代表备案待核验', v: '7 条' }, { k: '超区域授权待核', v: '5 条' }, { k: '涉及环节', v: '拜访审核、医药代表备案' }, { k: '建议动作', v: '优先处理 22 条待审核拜访；对 7 条备案发起催核' }], range: RANGE, period: '统计周期 2026-08-20 至 2026-08-26' };
   if (intent === 'provider') return { title: '服务商拜访完成率与逾期', conclusion: '华东口径下逾期任务最多的是东方恒业推广有限公司（9 条），完成率 74%；智联科技完成率更高但逾期 6 条。', fields: [{ k: '东方恒业推广有限公司', v: '完成率 74% · 逾期 9 条 · 奥美拉唑 / 氨氯地平' }, { k: '智联科技有限公司', v: '完成率 81% · 逾期 6 条 · 阿托伐他汀 / 二甲双胍' }, { k: '永泰汇通推广有限公司', v: '完成率 69% · 逾期 5 条 · 瑞舒伐他汀' }, { k: '康晟云服科技有限公司', v: '完成率 88% · 逾期 3 条 · 二甲双胍' }], range: '数据范围：华东演示口径（江苏 / 浙江 / 广东）· 百益健康下属服务商', period: PERIOD, action: '查看任务明细', page: 'task-dispatch' };
 }
 function isNarrowViewport() {

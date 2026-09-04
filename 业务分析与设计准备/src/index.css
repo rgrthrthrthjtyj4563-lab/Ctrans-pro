@@ -209,9 +209,25 @@ body {
   to { opacity: 1; }
 }
 
+/* 任务列表：待审核报告行动态提示（落在记录行上） */
+@keyframes reportPendingPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.28); opacity: 0.55; }
+}
+
+.report-pending-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #C73A3A;
+  animation: reportPendingPulse 1.6s ease-in-out infinite;
+  cursor: help;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .demo-scene-enter,
-  .demo-scene-overlay {
+  .demo-scene-overlay,
+  .report-pending-icon {
     animation: none !important;
     transition: none !important;
   }

@@ -1,3 +1,4 @@
+import { isValidElement, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SearchX } from 'lucide-react';
 import { Button } from './Button';
@@ -5,8 +6,9 @@ import { Button } from './Button';
 interface EmptyStateProps {
   icon?: LucideIcon;
   title: string;
-  description: string;
-  action?: { label: string; onClick: () => void };
+  description?: string;
+  /** 自定义动作区：可直接传节点，或传 { label, onClick } 由默认按钮渲染 */
+  action?: ReactNode | { label: string; onClick: () => void };
   hint?: string;
 }
 
@@ -50,7 +52,9 @@ export function EmptyState({ icon: Icon = SearchX, title, description, action, h
         </div>
       )}
       {action && (
-        <Button variant="primary" size="md" onClick={action.onClick}>{action.label}</Button>
+        isValidElement(action)
+          ? action
+          : <Button variant="primary" size="md" onClick={(action as { onClick: () => void }).onClick}>{(action as { label: string }).label}</Button>
       )}
     </div>
   );

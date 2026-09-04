@@ -1,810 +1,1056 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
-  ShieldCheck, Snowflake, ClipboardCheck, FileSearch, RefreshCw, Plus, BadgeCheck, Ban,
+  BadgeCheck,
+  Ban,
+  ClipboardCheck,
+  Eye,
+  FileText,
+  Folder,
+  Trash2,
+  Upload,
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { StatusTag } from '../components/StatusTag';
-import { Pagination } from '../components/Pagination';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { MetricCard } from '../components/MetricCard';
 import { FieldGroup, FieldItem } from '../components/DetailDrawer';
-import { formatCNY, REGION_OPTIONS } from '../constants';
 import type { ToastMessage } from '../components/Toast';
-import type {
-  EligibilityResult,
-  Role,
-  SelectionRecord,
-  Vendor,
-  VendorCreditCompliance,
-  VendorRiskGrade,
-  VendorStatus,
-} from '../types';
+import type { Role, VendorAccessHistory, VendorAccessRecord } from '../types';
 import {
-  DEMO_VENDOR_ID,
-  SERVICE_TYPES,
-  actorOf,
-  allocAccessNo,
-  allocLogId,
-  allocSelId,
-  allocVendorId,
-  canFinalApprove,
-  checkSettlementEligibility,
-  checkVendorEligibility,
-  emptyVendor,
-  maskAccount,
-  maskMobile,
-  seedRepresentatives,
-  seedVendors,
-  vendorNameOf,
-} from '../data/complianceData';
-import { Field, InfoBanner, Stepper, Tabs, EligibilityPanel, inputStyle, tdStyle, thStyle, nowText, today } from './complianceUi';
+  emptyVendorAccessInput,
+  useVendorAccess,
+  type VendorAccessInput,
+} from '../context/VendorAccessContext';
+import { Field, inputStyle, tdStyle, thStyle } from './complianceUi';
+
+/**
+ * 服务商准入 · 双角色最小闭环
+ * 服务商：维护本企业资料 → 提交 → 被驳回后修改重提
+ * 药厂合规：审核列表 → 通过 / 驳回（原因必填）
+ * 药厂销售：不参与本模块（菜单与页面权限均已收敛）。
+ */
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
   currentRole: Role;
+  /** main=我的准入资料/审核列表；records=服务商提交记录 */
+  view?: 'main' | 'records';
 }
 
-const PAGE_SIZE = 8;
-const VENDOR_STATUSES: VendorStatus[] = [
-  '草稿', '待提交', '尽调中', '审批中', '补件中', '驳回', '准入通过', '可合作', '复审中', '限制合作', '冻结', '退出',
-];
-type DetailTab = '主体' | '信用' | '选聘' | '尽调' | '合同' | '人员' | '履约' | '审计';
+const mono = "'JetBrains Mono', monospace";
 
-export function VendorAccessManage({ addToast, currentRole }: Props) {
-  const actor = actorOf(currentRole);
-  const isCompliance = currentRole === '药厂合规部门';
-  const isSales = currentRole === '药厂销售部门';
-  const isVendor = currentRole === '服务提供商';
-  const canWrite = isSales || isVendor;
-  const canApprove = isCompliance;
-  const canSeeAccount = isCompliance;
+/** 准入材料清单：营业执照必传（落 businessLicenseFile），其余为选传附件 */
+const ATTACHMENT_DEFS = [
+  {
+    key: 'license',
+    name: '营业执照（副本）',
+    required: true,
+    requirement: '彩色扫描件，PDF / JPG / PNG，不超过 5MB，须清晰可辨统一社会信用代码',
+  },
+  {
+    key: 'qualification',
+    name: '资质或荣誉材料',
+    required: false,
+    requirement: 'PDF / JPG / PNG，如有可提供，有助于合规审核',
+  },
+  {
+    key: 'supplement',
+    name: '补充说明文件',
+    required: false,
+    requirement: '其他需要说明的材料，PDF / DOCX',
+  },
+] as const;
 
-  const [rows, setRows] = useState<Vendor[]>(() => seedVendors.map((v) => ({ ...v })));
-  const [reps] = useState(() => seedRepresentatives.map((r) => ({ ...r })));
-  const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState<Record<string, string>>({});
-  const [applied, setApplied] = useState<Record<string, string>>({});
+type AttachmentKey = (typeof ATTACHMENT_DEFS)[number]['key'];
 
-  const [detail, setDetail] = useState<Vendor | null>(null);
-  const [detailTab, setDetailTab] = useState<DetailTab>('主体');
+function attachmentFileOf(
+  source: { businessLicenseFile?: string; attachments?: { qualification?: string; supplement?: string } },
+  key: AttachmentKey,
+): string {
+  if (key === 'license') return source.businessLicenseFile ?? '';
+  return source.attachments?.[key] ?? '';
+}
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [formStep, setFormStep] = useState(0);
-  const [form, setForm] = useState(emptyVendor());
+export function VendorAccessManage({ addToast, currentRole, view = 'main' }: Props) {
+  const store = useVendorAccess();
+
+  if (currentRole === '药厂销售部门') {
+    return (
+      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <EmptyState
+          icon={Ban}
+          title="无权访问"
+          description="服务商准入模块仅对服务商与药厂合规部门开放，当前角色未开通该页面权限。"
+        />
+      </div>
+    );
+  }
+
+  if (currentRole === '药厂合规部门') {
+    return <ComplianceReview addToast={addToast} records={store.records} approve={store.approve} reject={store.reject} />;
+  }
+
+  if (view === 'records') {
+    return <VendorRecords myRecord={store.myRecord} />;
+  }
+
+  return (
+    <VendorMyAccess
+      addToast={addToast}
+      myRecord={store.myRecord}
+      saveDraft={store.saveDraft}
+      submit={store.submit}
+      deleteDraft={store.deleteDraft}
+    />
+  );
+}
+
+type DraftOp = (input: VendorAccessInput) => { ok: boolean; error?: string };
+
+// ─── 服务商端：我的准入资料 ───────────────────────────────────────────────────
+
+function VendorMyAccess({
+  addToast,
+  myRecord,
+  saveDraft,
+  submit,
+  deleteDraft,
+}: {
+  addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+  myRecord?: VendorAccessRecord;
+  saveDraft: DraftOp;
+  submit: DraftOp;
+  deleteDraft: () => { ok: boolean; error?: string };
+}) {
+  const status = myRecord?.status;
+  const fromRejected = status === '已驳回';
+  const [editing, setEditing] = useState(status === undefined || status === '草稿');
+  const [form, setForm] = useState<VendorAccessInput>(() => recordToInput(myRecord));
   const [formError, setFormError] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [rejectOpen, setRejectOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [freezeOpen, setFreezeOpen] = useState(false);
-  const [freezeReason, setFreezeReason] = useState('');
-  const [exitOpen, setExitOpen] = useState(false);
-  const [exitReason, setExitReason] = useState('');
-  const [exceptionOpen, setExceptionOpen] = useState(false);
-  const [exception, setException] = useState({ reason: '', until: '', supervision: '' });
-
-  const [checkOpen, setCheckOpen] = useState(false);
-  const [checkKind, setCheckKind] = useState<'project' | 'settlement'>('project');
-  const [checkMode, setCheckMode] = useState<'新增' | '存量'>('新增');
-  const [checkInput, setCheckInput] = useState({ serviceType: '学术推广', region: '陕西', date: today(), amount: 80000, projectId: '', assignedRepIds: '' as string, payeeName: '', payeeNo: '' });
-  const [checkResult, setCheckResult] = useState<EligibilityResult | null>(null);
-
-  const [creditForm, setCreditForm] = useState<VendorCreditCompliance | null>(null);
-  const [selOpen, setSelOpen] = useState(false);
-  const [selForm, setSelForm] = useState({ method: '比价' as SelectionRecord['method'], processNote: '', awardReason: '', exceptionReason: '', evidence: '选聘记录.pdf' });
-
-  const scoped = useMemo(() => (isVendor ? rows.filter((v) => v.id === DEMO_VENDOR_ID) : rows), [rows, isVendor]);
-
-  const filtered = useMemo(() => scoped.filter((v) => {
-    if (applied.name && !v.name.includes(applied.name) && !v.creditCode.includes(applied.name)) return false;
-    if (applied.status && v.status !== applied.status) return false;
-    if (applied.risk && v.riskGrade !== applied.risk) return false;
-    if (applied.service && !v.serviceTypes.includes(applied.service)) return false;
-    return true;
-  }), [scoped, applied]);
-
-  const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  const stats = useMemo(() => ({
-    coop: scoped.filter((v) => v.status === '可合作').length,
-    dd: scoped.filter((v) => ['尽调中', '审批中', '补件中'].includes(v.status)).length,
-    frozen: scoped.filter((v) => ['冻结', '限制合作'].includes(v.status)).length,
-    review: scoped.filter((v) => v.status === '复审中').length,
-    high: scoped.filter((v) => v.riskGrade === '高风险').length,
-  }), [scoped]);
-
-  function patch(id: string, updater: (v: Vendor) => Vendor) {
-    setRows((prev) => prev.map((v) => (v.id === id ? updater(v) : v)));
-    setDetail((d) => (d && d.id === id ? updater(d) : d));
-  }
-
-  function pushLog(cur: Vendor, action: string, comment?: string, extra?: { before?: string; after?: string }) {
-    return [{
-      id: allocLogId(rows.flatMap((v) => v.timeline.map((t) => t.id))),
-      time: nowText(),
-      operator: actor.name,
-      operatorId: actor.id,
-      role: currentRole,
-      action,
-      comment,
-      ...extra,
-    }, ...cur.timeline];
-  }
-
-  function setF<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+  function setF<K extends keyof VendorAccessInput>(key: K, value: VendorAccessInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function creditReady(c: VendorCreditCompliance | null): boolean {
-    if (!c) return false;
-    if (!c.antiBriberyPledgeFile || !c.antiBriberyPledgeDate) return false;
-    if (c.illegalCheck === '待核验' || c.dishonestCheck === '待核验') return false;
-    if (c.illegalCheck === '未通过' || c.lawsuitRisk === '有-未披露') return false;
-    return true;
+  function setAttachment(key: AttachmentKey, fileName: string | undefined) {
+    setForm((f) =>
+      key === 'license'
+        ? { ...f, businessLicenseFile: fileName ?? '' }
+        : { ...f, attachments: { ...f.attachments, [key]: fileName } },
+    );
   }
 
-  function selectionReady(v: { selectionRecords: SelectionRecord[] }): boolean {
-    if (v.selectionRecords.length === 0) return false;
-    return v.selectionRecords.some((s) => s.method !== '例外' || !!s.exceptionReason);
-  }
-
-  function missingAccess(f: typeof form): string[] {
-    const miss: string[] = [];
-    if (!f.name || !f.creditCode || !f.legalRep || !f.address) miss.push('主体信息');
-    if (!f.actualController) miss.push('实际控制人');
-    if (!f.shareholding) miss.push('股权结构');
-    if (!f.principalName) miss.push('负责人');
-    if (!f.bankName || !f.bankAccount) miss.push('财税结算');
-    if (!f.contact) miss.push('合规联系人');
-    if (!creditReady(f.creditCompliance)) miss.push('合规信用');
-    if (!selectionReady(f)) miss.push('至少一条选聘记录或例外审批');
-    return miss;
-  }
-
-  function openCreate() {
-    setEditingId(null);
-    setForm({ ...emptyVendor(), initiatorId: actor.id, initiatorName: actor.name });
-    setFormStep(0);
+  function runOp(op: DraftOp, successTitle: string, successDesc?: string) {
+    const res = op({ ...form });
+    if (!res.ok) {
+      setFormError(res.error ?? '操作失败');
+      addToast({ type: 'error', title: res.error ?? '操作失败' });
+      return;
+    }
     setFormError('');
-    setFormOpen(true);
+    addToast({ type: 'success', title: successTitle, description: successDesc });
+    setEditing(false);
   }
 
-  function openEdit(v: Vendor) {
-    const { id: _id, ...rest } = v;
-    setEditingId(v.id);
-    setForm(rest);
-    setFormStep(0);
+  function startEdit() {
+    setForm(recordToInput(myRecord));
     setFormError('');
-    setFormOpen(true);
+    setEditing(true);
   }
-
-  function saveForm(asSubmit: boolean) {
-    if (asSubmit) {
-      const miss = missingAccess(form);
-      if (miss.length) {
-        setFormError(`提交引入申请前仍缺：${miss.join('、')}`);
-        return;
-      }
-    }
-    const dup = rows.find((v) => v.creditCode && v.creditCode === form.creditCode && v.id !== editingId);
-    if (form.creditCode && dup) {
-      setFormError(`统一社会信用代码唯一，已存在于 ${dup.id}`);
-      return;
-    }
-    const status: VendorStatus = asSubmit ? '尽调中' : '草稿';
-    if (editingId) {
-      patch(editingId, (v) => ({
-        ...v, ...form,
-        status: asSubmit ? '尽调中' : v.status === '草稿' ? '草稿' : v.status,
-        timeline: pushLog(v, asSubmit ? '提交' : '修改', undefined, { before: v.status, after: asSubmit ? '尽调中' : v.status }),
-      }));
-    } else {
-      const created: Vendor = {
-        id: allocVendorId(rows),
-        ...form,
-        status,
-        timeline: [{ id: allocLogId(rows.flatMap((v) => v.timeline.map((t) => t.id))), time: nowText(), operator: actor.name, operatorId: actor.id, role: currentRole, action: asSubmit ? '提交' : '创建', after: status }],
-      };
-      setRows((prev) => [created, ...prev]);
-    }
-    addToast({ type: 'success', title: asSubmit ? '已提交服务商引入，进入尽调' : '已保存草稿' });
-    setFormOpen(false);
-  }
-
-  function approvalChain(grade: VendorRiskGrade): string {
-    if (grade === '低风险') return '业务负责人 → 采购 → 合规';
-    if (grade === '中风险') return '业务负责人 → 采购 → 法务 → 合规';
-    return '业务负责人 → 采购 → 法务 → 合规负责人 → 管理层（高风险例外）';
-  }
-
-  function startApproval(v: Vendor) {
-    if (v.missingDocs.length) {
-      addToast({ type: 'warning', title: '存在缺件，不能进入准入审批', description: v.missingDocs.join('、') });
-      return;
-    }
-    patch(v.id, (cur) => ({
-      ...cur,
-      status: '审批中',
-      timeline: pushLog(cur, '尽调', `风险评级 ${cur.riskGrade}`, { before: cur.status, after: '审批中' }),
-    }));
-    addToast({ type: 'info', title: '尽调完成，已进入审批', description: approvalChain(v.riskGrade) });
-  }
-
-  function tryApproveAccess(v: Vendor) {
-    if (canFinalApprove(actor.id, v.initiatorId)) {
-      addToast({ type: 'error', title: '终审被拒绝', description: canFinalApprove(actor.id, v.initiatorId) || '' });
-      return;
-    }
-    if (!creditReady(v.creditCompliance) || !selectionReady(v)) {
-      addToast({ type: 'error', title: '不能准入通过', description: '须具备合规信用（核验通过）以及至少一条选聘记录或例外审批' });
-      return;
-    }
-    if (v.riskGrade === '高风险' && (!v.exceptionReason || !v.exceptionUntil || !v.enhancedSupervision)) {
-      setException({ reason: v.exceptionReason || '', until: v.exceptionUntil || '', supervision: v.enhancedSupervision || '' });
-      setExceptionOpen(true);
-      addToast({ type: 'warning', title: '高风险默认不准入', description: '请填写例外理由、期限、强化监督三项' });
-      return;
-    }
-    commitApprove(v, v);
-  }
-
-  function commitApprove(v: Vendor, extra: Partial<Vendor>) {
-    const y = new Date().getFullYear() + (v.riskGrade === '中风险' ? 0 : 1);
-    const valid = v.riskGrade === '中风险' ? `${y}-02-28` : `${y}-08-31`;
-    const accessNo = v.accessNo || allocAccessNo(rows.map((x) => x.accessNo).filter(Boolean));
-    patch(v.id, (cur) => ({
-      ...cur,
-      ...extra,
-      status: cur.contracts.some((c) => c.status === '已生效') ? '可合作' : '准入通过',
-      accessNo,
-      accessValidUntil: valid,
-      reviewDue: valid,
-      timeline: pushLog(cur, '准入', cur.contracts.some((c) => c.status === '已生效') ? '准入通过且合同已生效' : '准入通过，合同未生效前不得创建营销项目', { before: cur.status, after: cur.contracts.some((c) => c.status === '已生效') ? '可合作' : '准入通过' }),
-    }));
-    addToast({ type: 'success', title: v.contracts.some((c) => c.status === '已生效') ? '可合作' : '准入通过（待合同生效）' });
-    setExceptionOpen(false);
-  }
-
-  function activateContract(contractId: string) {
-    if (!detail) return;
-    patch(detail.id, (cur) => {
-      const contracts = cur.contracts.map((c) => c.id === contractId ? { ...c, status: '已生效' as const } : c);
-      return {
-        ...cur,
-        contracts,
-        status: cur.status === '准入通过' ? '可合作' : cur.status,
-        timeline: pushLog(cur, '准入', '合同生效，可分配项目', { before: cur.status, after: cur.status === '准入通过' ? '可合作' : cur.status }),
-      };
-    });
-    addToast({ type: 'success', title: '合同已标记生效' });
-  }
-
-  function confirmReject() {
-    if (!detail || !rejectReason.trim()) return;
-    patch(detail.id, (cur) => ({ ...cur, status: '驳回', timeline: pushLog(cur, '审核驳回', rejectReason, { before: cur.status, after: '驳回' }) }));
-    addToast({ type: 'warning', title: '引入申请已驳回' });
-    setRejectOpen(false);
-  }
-
-  function confirmFreeze() {
-    if (!detail || !freezeReason.trim()) return;
-    if (detail.incidents.some((i) => i.status !== '已结案' && i.risk === '高') === false) {
-      /* freeze still allowed */
-    }
-    patch(detail.id, (cur) => ({ ...cur, status: '冻结', timeline: pushLog(cur, '冻结', freezeReason, { before: cur.status, after: '冻结', }) }));
-    addToast({ type: 'error', title: '服务商已冻结', description: '阻断新项目、代表分配和结算申请' });
-    setFreezeOpen(false);
-  }
-
-  function confirmExit() {
-    if (!detail || !exitReason.trim()) return;
-    patch(detail.id, (cur) => ({ ...cur, status: '退出', timeline: pushLog(cur, '退出', exitReason, { before: cur.status, after: '退出' }) }));
-    addToast({ type: 'info', title: '已退出合作' });
-    setExitOpen(false);
-  }
-
-  function startReview(v: Vendor) {
-    patch(v.id, (cur) => ({ ...cur, status: '复审中', timeline: pushLog(cur, '复审', '触发复审', { before: cur.status, after: '复审中' }) }));
-    addToast({ type: 'info', title: '已进入复审', description: '新增项目 BLOCK；存量结算 MANUAL_REVIEW' });
-  }
-
-  function passReview(v: Vendor) {
-    if (canFinalApprove(actor.id, v.initiatorId)) {
-      addToast({ type: 'error', title: '终审被拒绝', description: canFinalApprove(actor.id, v.initiatorId) || '' });
-      return;
-    }
-    patch(v.id, (cur) => ({ ...cur, status: '可合作', timeline: pushLog(cur, '复审', '复审通过', { before: cur.status, after: '可合作' }) }));
-    addToast({ type: 'success', title: '复审通过' });
-  }
-
-  function runCheck() {
-    if (!detail) return;
-    const latest = rows.find((r) => r.id === detail.id) ?? detail;
-    if (checkKind === 'project') {
-      const assigned = checkInput.assignedRepIds.split(/[,，\s]+/).filter(Boolean);
-      setCheckResult(checkVendorEligibility(latest, {
-        serviceType: checkInput.serviceType,
-        region: checkInput.region,
-        date: checkInput.date,
-        amount: checkInput.amount,
-        assignedRepIds: assigned.length ? assigned : latest.repIds,
-        mode: checkMode,
-      }, reps));
-    } else {
-      const project = latest.projects.find((p) => p.id === checkInput.projectId) ?? latest.projects[0];
-      const patched = project ? {
-        ...project,
-        payeeAccountName: checkInput.payeeName || project.payeeAccountName,
-        payeeAccountNo: checkInput.payeeNo || project.payeeAccountNo,
-      } : undefined;
-      setCheckResult(checkSettlementEligibility(latest, patched, reps));
-    }
-  }
-
-  function saveCredit() {
-    if (!detail || !creditForm) return;
-    patch(detail.id, (cur) => ({ ...cur, creditCompliance: creditForm, timeline: pushLog(cur, '修改', '更新合规信用') }));
-    addToast({ type: 'success', title: '合规信用已保存' });
-  }
-
-  function addSelection() {
-    if (!detail) return;
-    if (selForm.method === '例外' && !selForm.exceptionReason) {
-      addToast({ type: 'warning', title: '例外选聘必须填写理由' });
-      return;
-    }
-    const rec: SelectionRecord = {
-      id: allocSelId(rows.flatMap((v) => v.selectionRecords.map((s) => s.id))),
-      vendorId: detail.id,
-      demandNo: `XQ-2026-${detail.id.slice(-3)}`,
-      method: selForm.method,
-      processNote: selForm.processNote,
-      awardReason: selForm.awardReason,
-      exceptionReason: selForm.exceptionReason,
-      evidenceFiles: [selForm.evidence],
-      createdAt: nowText(),
-    };
-    patch(detail.id, (cur) => ({ ...cur, selectionRecords: [rec, ...cur.selectionRecords], timeline: pushLog(cur, '修改', `新增选聘 ${rec.id}`) }));
-    addToast({ type: 'success', title: '选聘记录已添加' });
-    setSelOpen(false);
-  }
-
-  const filterFields = [
-    { id: 'name', label: '服务商 / 信用代码', type: 'text' as const, placeholder: '名称或统一社会信用代码' },
-    { id: 'status', label: '主状态', type: 'select' as const, options: VENDOR_STATUSES.map((s) => ({ value: s, label: s })) },
-    { id: 'risk', label: '风险等级', type: 'select' as const, options: ['低风险', '中风险', '高风险'].map((s) => ({ value: s, label: s })) },
-    { id: 'service', label: '服务类型', type: 'select' as const, options: SERVICE_TYPES.map((s) => ({ value: s, label: s })) },
-  ];
-
-  const current = detail ? (rows.find((v) => v.id === detail.id) ?? detail) : null;
-  const cap = (v: Vendor) => ({ project: v.status === '可合作', settle: v.status === '可合作' });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
-        title="服务商准入管理"
-        description="尽职调查、风险评级、准入审批、合同履约与结算前置校验。未准入、复审失效或冻结的服务商不可承接项目和结算。"
-        dataRange={isVendor ? vendorNameOf(rows, DEMO_VENDOR_ID) : '本企业全部服务商'}
-        actions={canWrite ? <Button variant="primary" size="md" icon={<Plus size={14} />} onClick={openCreate}>引入服务商</Button> : undefined}
+        title="服务商准入"
+        description="请填写企业基本资料并提交药厂合规审核。"
+        dataRange={myRecord?.vendorName ?? '本企业'}
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        <InfoBanner>当前操作人 {actor.name}（{actor.id}）。高风险须例外三要素。复审中：新增项目 BLOCK，存量结算 MANUAL_REVIEW。</InfoBanner>
+        {!myRecord && !editing && (
+          <EmptyState
+            icon={FileText}
+            title="完成服务商准入后即可承接合作"
+            description="请提交企业基本资料和营业执照，药厂合规部门审核通过后完成准入。"
+            action={{ label: '填写并提交资料', onClick: () => { setForm(emptyVendorAccessInput()); setEditing(true); } }}
+          />
+        )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 12 }}>
-          <MetricCard compact title="可合作" value={stats.coop} icon={BadgeCheck} />
-          <MetricCard compact title="尽调 / 审批中" value={stats.dd} icon={ClipboardCheck} iconColor="#C77A16" iconBg="#FEF3E2" urgency={stats.dd ? 'warning' : 'normal'} />
-          <MetricCard compact title="复审中" value={stats.review} icon={FileSearch} iconColor="#C77A16" iconBg="#FEF3E2" />
-          <MetricCard compact title="冻结 / 限制" value={stats.frozen} icon={Snowflake} iconColor="#C73A3A" iconBg="#FEECEC" urgency={stats.frozen ? 'danger' : 'normal'} />
-          <MetricCard compact title="高风险主体" value={stats.high} icon={ShieldCheck} iconColor="#C73A3A" iconBg="#FEECEC" />
+        {!myRecord && editing && (
+          <EditPanel
+            form={form}
+            formError={formError}
+            onChange={setF}
+            onSetAttachment={setAttachment}
+            secondary={(
+              <>
+                <Button variant="secondary" onClick={() => runOp(saveDraft, '已保存草稿', '资料仅本企业可见，可继续补充后提交。')}>保存草稿</Button>
+                <Button variant="primary" onClick={() => runOp(submit, '已提交审核', '请等待药厂合规部门审核。')}>提交审核</Button>
+              </>
+            )}
+          />
+        )}
+
+        {myRecord && editing && (
+          <EditPanel
+            form={form}
+            formError={formError}
+            rejectionReason={fromRejected ? myRecord.rejectionReason : undefined}
+            onChange={setF}
+            onSetAttachment={setAttachment}
+            secondary={fromRejected ? (
+              <>
+                <Button variant="outline" onClick={() => { setEditing(false); setFormError(''); }}>取消</Button>
+                <Button variant="primary" onClick={() => runOp(submit, '资料已重新提交审核', '此前的驳回记录已保留在提交记录中。')}>提交审核</Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" style={{ color: '#C73A3A' }} onClick={() => {
+                  const res = deleteDraft();
+                  if (res.ok) {
+                    addToast({ type: 'info', title: '草稿已删除' });
+                    setForm(emptyVendorAccessInput());
+                    setFormError('');
+                    setEditing(false);
+                  } else {
+                    addToast({ type: 'error', title: res.error ?? '操作失败' });
+                  }
+                }}>删除草稿</Button>
+                <Button variant="secondary" onClick={() => runOp(saveDraft, '已保存草稿', '资料仅本企业可见，可继续补充后提交。')}>保存草稿</Button>
+                <Button variant="primary" onClick={() => runOp(submit, '已提交审核', '请等待药厂合规部门审核。')}>提交审核</Button>
+              </>
+            )}
+          />
+        )}
+
+        {myRecord && !editing && <ReadonlyAccessPanel record={myRecord} onResubmit={startEdit} />}
+      </div>
+    </div>
+  );
+}
+
+function recordToInput(record?: VendorAccessRecord): VendorAccessInput {
+  if (!record) return emptyVendorAccessInput();
+  return {
+    vendorName: record.vendorName,
+    creditCode: record.creditCode,
+    legalRep: record.legalRep,
+    address: record.address,
+    contactName: record.contactName,
+    contactMobile: record.contactMobile,
+    businessLicenseFile: record.businessLicenseFile,
+    attachments: { ...record.attachments },
+  };
+}
+
+function EditPanel({
+  form,
+  formError,
+  rejectionReason,
+  onChange,
+  onSetAttachment,
+  secondary,
+}: {
+  form: VendorAccessInput;
+  formError: string;
+  rejectionReason?: string;
+  onChange: <K extends keyof VendorAccessInput>(key: K, value: VendorAccessInput[K]) => void;
+  onSetAttachment: (key: AttachmentKey, fileName: string | undefined) => void;
+  secondary: ReactNode;
+}) {
+  const [uploadFor, setUploadFor] = useState<AttachmentKey | null>(null);
+  const [uploadName, setUploadName] = useState('');
+  const [uploadError, setUploadError] = useState('');
+
+  function openUpload(key: AttachmentKey) {
+    setUploadFor(key);
+    setUploadName(attachmentFileOf(form, key));
+    setUploadError('');
+  }
+
+  function confirmUpload() {
+    const name = uploadName.trim();
+    if (!name) {
+      setUploadError('请填写附件文件名');
+      return;
+    }
+    if (uploadFor) onSetAttachment(uploadFor, name);
+    setUploadFor(null);
+  }
+
+  const uploadedCount = ATTACHMENT_DEFS.filter((d) => attachmentFileOf(form, d.key).trim()).length;
+  const uploadTarget = ATTACHMENT_DEFS.find((d) => d.key === uploadFor);
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 24, maxWidth: 880 }}>
+      {rejectionReason !== undefined && (
+        <div style={{ marginBottom: 16 }}>
+          <RejectionBanner text={rejectionReason} />
+        </div>
+      )}
+      {formError && (
+        <div style={{ padding: '10px 14px', marginBottom: 16, borderRadius: 8, background: '#FEECEC', border: '1px solid #F5C6C6', color: '#C73A3A', fontSize: 'var(--fs-13)', fontWeight: 600 }}>
+          {formError}
+        </div>
+      )}
+
+      <FieldGroup title="基本资料">
+        <Field label="公司名称" required>
+          <input value={form.vendorName} onChange={(e) => onChange('vendorName', e.target.value)} style={inputStyle} />
+        </Field>
+        <Field label="统一社会信用代码" required>
+          <input value={form.creditCode} onChange={(e) => onChange('creditCode', e.target.value)} style={{ ...inputStyle, fontFamily: mono }} />
+        </Field>
+        <Field label="法定代表人" required>
+          <input value={form.legalRep} onChange={(e) => onChange('legalRep', e.target.value)} style={inputStyle} />
+        </Field>
+        <Field label="注册地址" required>
+          <input value={form.address} onChange={(e) => onChange('address', e.target.value)} style={inputStyle} />
+        </Field>
+      </FieldGroup>
+
+      <FieldGroup title="联系方式">
+        <Field label="联系人姓名" required>
+          <input value={form.contactName} onChange={(e) => onChange('contactName', e.target.value)} style={inputStyle} />
+        </Field>
+        <Field label="联系电话" required>
+          <input value={form.contactMobile} onChange={(e) => onChange('contactMobile', e.target.value)} style={{ ...inputStyle, fontFamily: mono }} />
+        </Field>
+      </FieldGroup>
+
+      <FieldGroup title="证明材料">
+        <div style={{ gridColumn: '1 / -1' }}>
+          <div style={{ border: '1px dashed var(--color-border)', borderRadius: 8, background: '#FBFCFD', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F3F6FA', borderBottom: '1px solid var(--color-border)' }}>
+              <Folder size={15} style={{ color: 'var(--color-brand)' }} />
+              <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>准入材料清单</span>
+              <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>按以下要求上传附件</span>
+              <span style={{ marginLeft: 'auto', fontSize: 'var(--fs-12)', color: uploadedCount ? '#248A5A' : '#C77A16', fontWeight: 600 }}>
+                已传 {uploadedCount} / {ATTACHMENT_DEFS.length} 项（必传 1 项）
+              </span>
+            </div>
+            {ATTACHMENT_DEFS.map((def, idx) => {
+              const fileName = attachmentFileOf(form, def.key).trim();
+              return (
+                <div
+                  key={def.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '12px 14px',
+                    borderBottom: idx < ATTACHMENT_DEFS.length - 1 ? '1px solid #F3F4F6' : 'none',
+                  }}
+                >
+                  <FileText size={16} style={{ color: fileName ? '#248A5A' : '#C0C6CF', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>{def.name}</span>
+                      <span style={{
+                        fontSize: 'var(--fs-11)',
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: def.required ? '#FEECEC' : '#F3F4F6',
+                        color: def.required ? '#C73A3A' : '#667085',
+                        fontWeight: 600,
+                      }}>
+                        {def.required ? '必传' : '选传'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 3 }}>{def.requirement}</div>
+                    <div style={{ fontSize: 'var(--fs-12)', marginTop: 5, color: fileName ? '#248A5A' : '#C0C6CF' }}>
+                      {fileName ? `已上传：${fileName}` : '未上传'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                    {fileName && (
+                      <AttachmentPreviewButton
+                        fileName={fileName}
+                        kind={def.key === 'license' ? 'license' : 'generic'}
+                        data={form}
+                      />
+                    )}
+                    {fileName && !def.required && (
+                      <Button variant="ghost" size="sm" icon={<Trash2 size={13} />} style={{ color: '#C73A3A' }} onClick={() => onSetAttachment(def.key, undefined)}>删除</Button>
+                    )}
+                    <Button variant={fileName ? 'ghost' : 'primary'} size="sm" icon={<Upload size={13} />} onClick={() => openUpload(def.key)}>
+                      {fileName ? '重新上传' : '上传'}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </FieldGroup>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+        {secondary}
+      </div>
+
+      <Modal
+        open={!!uploadFor}
+        title={uploadTarget ? `上传 · ${uploadTarget.name}` : ''}
+        onClose={() => setUploadFor(null)}
+        width={480}
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => setUploadFor(null)}>取消</Button>
+            <Button variant="primary" icon={<Upload size={14} />} disabled={!uploadName.trim()} onClick={confirmUpload}>确认上传</Button>
+          </>
+        )}
+      >
+        {uploadTarget && (
+          <>
+            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: '#F9FAFB', fontSize: 'var(--fs-12)', color: '#667085' }}>
+              要求：{uploadTarget.requirement}
+            </div>
+            <Field label="附件文件名" required>
+              <input
+                value={uploadName}
+                onChange={(e) => { setUploadName(e.target.value); if (uploadError) setUploadError(''); }}
+                style={inputStyle}
+                placeholder="例如：智联科技有限公司-营业执照.pdf"
+              />
+            </Field>
+            {uploadError && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-12)', marginTop: 8 }}>{uploadError}</div>}
+            <div style={{ marginTop: 10, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>原型以文件名模拟上传，不做真实文件解析。</div>
+          </>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function RejectionBanner({ text }: { text: string }) {
+  return (
+    <div style={{ padding: '14px 16px', borderRadius: 8, background: '#FEECEC', border: '1px solid #F5C6C6' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <Ban size={15} style={{ color: '#C73A3A' }} />
+        <span style={{ fontSize: 'var(--fs-14)', fontWeight: 700, color: '#C73A3A' }}>已驳回</span>
+      </div>
+      <div style={{ fontSize: 'var(--fs-13)', color: '#C73A3A', lineHeight: 1.6 }}>
+        驳回原因：<strong>{text || '—'}</strong>
+      </div>
+    </div>
+  );
+}
+
+function ReadonlyAccessPanel({ record, onResubmit }: { record: VendorAccessRecord; onResubmit: () => void }) {
+  const status = record.status;
+
+  return (
+    <div style={{ maxWidth: 880 }}>
+      {status === '待提交' && (
+        <StatusBanner tone="info" tag="待提交">
+          <strong>待药厂合规审核</strong>：资料已于 {record.submittedAt} 提交，暂不可修改。下一步由药厂合规部门通过或驳回。
+        </StatusBanner>
+      )}
+      {status === '已驳回' && (
+        <div style={{ marginBottom: 16 }}>
+          <RejectionBanner text={record.rejectionReason ?? ''} />
+          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button variant="primary" onClick={onResubmit}>修改并重新提交</Button>
+          </div>
+        </div>
+      )}
+      {status === '已通过' && (
+        <StatusBanner tone="success" tag="已通过">
+          <strong>准入已通过</strong>：已于 {record.reviewedAt} 由 {record.reviewedBy} 审核通过。资料与历史均为只读。
+        </StatusBanner>
+      )}
+
+      {status !== '已驳回' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, margin: '16px 0' }}>
+          <MetricCard compact title="待提交" value={status === '待提交' ? 1 : 0} icon={ClipboardCheck} iconColor="#C77A16" iconBg="#FEF3E2" />
+          <MetricCard compact title="已通过" value={status === '已通过' ? 1 : 0} icon={BadgeCheck} iconColor="#248A5A" iconBg="#E6F5ED" />
+          <MetricCard compact title="已驳回" value={status === '已驳回' ? 1 : 0} icon={Ban} iconColor="#C73A3A" iconBg="#FEECEC" />
+        </div>
+      )}
+
+      <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 24 }}>
+        <FieldGroup title="基本资料">
+          <FieldItem label="公司名称" value={record.vendorName} />
+          <FieldItem label="统一社会信用代码" value={<span style={{ fontFamily: mono }}>{record.creditCode}</span>} />
+          <FieldItem label="法定代表人" value={record.legalRep} />
+          <FieldItem label="注册地址" value={record.address} span />
+        </FieldGroup>
+        <FieldGroup title="联系方式">
+          <FieldItem label="联系人姓名" value={record.contactName} />
+          <FieldItem label="联系电话" value={<span style={{ fontFamily: mono }}>{record.contactMobile}</span>} />
+        </FieldGroup>
+        <FieldGroup title="证明材料">
+          <div style={{ gridColumn: '1 / -1' }}>
+            <AttachmentReadonlyList record={record} />
+          </div>
+        </FieldGroup>
+        {status === '已通过' && (
+          <FieldGroup title="审核信息">
+            <FieldItem label="审核人" value={record.reviewedBy} />
+            <FieldItem label="审核时间" value={record.reviewedAt} />
+          </FieldGroup>
+        )}
+        {status === '已驳回' && (
+          <FieldGroup title="驳回信息">
+            <FieldItem label="审核人" value={record.reviewedBy} />
+            <FieldItem label="审核时间" value={record.reviewedAt} />
+            <FieldItem label="驳回原因" value={record.rejectionReason} span />
+          </FieldGroup>
+        )}
+
+        <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '8px 0 12px' }}>提交记录</div>
+        <HistoryTimeline history={record.history} />
+      </div>
+    </div>
+  );
+}
+
+function StatusBanner({ tone, tag, children }: { tone: 'info' | 'success'; tag: string; children: ReactNode }) {
+  const cfg = tone === 'success'
+    ? { bg: '#E6F5ED', border: '#C8E9D6', color: '#248A5A' }
+    : { bg: '#EBF2FE', border: '#C9DDF7', color: '#2F6BCE' };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 8, background: cfg.bg, border: `1px solid ${cfg.border}` }}>
+      <StatusTag status={tag} />
+      <span style={{ fontSize: 'var(--fs-13)', color: cfg.color, lineHeight: 1.6 }}>{children}</span>
+    </div>
+  );
+}
+
+// ─── 服务商端：提交记录 ───────────────────────────────────────────────────────
+
+interface SubmissionRow {
+  submittedAt: string;
+  outcome: '待审核' | '已通过' | '已驳回';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reason?: string;
+}
+
+function submissionRowsOf(record: VendorAccessRecord): SubmissionRow[] {
+  const rows: SubmissionRow[] = [];
+  for (const e of [...record.history].reverse()) {
+    if (e.action === '提交') {
+      rows.push({ submittedAt: e.time, outcome: '待审核' });
+    } else if (e.action === '通过' || e.action === '驳回') {
+      const open = [...rows].reverse().find((r) => r.outcome === '待审核');
+      if (open) {
+        open.outcome = e.action === '通过' ? '已通过' : '已驳回';
+        open.reviewedBy = e.operator;
+        open.reviewedAt = e.time;
+        open.reason = e.comment;
+      }
+    }
+  }
+  return rows.reverse();
+}
+
+function VendorRecords({ myRecord }: { myRecord?: VendorAccessRecord }) {
+  const rows = myRecord ? submissionRowsOf(myRecord) : [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <PageHeader
+        title="提交记录"
+        description="查看本企业准入资料的历次提交与审核结果。"
+        dataRange={myRecord?.vendorName ?? '本企业'}
+      />
+      <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        {!myRecord || rows.length === 0 ? (
+          <EmptyState
+            icon={FileText}
+            title="暂无提交记录"
+            description="完成首次资料提交后，可在此查看每次提交的时间与审核结果。"
+          />
+        ) : (
+          <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+                <thead>
+                  <tr>
+                    {['提交时间', '审核结果', '审核人', '审核时间', '驳回原因'].map((h) => (
+                      <th key={h} style={thStyle}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr key={`${r.submittedAt}-${idx}`} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                      <td style={{ ...tdStyle, fontFamily: mono, fontSize: 'var(--fs-12)' }}>{r.submittedAt}</td>
+                      <td style={tdStyle}>
+                        {r.outcome === '待审核' ? <StatusTag status="待提交" /> : <StatusTag status={r.outcome} />}
+                      </td>
+                      <td style={tdStyle}>{r.reviewedBy || '—'}</td>
+                      <td style={{ ...tdStyle, fontFamily: mono, fontSize: 'var(--fs-12)' }}>{r.reviewedAt || '—'}</td>
+                      <td style={{ ...tdStyle, color: r.reason ? '#C73A3A' : undefined }}>{r.reason || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 药厂合规端：服务商准入审核 ───────────────────────────────────────────────
+
+const ACCESS_STATUSES: { value: string; label: string }[] = [
+  { value: '待提交', label: '待提交' },
+  { value: '已通过', label: '已通过' },
+  { value: '已驳回', label: '已驳回' },
+];
+
+function ComplianceReview({
+  addToast,
+  records,
+  approve,
+  reject,
+}: {
+  addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+  records: VendorAccessRecord[];
+  approve: (recordId: string) => { ok: boolean; error?: string };
+  reject: (recordId: string, reason: string) => { ok: boolean; error?: string };
+}) {
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [applied, setApplied] = useState<Record<string, string>>({});
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [approveConfirmId, setApproveConfirmId] = useState<string | null>(null);
+  const [rejectId, setRejectId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState('');
+
+  // 草稿仅服务商本地可见，不进入合规列表与待办
+  const visible = useMemo(() => records.filter((r) => r.status !== '草稿'), [records]);
+  const pendingCount = visible.filter((r) => r.status === '待提交').length;
+
+  const filtered = useMemo(() => visible
+    .filter((r) => {
+      const kw = applied.name?.trim();
+      if (kw && !r.vendorName.includes(kw) && !r.creditCode.includes(kw)) return false;
+      if (applied.status && r.status !== applied.status) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.status === '待提交' && b.status !== '待提交') return -1;
+      if (b.status === '待提交' && a.status !== '待提交') return 1;
+      return (b.submittedAt ?? '').localeCompare(a.submittedAt ?? '');
+    }), [visible, applied]);
+
+  const detail = detailId ? records.find((r) => r.id === detailId) : undefined;
+  const approveTarget = approveConfirmId ? records.find((r) => r.id === approveConfirmId) : undefined;
+
+  function confirmApprove() {
+    if (!approveTarget) return;
+    const res = approve(approveTarget.id);
+    if (res.ok) {
+      addToast({ type: 'success', title: `已通过「${approveTarget.vendorName}」的准入申请` });
+      setApproveConfirmId(null);
+      setDetailId(null);
+    } else {
+      addToast({ type: 'error', title: res.error ?? '操作失败' });
+    }
+  }
+
+  function confirmReject() {
+    if (!rejectId) return;
+    if (rejectReason.trim().length < 5) {
+      setRejectError('驳回原因不能少于 5 个字符');
+      return;
+    }
+    const res = reject(rejectId, rejectReason);
+    if (res.ok) {
+      addToast({ type: 'warning', title: '已驳回该服务商的准入申请', description: '服务商修改后可重新提交。' });
+      setRejectId(null);
+      setRejectReason('');
+      setRejectError('');
+      setDetailId(null);
+    } else {
+      setRejectError(res.error ?? '操作失败');
+    }
+  }
+
+  const filterFields = [
+    { id: 'name', label: '服务商 / 信用代码', type: 'text' as const, placeholder: '名称或统一社会信用代码' },
+    { id: 'status', label: '状态', type: 'select' as const, options: ACCESS_STATUSES },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <PageHeader
+        title="服务商准入审核"
+        description="审核服务商提交的准入资料。"
+        dataRange="全部服务商"
+      />
+
+      <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        <div style={{ padding: '10px 16px', marginBottom: 12, borderRadius: 8, background: pendingCount ? '#FEF3E2' : '#F3F4F6', border: `1px solid ${pendingCount ? '#FDE68A' : 'var(--color-border)'}`, fontSize: 'var(--fs-13)', color: pendingCount ? '#C77A16' : '#667085' }}>
+          待审核 <strong style={{ fontFamily: mono }}>{pendingCount}</strong> 家{pendingCount > 0 ? '，请及时处理' : ''}
         </div>
 
         <FilterBar
           fields={filterFields}
           values={filters}
           onChange={(id, val) => setFilters((p) => ({ ...p, [id]: val }))}
-          onSearch={() => { setApplied(filters); setPage(1); }}
-          onReset={() => { setFilters({}); setApplied({}); setPage(1); }}
-          stats={<span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 家服务商</span>}
+          onSearch={() => setApplied(filters)}
+          onReset={() => { setFilters({}); setApplied({}); }}
+          stats={<span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>共 <strong style={{ color: 'var(--color-text-1)', fontFamily: mono }}>{filtered.length}</strong> 条提交记录</span>}
         />
 
         <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1240 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
               <thead>
                 <tr>
-                  {['服务商', '信用代码', '状态', '风险', '准入编号 / 有效期', '合同', '名下代表', '可分配 / 可结算', '操作'].map((h) => (
+                  {['服务商名称', '统一社会信用代码', '联系人', '提交时间', '状态', '操作'].map((h) => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {pageData.length === 0 ? (
-                  <tr><td colSpan={9}><EmptyState title="暂无服务商" description="发起引入申请后在此跟踪尽调与准入" /></td></tr>
-                ) : pageData.map((v, idx) => {
-                  const c = cap(v);
-                  return (
-                    <tr key={v.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                      <td style={tdStyle}>
-                        <div style={{ fontWeight: 600 }}>{v.name}</div>
-                        <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF' }}>{v.id} · {v.serviceTypes.join('、')}</div>
-                      </td>
-                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{v.creditCode}</td>
-                      <td style={tdStyle}><StatusTag status={v.status as never} /></td>
-                      <td style={tdStyle}><StatusTag status={v.riskGrade as never} /></td>
-                      <td style={tdStyle}>
-                        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{v.accessNo || '—'}</div>
-                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{v.accessValidUntil || '未准入'}</div>
-                      </td>
-                      <td style={tdStyle}>{v.contracts.filter((x) => x.status === '已生效').length}/{v.contracts.length}</td>
-                      <td style={tdStyle}>{v.repIds.length}</td>
-                      <td style={tdStyle}>
-                        <span style={{ color: c.project ? '#248A5A' : '#C73A3A', fontSize: 'var(--fs-12)', fontWeight: 600 }}>
-                          {c.project ? '可分配' : '不可分配'} / {c.settle ? '可结算' : '不可结算'}
-                        </span>
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          <Button variant="ghost" size="sm" onClick={() => { setDetail(v); setDetailTab('主体'); setCreditForm(v.creditCompliance); }}>查看</Button>
-                          {canWrite && ['草稿', '待提交', '补件中', '驳回'].includes(v.status) && (
-                            <Button variant="ghost" size="sm" onClick={() => openEdit(v)}>编辑</Button>
-                          )}
-                          {canApprove && v.status === '尽调中' && <Button variant="ghost" size="sm" onClick={() => startApproval(v)}>提交审批</Button>}
-                          {canApprove && v.status === '审批中' && <Button variant="ghost" size="sm" onClick={() => tryApproveAccess(v)}>准入</Button>}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={6}><EmptyState title="暂无提交记录" description="服务商提交准入资料后在此审核" /></td></tr>
+                ) : filtered.map((r, idx) => (
+                  <tr key={r.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>{r.vendorName}</td>
+                    <td style={{ ...tdStyle, fontFamily: mono, fontSize: 'var(--fs-12)' }}>{r.creditCode}</td>
+                    <td style={tdStyle}>{r.contactName}</td>
+                    <td style={{ ...tdStyle, fontFamily: mono, fontSize: 'var(--fs-12)' }}>{r.submittedAt || '—'}</td>
+                    <td style={tdStyle}>
+                      {r.status === '待提交' ? <StatusTag status="待提交" /> : <StatusTag status={r.status} />}
+                    </td>
+                    <td style={tdStyle}>
+                      {r.status === '待提交' ? (
+                        <Button variant="primary" size="sm" onClick={() => setDetailId(r.id)}>审核</Button>
+                      ) : (
+                        <Button variant="ghost" size="sm" onClick={() => setDetailId(r.id)}>查看</Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-          </div>
-          <div style={{ padding: '0 16px' }}>
-            {pageData.length > 0 && <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onChange={setPage} />}
           </div>
         </div>
       </div>
 
-      <Modal open={!!current} title={current ? `服务商档案 · ${current.name}` : ''} onClose={() => setDetail(null)} width={980} footer={current && (
-        <>
-          <Button variant="outline" onClick={() => setDetail(null)}>关闭</Button>
-          {canApprove && current.status === '尽调中' && <Button variant="secondary" onClick={() => startApproval(current)}>尽调完成并提交审批</Button>}
-          {canApprove && current.status === '审批中' && (
-            <>
-              <Button variant="outline" onClick={() => { setRejectOpen(true); setRejectReason(''); }}>驳回</Button>
-              <Button variant="primary" icon={<BadgeCheck size={14} />} onClick={() => tryApproveAccess(current)}>审批准入</Button>
-            </>
-          )}
-          {canApprove && current.status === '可合作' && (
-            <>
-              <Button variant="outline" onClick={() => startReview(current)}>发起复审</Button>
-              <Button variant="danger" icon={<Snowflake size={14} />} onClick={() => { setFreezeOpen(true); setFreezeReason(''); }}>冻结</Button>
-              <Button variant="danger" icon={<Ban size={14} />} onClick={() => { setExitOpen(true); setExitReason(''); }}>退出</Button>
-            </>
-          )}
-          {canApprove && current.status === '复审中' && <Button variant="primary" onClick={() => passReview(current)}>复审通过</Button>}
-          <Button variant="primary" icon={<ShieldCheck size={14} />} onClick={() => { setCheckKind('project'); setCheckResult(null); setCheckInput((c) => ({ ...c, payeeName: current.name, payeeNo: current.bankAccount, assignedRepIds: current.repIds.join(',') })); setCheckOpen(true); }}>
-            项目 / 结算校验
-          </Button>
-        </>
-      )}>
-        {current && (
+      {/* 审核详情 */}
+      <Modal
+        open={!!detail}
+        title={detail ? `准入资料 · ${detail.vendorName}` : ''}
+        onClose={() => setDetailId(null)}
+        width={720}
+        footer={detail && (
+          <>
+            <Button variant="outline" onClick={() => setDetailId(null)}>关闭</Button>
+            {detail.status === '待提交' && (
+              <>
+                <Button variant="danger" onClick={() => { setRejectId(detail.id); setRejectReason(''); setRejectError(''); }}>驳回</Button>
+                <Button variant="primary" icon={<BadgeCheck size={14} />} onClick={() => setApproveConfirmId(detail.id)}>通过</Button>
+              </>
+            )}
+          </>
+        )}
+      >
+        {detail && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <StatusTag status={current.status as never} />
-                  <StatusTag status={current.riskGrade as never} />
-                  <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{current.id} · 发起人 {current.initiatorName}（{current.initiatorId}）</span>
-                </div>
-                <div style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>审批链：{approvalChain(current.riskGrade)} · 复审到期 {current.reviewDue || '—'}</div>
-              </div>
-              {current.incidents.some((i) => i.status !== '已结案' && i.risk === '高') && (
-                <div style={{ padding: '8px 12px', borderRadius: 8, background: '#FEECEC', color: '#C73A3A', fontSize: 'var(--fs-12)', fontWeight: 600 }}>未结案高风险事件，高风险操作已阻断</div>
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              {detail.status === '待提交' ? <StatusTag status="待提交" /> : <StatusTag status={detail.status} />}
+              <span style={{ fontSize: 'var(--fs-13)', color: '#667085' }}>
+                提交时间：<span style={{ fontFamily: mono }}>{detail.submittedAt || '—'}</span>
+              </span>
             </div>
 
-            <Tabs
-              value={detailTab}
-              onChange={(id) => { setDetailTab(id as DetailTab); if (id === '信用') setCreditForm(current.creditCompliance); }}
-              items={[
-                { id: '主体', label: '主体资料' },
-                { id: '信用', label: '合规信用' },
-                { id: '选聘', label: '选聘记录', count: current.selectionRecords.length },
-                { id: '尽调', label: '尽调评级' },
-                { id: '合同', label: '合同', count: current.contracts.length },
-                { id: '人员', label: '人员', count: current.repIds.length },
-                { id: '履约', label: '履约结算', count: current.projects.length },
-                { id: '审计', label: '审计轨迹' },
-              ]}
-            />
-
-            {detailTab === '主体' && (
-              <FieldGroup title="主体信息">
-                <FieldItem label="公司名称" value={current.name} />
-                <FieldItem label="统一社会信用代码" value={<span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{current.creditCode}</span>} />
-                <FieldItem label="法定代表人" value={current.legalRep} />
-                <FieldItem label="实际控制人 / 股权" value={`${current.actualController} / ${current.shareholding || '—'}`} />
-                <FieldItem label="负责人" value={`${current.principalName || '—'} ${current.principalMobile || ''}`} />
-                <FieldItem label="开票能力 / 场地" value={`${current.invoiceAbility || '—'} / ${current.siteDesc || '—'}`} />
-                <FieldItem label="账号" value={<span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{canSeeAccount ? current.bankAccount : maskAccount(current.bankAccount)}</span>} />
-                <FieldItem label="联系电话" value={canSeeAccount ? current.contactMobile : maskMobile(current.contactMobile)} />
-              </FieldGroup>
-            )}
-
-            {detailTab === '信用' && (
-              <>
-                <InfoBanner tone="warning">行政处罚/失信未核验或诉讼未披露时不能准入。</InfoBanner>
-                {creditForm ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <Field label="承诺书文件"><input value={creditForm.antiBriberyPledgeFile} onChange={(e) => setCreditForm({ ...creditForm, antiBriberyPledgeFile: e.target.value })} style={inputStyle} /></Field>
-                    <Field label="签署日期"><input type="date" value={creditForm.antiBriberyPledgeDate} onChange={(e) => setCreditForm({ ...creditForm, antiBriberyPledgeDate: e.target.value })} style={inputStyle} /></Field>
-                    <Field label="违法核验">
-                      <select value={creditForm.illegalCheck} onChange={(e) => setCreditForm({ ...creditForm, illegalCheck: e.target.value as VendorCreditCompliance['illegalCheck'] })} style={inputStyle}>
-                        <option>待核验</option><option>通过</option><option>未通过</option>
-                      </select>
-                    </Field>
-                    <Field label="失信核验">
-                      <select value={creditForm.dishonestCheck} onChange={(e) => setCreditForm({ ...creditForm, dishonestCheck: e.target.value as VendorCreditCompliance['dishonestCheck'] })} style={inputStyle}>
-                        <option>待核验</option><option>通过</option><option>未通过</option>
-                      </select>
-                    </Field>
-                    <Field label="诉讼风险">
-                      <select value={creditForm.lawsuitRisk} onChange={(e) => setCreditForm({ ...creditForm, lawsuitRisk: e.target.value as VendorCreditCompliance['lawsuitRisk'] })} style={inputStyle}>
-                        <option>无</option><option>有-已披露</option><option>有-未披露</option>
-                      </select>
-                    </Field>
-                    <div />
-                    {canApprove && <Button variant="primary" onClick={saveCredit}>保存合规信用</Button>}
-                  </div>
-                ) : (
-                  <EmptyState title="未录入合规信用" description="准入前必须完成承诺书与三项核验" action={canApprove ? { label: '开始录入', onClick: () => setCreditForm({ antiBriberyPledgeFile: '', antiBriberyPledgeDate: '', illegalCheck: '待核验', dishonestCheck: '待核验', lawsuitRisk: '无', evidenceFiles: [], checkedAt: today() }) } : undefined} />
-                )}
-              </>
-            )}
-
-            {detailTab === '选聘' && (
-              <>
-                {canWrite || canApprove ? <div style={{ marginBottom: 12 }}><Button size="sm" variant="primary" onClick={() => setSelOpen(true)}>新增选聘记录</Button></div> : null}
-                {current.selectionRecords.length === 0 ? <EmptyState title="无选聘记录" description="须至少一条比价/邀标/评审，或填写例外理由" /> : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>{['编号', '方式', '过程', '定标依据', '例外理由'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {current.selectionRecords.map((s) => (
-                        <tr key={s.id}>
-                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>{s.id}</td>
-                          <td style={tdStyle}>{s.method}</td>
-                          <td style={tdStyle}>{s.processNote}</td>
-                          <td style={tdStyle}>{s.awardReason}</td>
-                          <td style={tdStyle}>{s.exceptionReason || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </>
-            )}
-
-            {detailTab === '尽调' && (
-              <FieldGroup title="评级结论">
-                <FieldItem label="综合得分" value={<span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700 }}>{current.riskScore}</span>} />
-                <FieldItem label="风险等级" value={<StatusTag status={current.riskGrade as never} />} />
-                <FieldItem label="尽调编号" value={current.dueDiligence?.id || '—'} />
-                <FieldItem label="确认人" value={current.dueDiligence ? `${current.dueDiligence.confirmedByName}（${current.dueDiligence.confirmedById}）` : '—'} />
-              </FieldGroup>
-            )}
-
-            {detailTab === '合同' && (
-              current.contracts.length === 0 ? <EmptyState title="暂无合同" description="准入通过且合同生效后才能分配项目" /> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>{['内部ID / 合同号', '服务类型', '区域', '期限', '金额上限', '状态', '操作'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {current.contracts.map((c) => (
-                      <tr key={c.id}>
-                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{c.id}<br />{c.contractNo}</td>
-                        <td style={tdStyle}>{(c.serviceTypes || []).join('、')}</td>
-                        <td style={tdStyle}>{c.regions.join('、')}</td>
-                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{c.startDate} ~ {c.endDate}</td>
-                        <td style={tdStyle}>{formatCNY(c.amountCap)}</td>
-                        <td style={tdStyle}><StatusTag status={(c.status === '已生效' ? '已通过' : c.status === '草案' ? '草稿' : '已撤销') as never} /></td>
-                        <td style={tdStyle}>{canApprove && c.status === '草案' && <Button variant="ghost" size="sm" onClick={() => activateContract(c.id)}>标记生效</Button>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            )}
-
-            {detailTab === '人员' && (
-              current.repIds.length === 0 ? <EmptyState title="暂无关联代表" description="人员必须通过代表个人准入后才能绑定" /> : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {current.repIds.map((id) => {
-                    const n = reps.find((r) => r.id === id)?.name || id;
-                    return <span key={id} style={{ padding: '6px 12px', background: '#F3F4F6', borderRadius: 6, fontSize: 'var(--fs-13)' }}>{n}（{id}）</span>;
-                  })}
-                </div>
-              )
-            )}
-
-            {detailTab === '履约' && (
-              current.projects.length === 0 ? <EmptyState title="暂无项目" description="冻结、复审失效或退出后阻断新项目" /> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>{['项目', '区域 / 类型', '代表', '验收 / 成果', '收款户名', '金额'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {current.projects.map((p) => (
-                      <tr key={p.id}>
-                        <td style={tdStyle}>{p.projectNo}<div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF' }}>{p.id} · {p.name}</div></td>
-                        <td style={tdStyle}>{p.region} / {p.serviceType}</td>
-                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{p.assignedRepIds.join('、') || '—'}</td>
-                        <td style={tdStyle}>{p.acceptance} · {(p.deliverables || []).length} 份成果</td>
-                        <td style={{ ...tdStyle, fontSize: 'var(--fs-12)' }}>{p.payeeAccountName || '—'}</td>
-                        <td style={tdStyle}>{formatCNY(p.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            )}
-
-            {detailTab === '审计' && current.timeline.map((e, idx) => (
-              <div key={e.id} style={{ display: 'flex', gap: 12, paddingBottom: 14, position: 'relative' }}>
-                {idx < current.timeline.length - 1 && <div style={{ position: 'absolute', left: 7, top: 16, bottom: 0, width: 2, background: '#E5E7EB' }} />}
-                <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--color-brand-subtle)', border: '2px solid var(--color-brand)', flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600 }}>{e.action} · {e.id}</div>
-                  <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{e.operator}（{e.operatorId || '—'}） · {e.time}</div>
-                  {(e.before || e.after) && <div style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>{e.before} → {e.after}</div>}
-                  {e.comment && <div style={{ marginTop: 6, fontSize: 'var(--fs-13)', background: '#F9FAFB', padding: '8px 10px', borderRadius: 6 }}>{e.comment}</div>}
-                </div>
+            {detail.status === '已驳回' && (
+              <div style={{ marginBottom: 16 }}>
+                <RejectionBanner text={detail.rejectionReason ?? ''} />
               </div>
-            ))}
+            )}
+            {detail.status === '已通过' && (
+              <div style={{ marginBottom: 16 }}>
+                <StatusBanner tone="success" tag="已通过">
+                  已于 {detail.reviewedAt} 由 {detail.reviewedBy} 审核通过。
+                </StatusBanner>
+              </div>
+            )}
+
+            <FieldGroup title="企业基础资料">
+              <FieldItem label="公司名称" value={detail.vendorName} />
+              <FieldItem label="统一社会信用代码" value={<span style={{ fontFamily: mono }}>{detail.creditCode}</span>} />
+              <FieldItem label="法定代表人" value={detail.legalRep} />
+              <FieldItem label="注册地址" value={detail.address} span />
+              <FieldItem label="联系人姓名" value={detail.contactName} />
+              <FieldItem label="联系电话" value={<span style={{ fontFamily: mono }}>{detail.contactMobile}</span>} />
+            </FieldGroup>
+
+            <FieldGroup title="证明材料">
+              <div style={{ gridColumn: '1 / -1' }}>
+                <AttachmentReadonlyList record={detail} />
+              </div>
+            </FieldGroup>
+
+            {detail.reviewedAt && (
+              <FieldGroup title="审核信息">
+                <FieldItem label="审核人" value={detail.reviewedBy} />
+                <FieldItem label="审核时间" value={detail.reviewedAt} />
+                {detail.rejectionReason && <FieldItem label="驳回原因" value={detail.rejectionReason} span />}
+              </FieldGroup>
+            )}
+
+            <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '8px 0 12px' }}>提交历史</div>
+            <HistoryTimeline history={detail.history} />
           </div>
         )}
       </Modal>
 
-      <Modal open={formOpen} title={editingId ? '编辑服务商资料' : '引入服务商'} onClose={() => setFormOpen(false)} width={760} footer={
-        <>
-          <Button variant="outline" onClick={() => setFormOpen(false)}>取消</Button>
-          {formStep > 0 && <Button variant="ghost" onClick={() => setFormStep((s) => s - 1)}>上一步</Button>}
-          {formStep < 2 && <Button variant="primary" onClick={() => setFormStep((s) => s + 1)}>下一步</Button>}
-          {formStep === 2 && (
-            <>
-              <Button variant="secondary" onClick={() => saveForm(false)}>保存草稿</Button>
-              <Button variant="primary" onClick={() => saveForm(true)}>提交引入申请</Button>
-            </>
-          )}
-        </>
-      }>
-        <Stepper steps={['主体与控制关系', '资质财税合规', '人员选聘']} current={formStep} />
-        {formError && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)', marginBottom: 12 }}>{formError}</div>}
-        {formStep === 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="公司名称" required><input value={form.name} onChange={(e) => setF('name', e.target.value)} style={inputStyle} /></Field>
-            <Field label="统一社会信用代码" required><input value={form.creditCode} onChange={(e) => setF('creditCode', e.target.value)} style={inputStyle} /></Field>
-            <Field label="法定代表人" required><input value={form.legalRep} onChange={(e) => setF('legalRep', e.target.value)} style={inputStyle} /></Field>
-            <Field label="实际控制人" required><input value={form.actualController} onChange={(e) => setF('actualController', e.target.value)} style={inputStyle} /></Field>
-            <Field label="股权结构" required span><input value={form.shareholding} onChange={(e) => setF('shareholding', e.target.value)} style={inputStyle} /></Field>
-            <Field label="负责人" required><input value={form.principalName} onChange={(e) => setF('principalName', e.target.value)} style={inputStyle} /></Field>
-            <Field label="负责人电话"><input value={form.principalMobile} onChange={(e) => setF('principalMobile', e.target.value)} style={inputStyle} /></Field>
-            <Field label="注册地址" required span><input value={form.address} onChange={(e) => setF('address', e.target.value)} style={inputStyle} /></Field>
-          </div>
+      {/* 通过确认 */}
+      <Modal
+        open={!!approveTarget}
+        title="确认通过"
+        onClose={() => setApproveConfirmId(null)}
+        width={440}
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => setApproveConfirmId(null)}>取消</Button>
+            <Button variant="primary" onClick={confirmApprove}>确认通过</Button>
+          </>
         )}
-        {formStep === 1 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="开户行" required><input value={form.bankName} onChange={(e) => setF('bankName', e.target.value)} style={inputStyle} /></Field>
-            <Field label="账号" required><input value={form.bankAccount} onChange={(e) => setF('bankAccount', e.target.value)} style={inputStyle} /></Field>
-            <Field label="开票能力"><input value={form.invoiceAbility} onChange={(e) => setF('invoiceAbility', e.target.value)} style={inputStyle} /></Field>
-            <Field label="场地"><input value={form.siteDesc} onChange={(e) => setF('siteDesc', e.target.value)} style={inputStyle} /></Field>
-          </div>
-        )}
-        {formStep === 2 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="合规联系人" required><input value={form.contact} onChange={(e) => setF('contact', e.target.value)} style={inputStyle} /></Field>
-            <Field label="联系电话"><input value={form.contactMobile} onChange={(e) => setF('contactMobile', e.target.value)} style={inputStyle} /></Field>
-            <div style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-12)', color: '#667085' }}>提交引入前须在详情页补齐合规信用与选聘记录。草稿可先保存。</div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal open={checkOpen} title={current ? `${checkKind === 'project' ? '项目准入' : '结算准入'}校验 · ${current.name}` : '校验'} onClose={() => setCheckOpen(false)} width={860} footer={<Button variant="outline" onClick={() => setCheckOpen(false)}>关闭</Button>}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <Button variant={checkKind === 'project' ? 'primary' : 'outline'} size="sm" onClick={() => { setCheckKind('project'); setCheckResult(null); }}>checkVendorEligibility</Button>
-          <Button variant={checkKind === 'settlement' ? 'primary' : 'outline'} size="sm" onClick={() => { setCheckKind('settlement'); setCheckResult(null); }}>checkSettlementEligibility</Button>
-          {checkKind === 'project' && (
-            <>
-              <Button variant={checkMode === '新增' ? 'primary' : 'outline'} size="sm" onClick={() => setCheckMode('新增')}>新增</Button>
-              <Button variant={checkMode === '存量' ? 'primary' : 'outline'} size="sm" onClick={() => setCheckMode('存量')}>存量</Button>
-            </>
-          )}
+      >
+        <div style={{ fontSize: 'var(--fs-14)', color: 'var(--color-text-1)', lineHeight: 1.7 }}>
+          确认通过「{approveTarget?.vendorName}」的准入申请？
         </div>
-        {checkKind === 'project' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-            <Field label="服务类型">
-              <select value={checkInput.serviceType} onChange={(e) => setCheckInput((c) => ({ ...c, serviceType: e.target.value }))} style={inputStyle}>
-                {SERVICE_TYPES.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </Field>
-            <Field label="区域">
-              <select value={checkInput.region} onChange={(e) => setCheckInput((c) => ({ ...c, region: e.target.value }))} style={inputStyle}>
-                {REGION_OPTIONS.map((r) => <option key={r}>{r}</option>)}
-              </select>
-            </Field>
-            <Field label="日期"><input type="date" value={checkInput.date} onChange={(e) => setCheckInput((c) => ({ ...c, date: e.target.value }))} style={inputStyle} /></Field>
-            <Field label="预算金额"><input type="number" value={checkInput.amount} onChange={(e) => setCheckInput((c) => ({ ...c, amount: Number(e.target.value) }))} style={inputStyle} /></Field>
-            <Field label="拟分配代表 ID（逗号分隔）" span><input value={checkInput.assignedRepIds} onChange={(e) => setCheckInput((c) => ({ ...c, assignedRepIds: e.target.value }))} style={inputStyle} placeholder="REP-001,REP-006" /></Field>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-            <Field label="选择项目" span>
-              <select value={checkInput.projectId} onChange={(e) => setCheckInput((c) => ({ ...c, projectId: e.target.value }))} style={inputStyle}>
-                <option value="">（默认首个项目）</option>
-                {current?.projects.map((p) => <option key={p.id} value={p.id}>{p.projectNo} · 验收{p.acceptance} · 成果{(p.deliverables || []).length}</option>)}
-              </select>
-            </Field>
-            <Field label="收款户名"><input value={checkInput.payeeName} onChange={(e) => setCheckInput((c) => ({ ...c, payeeName: e.target.value }))} style={inputStyle} /></Field>
-            <Field label="收款账号"><input value={checkInput.payeeNo} onChange={(e) => setCheckInput((c) => ({ ...c, payeeNo: e.target.value }))} style={inputStyle} /></Field>
-          </div>
+        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 8 }}>通过后该服务商完成准入，本页不再出现待审核记录。</div>
+      </Modal>
+
+      {/* 驳回原因 */}
+      <Modal
+        open={!!rejectId}
+        title="驳回准入申请"
+        onClose={() => { setRejectId(null); setRejectError(''); }}
+        width={480}
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => { setRejectId(null); setRejectError(''); }}>取消</Button>
+            <Button variant="danger" disabled={!rejectReason.trim()} onClick={confirmReject}>确认驳回</Button>
+          </>
         )}
-        <Button variant="primary" icon={<RefreshCw size={14} />} onClick={runCheck}>执行校验</Button>
-        <div style={{ height: 12 }} />
-        {checkResult && <EligibilityPanel result={checkResult} />}
-      </Modal>
-
-      <Modal open={exceptionOpen} title="高风险例外准入" onClose={() => setExceptionOpen(false)} width={520} footer={
-        <>
-          <Button variant="outline" onClick={() => setExceptionOpen(false)}>取消</Button>
-          <Button variant="primary" disabled={!exception.reason || !exception.until || !exception.supervision} onClick={() => current && commitApprove(current, { exceptionReason: exception.reason, exceptionUntil: exception.until, enhancedSupervision: exception.supervision })}>提交例外并准入</Button>
-        </>
-      }>
-        <InfoBanner tone="warning">三项均必填，缺一不可准入。</InfoBanner>
-        <Field label="例外理由" required><textarea value={exception.reason} onChange={(e) => setException((s) => ({ ...s, reason: e.target.value }))} rows={3} style={{ ...inputStyle, height: 'auto', padding: 10 }} /></Field>
-        <div style={{ height: 8 }} />
-        <Field label="例外期限" required><input type="date" value={exception.until} onChange={(e) => setException((s) => ({ ...s, until: e.target.value }))} style={inputStyle} /></Field>
-        <div style={{ height: 8 }} />
-        <Field label="强化监督措施" required><input value={exception.supervision} onChange={(e) => setException((s) => ({ ...s, supervision: e.target.value }))} style={inputStyle} /></Field>
-      </Modal>
-
-      <Modal open={selOpen} title="新增选聘记录" onClose={() => setSelOpen(false)} width={520} footer={
-        <><Button variant="outline" onClick={() => setSelOpen(false)}>取消</Button><Button variant="primary" onClick={addSelection}>保存</Button></>
-      }>
-        <Field label="方式">
-          <select value={selForm.method} onChange={(e) => setSelForm((s) => ({ ...s, method: e.target.value as SelectionRecord['method'] }))} style={inputStyle}>
-            <option>比价</option><option>邀标</option><option>评审</option><option>例外</option>
-          </select>
+      >
+        <Field label="驳回原因" required>
+          <textarea
+            value={rejectReason}
+            onChange={(e) => { setRejectReason(e.target.value); if (rejectError) setRejectError(''); }}
+            rows={4}
+            placeholder="请说明需要补充或修改的内容（不少于 5 个字符）"
+            style={{ ...inputStyle, height: 'auto', padding: 10 }}
+          />
         </Field>
-        <div style={{ height: 8 }} />
-        <Field label="过程说明"><input value={selForm.processNote} onChange={(e) => setSelForm((s) => ({ ...s, processNote: e.target.value }))} style={inputStyle} /></Field>
-        <div style={{ height: 8 }} />
-        <Field label="定标依据"><input value={selForm.awardReason} onChange={(e) => setSelForm((s) => ({ ...s, awardReason: e.target.value }))} style={inputStyle} /></Field>
-        {selForm.method === '例外' && (
-          <><div style={{ height: 8 }} /><Field label="例外理由" required><input value={selForm.exceptionReason} onChange={(e) => setSelForm((s) => ({ ...s, exceptionReason: e.target.value }))} style={inputStyle} /></Field></>
-        )}
+        {rejectError && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-12)', marginTop: 8 }}>{rejectError}</div>}
       </Modal>
+    </div>
+  );
+}
 
-      <Modal open={rejectOpen} title="驳回引入" onClose={() => setRejectOpen(false)} width={480} footer={
-        <><Button variant="outline" onClick={() => setRejectOpen(false)}>取消</Button><Button variant="danger" onClick={confirmReject} disabled={!rejectReason.trim()}>确认驳回</Button></>
-      }>
-        <Field label="驳回原因" required><textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={4} style={{ ...inputStyle, height: 'auto', padding: 10 }} /></Field>
-      </Modal>
-      <Modal open={freezeOpen} title="冻结服务商" onClose={() => setFreezeOpen(false)} width={480} footer={
-        <><Button variant="outline" onClick={() => setFreezeOpen(false)}>取消</Button><Button variant="danger" onClick={confirmFreeze} disabled={!freezeReason.trim()}>确认冻结</Button></>
-      }>
-        <Field label="冻结原因" required><textarea value={freezeReason} onChange={(e) => setFreezeReason(e.target.value)} rows={4} style={{ ...inputStyle, height: 'auto', padding: 10 }} /></Field>
-      </Modal>
-      <Modal open={exitOpen} title="退出合作" onClose={() => setExitOpen(false)} width={480} footer={
-        <><Button variant="outline" onClick={() => setExitOpen(false)}>取消</Button><Button variant="danger" onClick={confirmExit} disabled={!exitReason.trim()}>确认退出</Button></>
-      }>
-        <Field label="退出原因" required><textarea value={exitReason} onChange={(e) => setExitReason(e.target.value)} rows={4} style={{ ...inputStyle, height: 'auto', padding: 10 }} /></Field>
-      </Modal>
+// ─── 共享：历史时间线 ─────────────────────────────────────────────────────────
+
+function HistoryTimeline({ history }: { history: VendorAccessHistory[] }) {
+  return (
+    <div>
+      {history.map((e, idx) => (
+        <div key={e.id} style={{ display: 'flex', gap: 12, paddingBottom: 14, position: 'relative' }}>
+          {idx < history.length - 1 && (
+            <div style={{ position: 'absolute', left: 7, top: 16, bottom: 0, width: 2, background: '#E5E7EB' }} />
+          )}
+          <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--color-brand-subtle)', border: '2px solid var(--color-brand)', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600 }}>
+              {e.action} · {e.operator}（{e.role}）
+            </div>
+            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: mono }}>{e.time}</div>
+            {e.comment && (
+              <div style={{ marginTop: 6, fontSize: 'var(--fs-13)', background: '#F9FAFB', padding: '8px 10px', borderRadius: 6 }}>{e.comment}</div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── 共享：证明材料清单与附件预览（原型以文件名模拟上传，预览为示意版式） ───
+
+interface LicenseDocData {
+  vendorName: string;
+  creditCode: string;
+  legalRep: string;
+  address: string;
+}
+
+type AttachmentPreviewKind = 'license' | 'generic';
+
+function LicenseDocumentMock({ data }: { data: LicenseDocData }) {
+  const row = (label: string, value: ReactNode, span?: boolean) => (
+    <div style={{ gridColumn: span ? '1 / -1' : undefined, display: 'flex', gap: 10, alignItems: 'baseline' }}>
+      <span style={{ width: 110, flexShrink: 0, fontSize: 'var(--fs-13)', color: '#8A6D1A', fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 'var(--fs-13)', color: '#374151', wordBreak: 'break-all' }}>{value}</span>
+    </div>
+  );
+  return (
+    <div style={{ position: 'relative', background: '#FFFCF2', border: '2px solid #D4B85A', borderRadius: 8, padding: '28px 32px 24px', boxShadow: 'inset 0 0 0 1px #F5E9C8' }}>
+      <div style={{ textAlign: 'center', fontSize: 'var(--fs-22)', fontWeight: 700, color: '#B02A2A', letterSpacing: '0.3em', fontFamily: "'Songti SC','STSong',serif" }}>
+        营业执照
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 'var(--fs-12)', color: '#C9A227', margin: '4px 0 18px' }}>（副本）· 原型示意样式</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+        {row('统一社会信用代码', <span style={{ fontFamily: mono, letterSpacing: '0.05em' }}>{data.creditCode || '—'}</span>, true)}
+        {row('名\u3000\u3000\u3000\u3000称', data.vendorName || '—', true)}
+        {row('类\u3000\u3000\u3000\u3000型', '有限责任公司')}
+        {row('法定代表人', data.legalRep || '—')}
+        {row('住\u3000\u3000\u3000\u3000所', data.address || '—', true)}
+      </div>
+
+      <div style={{ position: 'absolute', right: 44, bottom: 36, width: 88, height: 88, borderRadius: '50%', border: '3px solid rgba(199,58,58,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', transform: 'rotate(-12deg)', opacity: 0.85 }}>
+        <div style={{ textAlign: 'center', color: 'rgba(199,58,58,0.85)', fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>市场监督管理<br />备案示意章</div>
+      </div>
+
+      <div style={{ marginTop: 22, display: 'flex', alignItems: 'flex-end', gap: 12 }}>
+        <div style={{ width: 180, height: 30, background: 'repeating-linear-gradient(90deg, #374151 0 2px, transparent 2px 4px, #374151 4px 5px, transparent 5px 9px)' }} />
+        <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF', fontFamily: mono }}>{(data.creditCode || '0000000000000000').slice(-8)}</div>
+      </div>
+    </div>
+  );
+}
+
+/** 非执照附件的通用文档示意：纸张卡片 + 大图标 + 文件名 */
+function GenericDocumentMock({ fileName }: { fileName: string }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: '40px 32px 32px', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+      <div style={{ width: 64, height: 76, margin: '0 auto 16px', borderRadius: 6, background: '#F9FAFB', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <FileText size={30} style={{ color: '#9CA3AF' }} />
+      </div>
+      <div style={{ fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)', wordBreak: 'break-all' }}>{fileName}</div>
+      <div style={{ marginTop: 10, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>文档内容示意 · 附件已随准入资料一并提交</div>
+      <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px dashed #E5E7EB', fontSize: 'var(--fs-11)', color: '#D1D5DB', letterSpacing: '0.2em' }}>原型示意页面</div>
+    </div>
+  );
+}
+
+function AttachmentPreviewModal({ open, fileName, kind, data, onClose }: { open: boolean; fileName: string; kind: AttachmentPreviewKind; data?: LicenseDocData; onClose: () => void }) {
+  return (
+    <Modal
+      open={open}
+      title={`附件预览 · ${fileName}`}
+      onClose={onClose}
+      width={640}
+      footer={<Button variant="outline" onClick={onClose}>关闭</Button>}
+    >
+      {kind === 'license' && data ? <LicenseDocumentMock data={data} /> : <GenericDocumentMock fileName={fileName} />}
+      <div style={{ marginTop: 12, fontSize: 'var(--fs-12)', color: '#9CA3AF', textAlign: 'center' }}>
+        原型以文件名模拟附件，本预览为示意版式，不做真实文件解析。
+      </div>
+    </Modal>
+  );
+}
+
+/** 只读态：文件名渲染为可点击的附件 chip */
+function AttachmentPreviewLink({ fileName, kind, data }: { fileName?: string; kind: AttachmentPreviewKind; data?: LicenseDocData }) {
+  const [open, setOpen] = useState(false);
+  if (!fileName?.trim()) return <span style={{ color: '#D1D5DB' }}>—</span>;
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '3px 10px',
+          background: 'var(--color-brand-subtle)',
+          color: 'var(--color-brand)',
+          border: '1px solid color-mix(in srgb, var(--color-brand) 25%, transparent)',
+          borderRadius: 6,
+          fontSize: 'var(--fs-12)',
+          cursor: 'pointer',
+          maxWidth: '100%',
+        }}
+      >
+        <FileText size={13} style={{ flexShrink: 0 }} />
+        <span style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fileName}</span>
+        <Eye size={13} style={{ flexShrink: 0 }} />
+        预览
+      </button>
+      <AttachmentPreviewModal open={open} fileName={fileName} kind={kind} data={data} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+/** 编辑态：清单行内的预览按钮 */
+function AttachmentPreviewButton({ fileName, kind, data }: { fileName: string; kind: AttachmentPreviewKind; data?: LicenseDocData }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant="outline" size="sm" icon={<Eye size={13} />} disabled={!fileName.trim()} onClick={() => setOpen(true)}>
+        预览
+      </Button>
+      <AttachmentPreviewModal open={open} fileName={fileName} kind={kind} data={data} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+/** 只读态材料清单（服务商资料区 + 合规审核详情共用） */
+function AttachmentReadonlyList({ record }: { record: VendorAccessRecord }) {
+  const uploadedCount = ATTACHMENT_DEFS.filter((d) => attachmentFileOf(record, d.key).trim()).length;
+  return (
+    <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F3F6FA', borderBottom: '1px solid var(--color-border)' }}>
+        <Folder size={15} style={{ color: 'var(--color-brand)' }} />
+        <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>准入材料清单</span>
+        <span style={{ marginLeft: 'auto', fontSize: 'var(--fs-12)', color: '#667085' }}>
+          已传 <strong style={{ color: uploadedCount ? '#248A5A' : '#C77A16' }}>{uploadedCount}</strong> / {ATTACHMENT_DEFS.length} 项
+        </span>
+      </div>
+      {ATTACHMENT_DEFS.map((def, idx) => {
+        const fileName = attachmentFileOf(record, def.key).trim();
+        return (
+          <div
+            key={def.key}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '11px 14px',
+              borderBottom: idx < ATTACHMENT_DEFS.length - 1 ? '1px solid #F3F4F6' : 'none',
+            }}
+          >
+            <FileText size={15} style={{ color: fileName ? '#248A5A' : '#C0C6CF', flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', fontWeight: fileName ? 600 : 400 }}>{def.name}</span>
+              <span style={{
+                fontSize: 'var(--fs-11)',
+                padding: '1px 6px',
+                borderRadius: 4,
+                background: def.required ? '#FEECEC' : '#F3F4F6',
+                color: def.required ? '#C73A3A' : '#667085',
+                fontWeight: 600,
+              }}>
+                {def.required ? '必传' : '选传'}
+              </span>
+            </div>
+            <div style={{ flexShrink: 0 }}>
+              {fileName ? (
+                <AttachmentPreviewLink fileName={fileName} kind={def.key === 'license' ? 'license' : 'generic'} data={record} />
+              ) : (
+                <span style={{ fontSize: 'var(--fs-12)', color: '#C0C6CF' }}>未上传</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

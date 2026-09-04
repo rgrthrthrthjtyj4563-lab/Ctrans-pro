@@ -86,7 +86,7 @@ export function VarietyManage({ addToast, currentRole }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
-        title="品种管理"
+        title="品种信息"
         description="未创建的品种不会出现在授权和任务的下拉里。"
         actions={canWrite ? <Button variant="primary" size="md" icon={<Plus size={14} />} onClick={openCreate}>新建品种</Button> : undefined}
       />

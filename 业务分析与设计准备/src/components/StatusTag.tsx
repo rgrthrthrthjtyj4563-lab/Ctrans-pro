@@ -10,7 +10,9 @@ export type StatusTagStatus =
   | AuditStatus
   | TaskStatus
   | ReconStatus
-  | ReportStatus;
+  | ReportStatus
+  | '待评定'
+  | '已评定';
 
 const statusConfig: Record<string, { label: string; fg: string; bg: string; dot: string }> = {
   // 审核态（拜访绩效 / 结算统计）
@@ -20,10 +22,15 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '已回收': { label: '已回收', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
   '待复核': { label: '待复核', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '待审核': { label: '待审核', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
+  '待评定': { label: '待评定', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
+  '已评定': { label: '已评定', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
   '已通过': { label: '已通过', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
   '已驳回': { label: '已驳回', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
   '已打绩效': { label: '已打绩效', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
   '已撤销': { label: '已撤销', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
+  // 绩效记录四态（打绩效模块）
+  '未打绩效': { label: '未打绩效', fg: '#374151', bg: '#F3F4F6', dot: '#9CA3AF' },
+  '已生效': { label: '已生效', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
   // 任务状态（手册）
   '待确认': { label: '待确认', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '执行中': { label: '执行中', fg: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', dot: 'var(--color-brand)' },
@@ -54,6 +61,7 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '退出': { label: '退出', fg: '#374151', bg: '#F3F4F6', dot: '#6B7280' },
   // 备案核验 / 授权
   '有效': { label: '有效', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
+  '生效': { label: '生效', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
   '未核验': { label: '未核验', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '待核验': { label: '待核验', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '有效授权': { label: '有效授权', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },

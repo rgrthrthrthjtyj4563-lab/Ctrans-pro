@@ -18,21 +18,26 @@ import {
   VARIETY_OPTIONS,
   applyActionToggle,
   countGrantedUsers,
+  grantStatusLabel,
   hasHighRiskGrant,
+  orgPathLabel,
   scopeLabel,
   type FieldPolicyKind,
   type PageAction,
+  type ResourcePage,
   type ScopeType,
   type SysRole,
   type SysRoleStatus,
 } from '../data/permissions';
 import type { ToastMessage } from '../components/Toast';
+import type { NavigateFn } from '../types';
 import {
   CheckCell, ChipSelect, Field, InfoBanner, RadioCard, RiskBadge, inputStyle, tdStyle, thStyle,
 } from './permUi';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+  navigate: NavigateFn;
 }
 
 const PAGE_SIZE = 10;
@@ -47,9 +52,18 @@ const DETAIL_TABS: { id: DetailTab; label: string }[] = [
   { id: 'history', label: '变更记录' },
 ];
 
-export function RoleManage({ addToast }: Props) {
+const linkBtnStyle = {
+  background: 'none',
+  border: 'none',
+  padding: '1px 4px',
+  fontSize: 'var(--fs-11)',
+  color: 'var(--color-brand)',
+  cursor: 'pointer',
+} as const;
+
+export function RoleManage({ addToast, navigate }: Props) {
   const store = usePermission();
-  const { roles, grants, users, orgs, changeLogs, can, previewReadOnly } = store;
+  const { roles, assignments, users, orgs, changeLogs, can, previewReadOnly } = store;
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Record<string, string>>({ status: 'enabled' });
   const [applied, setApplied] = useState<Record<string, string>>({ status: 'enabled' });
@@ -58,6 +72,7 @@ export function RoleManage({ addToast }: Props) {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [copySource, setCopySource] = useState<SysRole | null>(null);
+  const [formSourceId, setFormSourceId] = useState('');
   const [formName, setFormName] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formScope, setFormScope] = useState<ScopeType>('PHARMA');
@@ -92,10 +107,11 @@ export function RoleManage({ addToast }: Props) {
     preset: roles.filter(r => r.kind === 'preset').length,
     custom: roles.filter(r => r.kind === 'custom').length,
     enabled: roles.filter(r => r.status === 'enabled').length,
-    members: new Set(grants.filter(g => g.status === 'active').map(g => g.userId)).size,
-  }), [roles, grants]);
+    members: new Set(assignments.filter(a => a.status === 'active').map(a => a.userId)).size,
+  }), [roles, assignments]);
 
   function openCreate() {
+    setFormSourceId(roles.find(r => r.id === 'role-pharma-sales')?.id ?? '');
     setFormName('');
     setFormDesc('');
     setFormScope('PHARMA');
@@ -114,14 +130,19 @@ export function RoleManage({ addToast }: Props) {
   }
 
   function submitCreate() {
-    const result = copySource
-      ? store.copyRole(copySource.id, formName, formDesc)
+    const source = copySource ?? roles.find(r => r.id === formSourceId);
+    const result = source
+      ? store.copyRole(source.id, formName, formDesc)
       : store.createRole({ name: formName, description: formDesc, defaultScope: formScope });
     if (!result.ok) {
       setFormError(result.error || '保存失败');
       return;
     }
-    addToast({ type: 'success', title: copySource ? '角色已复制' : '角色已创建', description: `${formName}（草稿，默认无业务写权限）` });
+    addToast({
+      type: 'success',
+      title: copySource ? '角色已复制' : '角色已创建',
+      description: `${formName}（草稿${source && !copySource ? `，从「${source.name}」复制` : '，默认无业务写权限'}）`,
+    });
     setCreateOpen(false);
     if (result.role) {
       setDetailId(result.role.id);
@@ -130,7 +151,7 @@ export function RoleManage({ addToast }: Props) {
   }
 
   function askDisable(role: SysRole) {
-    const affected = users.filter(u => grants.some(g => g.roleId === role.id && g.userId === u.id && g.status === 'active'));
+    const affected = users.filter(u => assignments.some(a => a.roleId === role.id && a.userId === u.id && a.status === 'active'));
     setConfirm({
       title: `停用「${role.name}」`,
       description: affected.length
@@ -183,6 +204,7 @@ export function RoleManage({ addToast }: Props) {
           else addToast({ type: 'success', title: '角色已启用' });
         }}
         onDelete={() => askDelete(detail)}
+        navigate={navigate}
         addToast={addToast}
         confirm={confirm}
         setConfirm={setConfirm}
@@ -228,19 +250,20 @@ export function RoleManage({ addToast }: Props) {
 
         <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
               <thead>
                 <tr>
-                  {['角色名称', '类型', '状态', '已授权人数', '默认数据范围', '最近修改人', '最近修改时间', '操作'].map(h => (
+                  {['角色名称', '类型', '状态', '已授权人数', '权限摘要', '默认数据范围', '最近修改人', '最近修改时间', '操作'].map(h => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {pageData.length === 0 ? (
-                  <tr><td colSpan={8} style={{ padding: 0 }}><EmptyState title="没有符合条件的角色" description="调整筛选条件，或新建一个定制角色" /></td></tr>
+                  <tr><td colSpan={9} style={{ padding: 0 }}><EmptyState title="没有符合条件的角色" description="调整筛选条件，或新建一个定制角色" /></td></tr>
                 ) : pageData.map((role, idx) => {
-                  const members = countGrantedUsers(role.id, grants);
+                  const members = countGrantedUsers(role.id, assignments);
+                  const summary = permSummary(role);
                   return (
                     <tr key={role.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <td style={tdStyle}>
@@ -252,6 +275,12 @@ export function RoleManage({ addToast }: Props) {
                       </td>
                       <td style={tdStyle}><StatusTag status={statusWord(role.status)} /></td>
                       <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>{members}</td>
+                      <td style={tdStyle}>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#374151' }}>{summary.countText}</div>
+                        {summary.riskText && (
+                          <div style={{ marginTop: 4 }}><Tag label={summary.riskText} color="warning" /></div>
+                        )}
+                      </td>
                       <td style={tdStyle}>{scopeLabel(role.defaultScope)}</td>
                       <td style={tdStyle}>{role.updatedBy}</td>
                       <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", color: '#667085', whiteSpace: 'nowrap' }}>{role.updatedAt}</td>
@@ -288,10 +317,13 @@ export function RoleManage({ addToast }: Props) {
       <RoleFormModal
         open={createOpen}
         copySource={copySource}
+        sourceId={formSourceId}
+        sourceOptions={roles.filter(r => r.status === 'enabled')}
         name={formName}
         desc={formDesc}
         scope={formScope}
         error={formError}
+        onSource={setFormSourceId}
         onName={setFormName}
         onDesc={setFormDesc}
         onScope={setFormScope}
@@ -314,19 +346,44 @@ export function RoleManage({ addToast }: Props) {
   );
 }
 
+/** 列表「权限摘要」：页面/操作计数 + 高危操作点名 */
+function permSummary(role: SysRole): { countText: string; riskText: string } {
+  let pages = 0;
+  let writes = 0;
+  const riskLabels = new Set<string>();
+  for (const p of RESOURCE_PAGES) {
+    const granted = role.pagePerms[p.id] ?? [];
+    if (granted.length === 0) continue;
+    pages += 1;
+    for (const key of granted) {
+      if (key === 'view') continue;
+      writes += 1;
+      const def = p.actions.find(a => a.key === key);
+      if (def?.risk) riskLabels.add(def.label);
+    }
+  }
+  const countText = `${pages} 个页面 · ${writes} 项操作`;
+  const riskText = riskLabels.size > 0 ? `含${Array.from(riskLabels).join('、')} ${riskLabels.size} 项` : '';
+  return { countText, riskText };
+}
+
 function statusWord(status: SysRoleStatus): '启用' | '停用' | '草稿' {
   return status === 'enabled' ? '启用' : status === 'disabled' ? '停用' : '草稿';
 }
 
 function RoleFormModal({
-  open, copySource, name, desc, scope, error, onName, onDesc, onScope, onClose, onSubmit,
+  open, copySource, sourceId, sourceOptions, name, desc, scope, error,
+  onSource, onName, onDesc, onScope, onClose, onSubmit,
 }: {
   open: boolean;
   copySource: SysRole | null;
+  sourceId: string;
+  sourceOptions: SysRole[];
   name: string;
   desc: string;
   scope: ScopeType;
   error: string;
+  onSource: (v: string) => void;
   onName: (v: string) => void;
   onDesc: (v: string) => void;
   onScope: (v: ScopeType) => void;
@@ -353,13 +410,23 @@ function RoleFormModal({
           </InfoBanner>
         ) : (
           <InfoBanner>
-            新建定制角色默认没有业务写权限，保存后请在「页面与按钮权限」中勾选。
+            建议从相近角色复制后再微调，避免从空白矩阵逐格配置造成漏项。
           </InfoBanner>
         )}
         {error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{error}</div>}
         <Field label="角色名称" required>
           <input value={name} onChange={e => onName(e.target.value)} style={inputStyle} placeholder="同一租户内唯一" />
         </Field>
+        {!copySource && (
+          <Field label="从角色复制" hint="复制来源角色的页面、按钮、数据范围与字段策略；选「从空白开始」则默认无业务写权限">
+            <select value={sourceId} onChange={e => onSource(e.target.value)} style={inputStyle}>
+              <option value="">从空白开始（不推荐）</option>
+              {sourceOptions.map(r => (
+                <option key={r.id} value={r.id}>{r.name}（{r.kind === 'preset' ? '预置' : '定制'}）</option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="角色说明">
           <textarea
             value={desc}
@@ -369,7 +436,7 @@ function RoleFormModal({
             placeholder="给其他管理员看的职责说明"
           />
         </Field>
-        {!copySource && (
+        {!copySource && !sourceId && (
           <Field label="默认数据范围" hint="可在角色详情中再调整">
             <select value={scope} onChange={e => onScope(e.target.value as ScopeType)} style={inputStyle}>
               {SCOPE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -381,8 +448,30 @@ function RoleFormModal({
   );
 }
 
+/** 权限矩阵草稿与已发布版本的差异摘要 */
+function draftDiff(role: SysRole, draft: SysRole) {
+  const addedPages: string[] = [];
+  const removedPages: string[] = [];
+  let addedRisk = 0;
+  let removedRisk = 0;
+  for (const p of RESOURCE_PAGES) {
+    const before = new Set(role.pagePerms[p.id] ?? []);
+    const after = new Set(draft.pagePerms[p.id] ?? []);
+    if (after.size > 0 && before.size === 0) addedPages.push(p.name);
+    if (after.size === 0 && before.size > 0) removedPages.push(p.name);
+    for (const a of p.actions) {
+      const b = before.has(a.key);
+      const n = after.has(a.key);
+      if (!b && n && a.risk) addedRisk += 1;
+      if (b && !n && a.risk) removedRisk += 1;
+    }
+  }
+  return { addedPages, removedPages, addedRisk, removedRisk };
+}
+
 function RoleDetail({
-  role, tab, onTabChange, readonly, previewReadOnly, canEdit, canDelete, onBack, onCopy, onDisable, onEnable, onDelete, addToast, confirm, setConfirm,
+  role, tab, onTabChange, readonly, previewReadOnly, canEdit, canDelete,
+  onBack, onCopy, onDisable, onEnable, onDelete, navigate, addToast, confirm, setConfirm,
 }: {
   role: SysRole;
   tab: DetailTab;
@@ -396,30 +485,71 @@ function RoleDetail({
   onDisable: () => void;
   onEnable: () => void;
   onDelete: () => void;
+  navigate: NavigateFn;
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
   confirm: { title: string; description: string; impact?: string; variant?: 'danger' | 'warning'; onConfirm: () => void } | null;
   setConfirm: (c: typeof confirm) => void;
 }) {
   const store = usePermission();
-  const { grants, users, orgs, changeLogs } = store;
+  const { assignments, users, orgs, changeLogs } = store;
   const [draft, setDraft] = useState<SysRole>(role);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
   const locked = readonly || previewReadOnly;
 
   useEffect(() => {
     setDraft(role);
   }, [role]);
 
-  const members = grants.filter(g => g.roleId === role.id);
+  const members = assignments.filter(a => a.roleId === role.id);
+  const activeMemberCount = new Set(members.filter(m => m.status === 'active').map(m => m.userId)).size;
   const history = changeLogs.filter(c => c.roleId === role.id);
   const sourceName = role.copiedFrom ? store.roles.find(r => r.id === role.copiedFrom)?.name : undefined;
   const dirty = JSON.stringify(draft) !== JSON.stringify(role);
+  const diff = useMemo(() => draftDiff(role, draft), [draft, role]);
+  const modules = Array.from(new Set(RESOURCE_PAGES.map(p => p.module)));
+
+  function applyPages(patch: Record<string, PageAction[]>) {
+    setDraft(d => ({ ...d, pagePerms: patch }));
+  }
+
+  function selectAllPages() {
+    const next: Record<string, PageAction[]> = {};
+    for (const p of RESOURCE_PAGES) next[p.id] = p.actions.map(a => a.key);
+    applyPages(next);
+  }
+
+  function selectModule(mod: string) {
+    const next = { ...draft.pagePerms };
+    for (const p of RESOURCE_PAGES.filter(p => p.module === mod)) {
+      next[p.id] = p.actions.map(a => a.key);
+    }
+    applyPages(next);
+  }
+
+  function clearModule(mod: string) {
+    const next = { ...draft.pagePerms };
+    for (const p of RESOURCE_PAGES.filter(p => p.module === mod)) delete next[p.id];
+    applyPages(next);
+  }
+
+  function selectPageActions(p: ResourcePage) {
+    const next = { ...draft.pagePerms };
+    next[p.id] = p.actions.map(a => a.key);
+    applyPages(next);
+  }
+
+  function clearPageActions(p: ResourcePage) {
+    const next = { ...draft.pagePerms };
+    delete next[p.id];
+    applyPages(next);
+  }
 
   function save(force = false) {
     if (locked) return;
-    if (!force && hasHighRiskGrant(role.pagePerms, draft.pagePerms)) {
+    if (!force && (diff.addedRisk > 0 || hasHighRiskGrant(role.pagePerms, draft.pagePerms))) {
       setConfirm({
-        title: '确认授予高危权限',
-        description: '本次保存包含删除、审核、导出等风险操作。保存后将立即影响已授权用户的下一次请求。',
+        title: '确认发布高危权限变更',
+        description: `本次变更将为「${role.name}」新增 ${diff.addedRisk} 项高危操作（删除、审核、导出等）。保存后将立即影响 ${activeMemberCount} 名已授权用户的下一次请求。`,
         impact: '高危按钮在前端隐藏的同时，接口访问同样会被拒绝；请确认授权范围无误。',
         variant: 'warning',
         onConfirm: () => { setConfirm(null); save(true); },
@@ -437,8 +567,6 @@ function RoleDetail({
     if (!result.ok) addToast({ type: 'error', title: '保存失败', description: result.error });
     else addToast({ type: 'success', title: '权限已发布', description: `${draft.name} v${role.version + 1}` });
   }
-
-  const modules = Array.from(new Set(RESOURCE_PAGES.map(p => p.module)));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -478,6 +606,7 @@ function RoleDetail({
           <StatusTag status={statusWord(role.status)} />
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>版本 v{role.version}</span>
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>适用租户 {role.tenant}</span>
+          <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>已授权 {activeMemberCount} 人</span>
           {sourceName && <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>复制自 {sourceName}</span>}
           {role.kind === 'preset' && (
             <span style={{ fontSize: 'var(--fs-12)', color: '#C77A16' }}>预置角色不可修改、删除或停用，请复制为定制角色后再调整</span>
@@ -486,17 +615,32 @@ function RoleDetail({
 
         {tab === 'pages' && (
           <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'grid', gap: 10 }}>
               <InfoBanner>
-                按业务模块勾选页面和按钮。取消「查看页面」会同时取消该页全部按钮；勾选任一按钮会自动勾选查看。管理员无需输入权限编码。
+                支持全局、模块、页面三级批量选择。「查看页面」是父权限：勾选任一动作自动勾选查看，取消查看自动清空该页全部动作。批量选中只更新草稿，须「保存并发布」后生效。
               </InfoBanner>
+              {!locked && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <button type="button" style={linkBtnStyle} onClick={selectAllPages}>全选全部页面</button>
+                  <span style={{ color: '#E5E7EB' }}>|</span>
+                  <button type="button" style={{ ...linkBtnStyle, color: '#C73A3A' }} onClick={() => setConfirmClearAll(true)}>清空全部</button>
+                  <span style={{ marginLeft: 'auto', fontSize: 'var(--fs-12)', color: '#667085' }}>
+                    本次草稿：
+                    {diff.addedPages.length > 0 && <span style={{ color: '#248A5A' }}> 新增页面 {diff.addedPages.length}</span>}
+                    {diff.removedPages.length > 0 && <span style={{ color: '#C73A3A' }}> 移除页面 {diff.removedPages.length}</span>}
+                    {diff.addedRisk > 0 && <span style={{ color: '#C77A16' }}> 新增高危操作 {diff.addedRisk}</span>}
+                    {diff.removedRisk > 0 && <span style={{ color: '#667085' }}> 移除高危操作 {diff.removedRisk}</span>}
+                    {diff.addedPages.length + diff.removedPages.length + diff.addedRisk + diff.removedRisk === 0 && ' 暂无变更'}
+                  </span>
+                </div>
+              )}
             </div>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
                 <thead>
                   <tr>
-                    <th style={thStyle}>模块</th>
-                    <th style={thStyle}>页面 / 说明</th>
+                    <th style={thStyle}>模块 / 页面</th>
+                    <th style={{ ...thStyle, width: 150 }}>页面批量</th>
                     {PAGE_ACTION_META.map(a => (
                       <th key={a.key} style={{ ...thStyle, textAlign: 'center', width: 88 }}>
                         {a.label}
@@ -508,40 +652,62 @@ function RoleDetail({
                 <tbody>
                   {modules.map(mod => {
                     const pages = RESOURCE_PAGES.filter(p => p.module === mod);
-                    return pages.map((p, i) => {
-                      const granted = new Set(draft.pagePerms[p.id] ?? []);
-                      return (
-                        <tr key={p.id}>
-                          {i === 0 && (
-                            <td style={{ ...tdStyle, fontWeight: 600, color: '#667085', verticalAlign: 'top' }} rowSpan={pages.length}>
-                              {mod}
+                    const grantedPageCount = pages.filter(p => (draft.pagePerms[p.id] ?? []).length > 0).length;
+                    return [
+                      <tr key={`mod-${mod}`} style={{ background: '#F9FAFB' }}>
+                        <td colSpan={2 + PAGE_ACTION_META.length} style={{ padding: '7px 12px', borderBottom: '1px solid var(--color-border)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 'var(--fs-12)', fontWeight: 700, color: '#374151' }}>{mod}</span>
+                            <span style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF' }}>已授权 {grantedPageCount}/{pages.length} 页</span>
+                            {!locked && (
+                              <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8 }}>
+                                <button type="button" style={linkBtnStyle} onClick={() => selectModule(mod)}>全选本模块</button>
+                                <button type="button" style={{ ...linkBtnStyle, color: '#C73A3A' }} onClick={() => clearModule(mod)}>清空本模块</button>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>,
+                      ...pages.map(p => {
+                        const granted = new Set(draft.pagePerms[p.id] ?? []);
+                        return (
+                          <tr key={p.id}>
+                            <td style={tdStyle}>
+                              <div style={{ fontWeight: 600 }}>{p.name}</div>
+                              <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{p.description}</div>
                             </td>
-                          )}
-                          <td style={tdStyle}>
-                            <div style={{ fontWeight: 600 }}>{p.name}</div>
-                            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{p.description}</div>
-                          </td>
-                          {PAGE_ACTION_META.map(a => {
-                            const available = p.actions.some(x => x.key === a.key);
-                            if (!available) {
-                              return <td key={a.key} style={{ ...tdStyle, textAlign: 'center', color: '#D1D5DB' }}>—</td>;
-                            }
-                            const def = p.actions.find(x => x.key === a.key)!;
-                            const checked = a.key === 'view' ? granted.has('view') || granted.size > 0 : granted.has(a.key);
-                            return (
-                              <td key={a.key} style={{ ...tdStyle, textAlign: 'center' }}>
-                                <CheckCell
-                                  checked={checked}
-                                  disabled={locked}
-                                  risk={def.risk}
-                                  onChange={next => setDraft(d => ({ ...d, pagePerms: applyActionToggle(d.pagePerms, p, a.key as PageAction, next) }))}
-                                />
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    });
+                            <td style={tdStyle}>
+                              {!locked ? (
+                                <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+                                  <button type="button" style={linkBtnStyle} onClick={() => selectPageActions(p)}>全选可用操作</button>
+                                  <button type="button" style={{ ...linkBtnStyle, color: '#C73A3A' }} onClick={() => clearPageActions(p)}>清空操作</button>
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 'var(--fs-11)', color: '#D1D5DB' }}>—</span>
+                              )}
+                            </td>
+                            {PAGE_ACTION_META.map(a => {
+                              const available = p.actions.some(x => x.key === a.key);
+                              if (!available) {
+                                return <td key={a.key} style={{ ...tdStyle, textAlign: 'center', color: '#D1D5DB' }}>—</td>;
+                              }
+                              const def = p.actions.find(x => x.key === a.key)!;
+                              const checked = a.key === 'view' ? granted.has('view') || granted.size > 0 : granted.has(a.key);
+                              return (
+                                <td key={a.key} style={{ ...tdStyle, textAlign: 'center' }}>
+                                  <CheckCell
+                                    checked={checked}
+                                    disabled={locked}
+                                    risk={def.risk}
+                                    onChange={next => setDraft(d => ({ ...d, pagePerms: applyActionToggle(d.pagePerms, p, a.key as PageAction, next) }))}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      }),
+                    ];
                   })}
                 </tbody>
               </table>
@@ -552,7 +718,7 @@ function RoleDetail({
         {tab === 'scope' && (
           <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 20 }}>
             <InfoBanner>
-              系统仅返回同时满足授权范围和业务归属的数据。例如服务商管理员只能看到本服务商、已授权品种和区域内的任务。
+              角色模板只定义范围策略；授权时系统按策略与人员所属组织自动定位权限覆盖根节点（如「本药厂」锚定到药厂根节点）。例外跨组织权限请复制为定制角色，不在用户详情开放任意组织选择。
             </InfoBanner>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16 }}>
               {SCOPE_OPTIONS.map(opt => (
@@ -568,7 +734,7 @@ function RoleDetail({
             </div>
             {draft.defaultScope === 'CUSTOM' && (
               <div style={{ marginTop: 20, display: 'grid', gap: 16 }}>
-                <Field label="组织 / 药厂 / 服务商 / 工作组">
+                <Field label="组织 / 药厂 / 服务商 / 工作组 / 部门">
                   <ChipSelect
                     disabled={locked}
                     values={[
@@ -576,14 +742,19 @@ function RoleDetail({
                       ...draft.customScope.pharmaIds,
                       ...draft.customScope.providerIds,
                       ...draft.customScope.groupIds,
+                      ...draft.customScope.deptIds,
                     ]}
-                    options={orgs.map(o => ({ value: o.id, label: `${o.name}` }))}
+                    options={orgs.map(o => ({
+                      value: o.id,
+                      label: o.type === 'department' ? orgPathLabel(orgs, o.id) : o.name,
+                    }))}
                     onChange={next => {
                       const pharmaIds = next.filter(id => orgs.find(o => o.id === id)?.type === 'pharma');
                       const providerIds = next.filter(id => orgs.find(o => o.id === id)?.type === 'provider');
                       const groupIds = next.filter(id => orgs.find(o => o.id === id)?.type === 'group');
                       const orgIds = next.filter(id => orgs.find(o => o.id === id)?.type === 'platform');
-                      setDraft(d => ({ ...d, customScope: { ...d.customScope, orgIds, pharmaIds, providerIds, groupIds } }));
+                      const deptIds = next.filter(id => orgs.find(o => o.id === id)?.type === 'department');
+                      setDraft(d => ({ ...d, customScope: { ...d.customScope, orgIds, pharmaIds, providerIds, groupIds, deptIds } }));
                     }}
                   />
                 </Field>
@@ -682,36 +853,62 @@ function RoleDetail({
 
         {tab === 'members' && (
           <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 'var(--fs-13)', color: '#667085', flex: 1, minWidth: 0 }}>
+                只读关联视图。角色的授予与回收统一在「用户与组织」的用户详情中完成。
+              </span>
+              <Button variant="primary" size="sm" onClick={() => navigate('departments', { userOrgRoleId: role.id })}>
+                管理这些用户
+              </Button>
+            </div>
             {members.length === 0 ? (
-              <EmptyState title="暂无授权用户" description="请到「用户授权」为该角色添加用户" />
+              <EmptyState
+                title="暂无用户拥有该角色"
+                description="请前往『用户与组织』选择用户后分配角色。"
+                action={
+                  <Button variant="outline" size="sm" onClick={() => navigate('departments', { userOrgRoleId: role.id })}>
+                    前往用户与组织
+                  </Button>
+                }
+              />
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    {['用户', '组织', '生效期', '数据范围', '授权状态', '授权人'].map(h => <th key={h} style={thStyle}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {members.map((g, idx) => {
-                    const user = users.find(u => u.id === g.userId);
-                    return (
-                      <tr key={g.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 600 }}>{user?.name}</div>
-                          <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{user?.account} · {user?.accountStatus === 'enabled' ? '账户启用' : '账户停用'}</div>
-                        </td>
-                        <td style={tdStyle}>{g.orgName}</td>
-                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>
-                          {g.effectiveFrom}{g.effectiveTo ? ` ~ ${g.effectiveTo}` : ' 起长期'}
-                        </td>
-                        <td style={tdStyle}>{scopeLabel(g.scope)}</td>
-                        <td style={tdStyle}><StatusTag status={grantStatusWord(g.status)} /></td>
-                        <td style={tdStyle}>{g.grantedBy}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                  <thead>
+                    <tr>
+                      {['用户', '所属部门', '权限覆盖范围', '生效期', '授权状态', '授权人 / 时间'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members.map((a, idx) => {
+                      const user = users.find(u => u.id === a.userId);
+                      return (
+                        <tr key={a.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                          <td style={tdStyle}>
+                            <div style={{ fontWeight: 600 }}>{user?.name}</div>
+                            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 1 }}>
+                              {user?.account} · {user?.accountStatus === 'enabled' ? '账户启用' : '账户停用'}
+                            </div>
+                          </td>
+                          <td style={tdStyle}>{user ? orgPathLabel(orgs, user.orgId) : '—'}</td>
+                          <td style={tdStyle}>
+                            <div style={{ fontWeight: 500 }}>{a.scopeOrgName}</div>
+                            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 1 }}>{scopeLabel(a.scope)}</div>
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                            {a.effectiveFrom}{a.effectiveTo ? ` ~ ${a.effectiveTo}` : ' 起长期'}
+                          </td>
+                          <td style={tdStyle}><StatusTag status={grantStatusLabel(a.status)} /></td>
+                          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                            {a.grantedBy}
+                            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", marginTop: 1 }}>{a.grantedAt}</div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}
@@ -746,6 +943,19 @@ function RoleDetail({
         )}
       </div>
 
+      {confirmClearAll && (
+        <ConfirmDialog
+          open
+          title="清空全部页面权限"
+          description={`将移除「${role.name}」草稿中的全部页面与操作授权（仅当前角色，不影响其他角色）。`}
+          impact="清空后保存发布，已授权用户将无法访问任何页面。"
+          variant="danger"
+          confirmLabel="确认清空"
+          onConfirm={() => { applyPages({}); setConfirmClearAll(false); }}
+          onCancel={() => setConfirmClearAll(false)}
+        />
+      )}
+
       {confirm && (
         <ConfirmDialog
           open
@@ -759,11 +969,4 @@ function RoleDetail({
       )}
     </div>
   );
-}
-
-function grantStatusWord(status: string): '启用' | '已过期' | '已回收' | '待复核' {
-  if (status === 'expired') return '已过期';
-  if (status === 'revoked') return '已回收';
-  if (status === 'pending_review') return '待复核';
-  return '启用';
 }

@@ -42,3 +42,7 @@ Thumbs.db
 # Local exported demo copies
 Start Execution/
 Start Execution.zip
+
+# Python bytecode (ui-ux-pro-max prompt pack)
+__pycache__/
+*.pyc
