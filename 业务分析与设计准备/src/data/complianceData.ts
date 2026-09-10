@@ -3,14 +3,10 @@ import type {
   Actor,
   ComplianceAuditEvent,
   ComplianceIncident,
-  DemoActivity,
   EligibilityHit,
   EligibilityResult,
   EligibilityVerdict,
-  FilingBatchTask,
   Representative,
-  RepAuthorization,
-  RepTraining,
   Role,
   SelectionRecord,
   Vendor,
@@ -20,36 +16,21 @@ import type {
   VendorDueDiligence,
   VendorProject,
 } from '../types';
-import { DEMO_HOLDER, DEMO_PROVIDER, providers, varieties } from './mockData';
+import { DEMO_HOLDER, DEMO_PROVIDER } from './mockData';
 
 export const MAH_NAME = DEMO_HOLDER;
 export const MAH_ID = 'MAH-001';
 export const DEMO_VENDOR_ID = 'VND-001';
+export const EDU_OPTIONS = ['大专', '本科', '硕士', '博士'];
+export const MED_MAJORS = ['药学', '临床医学', '药物制剂', '护理学', '预防医学', '中药学', '药理学', '生物制药', '相关专业'];
+
 export const CURRENT_PLEDGE_TEMPLATE = '反商业贿赂承诺书 V2026.1';
 export const BIZ_YEAR = 2026;
-export const THERAPY_AREAS = ['心血管', '内分泌', '消化', '肿瘤'] as const;
 export const SERVICE_TYPES = ['学术推广', '会议组织', '问卷调研', '分析报告'] as const;
-
-export const PRODUCT_THERAPY: Record<string, string> = {
-  '阿托伐他汀钙片(20mg)': '心血管',
-  '二甲双胍缓释片(500mg)': '内分泌',
-  '奥美拉唑肠溶胶囊(20mg)': '消化',
-  '氨氯地平片(5mg)': '心血管',
-  '瑞舒伐他汀钙片(10mg)': '心血管',
-};
-
-export const PRODUCT_IDS: Record<string, string> = {
-  '阿托伐他汀钙片(20mg)': 'V-001',
-  '二甲双胍缓释片(500mg)': 'V-002',
-  '奥美拉唑肠溶胶囊(20mg)': 'V-003',
-  '氨氯地平片(5mg)': 'V-004',
-  '瑞舒伐他汀钙片(10mg)': 'V-005',
-};
 
 export const ACTORS = {
   sales: { id: 'U-SALES-01', name: '李强', role: '药厂销售部门' },
   compliance: { id: 'U-COMP-01', name: '周敏', role: '药厂合规部门' },
-  compliance2: { id: 'U-COMP-02', name: '吴岚', role: '合规复核人' },
   vendor: { id: 'U-VND-01', name: '钱薇', role: '服务提供商' },
 } as const;
 
@@ -57,12 +38,6 @@ export function actorOf(role: Role): Actor {
   if (role === '药厂合规部门') return ACTORS.compliance;
   if (role === '服务提供商') return ACTORS.vendor;
   return ACTORS.sales;
-}
-
-export function canFinalApprove(actorId: string, initiatorId: string, previousAssigneeId?: string): string | null {
-  if (actorId === initiatorId) return '同一用户发起的申请不能由本人完成最终审批';
-  if (previousAssigneeId && actorId === previousAssigneeId) return '终审人不得与上一审批人为同一人';
-  return null;
 }
 
 export function bizToday(): string {
@@ -103,41 +78,11 @@ export function allocRepId(rows: { id: string }[]) {
 export function allocVendorId(rows: { id: string }[]) {
   return `VND-${nextNumeric(rows.map((r) => r.id), /^VND-(\d+)/, 3)}`;
 }
-export function allocAuthId(existing: string[]) {
-  return `AUTH-R-${nextNumeric(existing, /^AUTH-R-(\d+)/, 3)}`;
-}
-export function allocAuthNo(existing: string[]) {
-  return `SQ-${BIZ_YEAR}-${nextNumeric(existing, /SQ-\d+-(\d+)/, 3)}`;
-}
-export function allocVerifyId(existing: string[]) {
-  return `VF-${nextNumeric(existing, /^VF-(\d+)/, 3)}`;
-}
-export function allocVerifyTask(existing: string[]) {
-  return `HY-${BIZ_YEAR}-${nextNumeric(existing, /HY-\d+-(\d+)/, 3)}`;
-}
 export function allocAccessNo(existing: string[]) {
   return `ZR-${BIZ_YEAR}-${nextNumeric(existing, /ZR-\d+-(\d+)/, 4)}`;
 }
-export function allocIncidentId(existing: string[]) {
-  return `INC-${nextNumeric(existing, /^INC-(\d+)/, 3)}`;
-}
-export function allocIncidentNo(existing: string[]) {
-  return `WF-${BIZ_YEAR}-${nextNumeric(existing, /WF-\d+-(\d+)/, 3)}`;
-}
-export function allocLogId(existing: string[]) {
-  return `LOG-${nextNumeric(existing, /^LOG-(\d+)/, 4)}`;
-}
-export function allocBatchId(existing: string[]) {
-  return `BVF-${nextNumeric(existing, /^BVF-(\d+)/, 3)}`;
-}
-export function allocActivityId(existing: string[]) {
-  return `ACT-${nextNumeric(existing, /^ACT-(\d+)/, 3)}`;
-}
 export function allocSelId(existing: string[]) {
   return `SEL-${nextNumeric(existing, /^SEL-(\d+)/, 3)}`;
-}
-export function allocTrnId(existing: string[]) {
-  return `TRN-${nextNumeric(existing, /^TRN-(\d+)/, 3)}`;
 }
 export function allocDocId(vendorId: string, existing: string[]) {
   const seq = vendorId.replace(/\D/g, '').padStart(3, '0');
@@ -174,18 +119,6 @@ function ev(time: string, operator: string, role: string, action: string, commen
     approvalId: extra?.approvalId,
     evidenceHash: extra?.evidenceHash,
   };
-}
-
-function auth(partial: Omit<RepAuthorization, 'mahId' | 'productIds'> & Partial<Pick<RepAuthorization, 'mahId' | 'productIds'>>): RepAuthorization {
-  return {
-    ...partial,
-    mahId: partial.mahId || MAH_ID,
-    productIds: partial.productIds?.length ? partial.productIds : partial.products.map((p) => PRODUCT_IDS[p] || p),
-  };
-}
-
-function trn(id: string, repId: string, plan: string, completedAt: string, score: number, validUntil: string, cert: string): RepTraining {
-  return { id, repId, planName: plan, completedAt, examScore: score, validUntil, certFile: cert };
 }
 
 function credit(ok: boolean, date = '2026-01-10'): VendorCreditCompliance | null {
@@ -234,209 +167,173 @@ function dd(id: string, vendorId: string, total: number, grade: Vendor['riskGrad
 
 export const seedRepresentatives: Representative[] = [
   {
-    id: 'REP-001', name: '张伟', idType: '身份证', idNo: '110101198803151234', mobile: '13812340001', email: 'zhangwei@zhilian.com',
+    id: 'REP-001', name: '张伟', gender: '男', photoFile: '照片-张伟.jpg', idNo: '110101198803151234', mobile: '13812340001', email: 'zhangwei@zhilian.com',
     employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: DEMO_PROVIDER, providerId: 'VND-001',
-    initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
+    userId: null,
     employStart: '2025-01-01', employEnd: '2026-12-31',
     education: '本科', major: '药学', school: '中国药科大学', eduProof: '学历证明-张伟.pdf',
-    trainings: [trn('TRN-001', 'REP-001', '2026 医药代表合规培训', '2026-03-12', 92, '2027-03-11', '培训证书-ZW-2026.pdf')],
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-03-12', pledgeFile: '承诺书-张伟.pdf',
-    filingNo: 'YB-BJ-2026-10021', filingStatus: '有效', filingVerifiedAt: '2026-06-01 10:20',
-    riskCheckResult: '通过', riskCheckDate: '2026-03-10', riskCheckEvidence: '风险核验回执-张伟.png', riskCheckOperator: ACTORS.compliance.name,
-    status: '启用', nextVerifyDate: '2026-08-30',
-    authorizations: [
-      auth({ id: 'AUTH-R-001', authNo: 'SQ-2026-001', version: 2, mahId: MAH_ID, productIds: ['V-001', 'V-004'], products: ['阿托伐他汀钙片(20mg)', '氨氯地平片(5mg)'], therapyAreas: ['心血管'], regions: ['陕西', '江苏', '浙江', '广东'], startDate: '2026-04-01', endDate: '2026-12-31', approvalStatus: '通过', fileName: '授权文件-张伟-V2.pdf' }),
-      auth({ id: 'AUTH-R-001-V1', authNo: 'SQ-2026-001', version: 1, mahId: MAH_ID, productIds: ['V-001'], products: ['阿托伐他汀钙片(20mg)'], therapyAreas: ['心血管'], regions: ['陕西', '江苏'], startDate: '2026-01-01', endDate: '2026-03-31', approvalStatus: '撤销', fileName: '授权文件-张伟-V1.pdf', superseded: true, supersededById: 'AUTH-R-001' }),
-    ],
-    verifications: [{ id: 'VF-001', taskNo: 'HY-2026-061', queryKey: 'YB-BJ-2026-10021', result: '有效', method: '人工核验', verifier: '周敏', verifiedAt: '2026-06-01 10:20', nextDate: '2026-08-30', evidence: '备案平台截图-061.png', summary: '姓名、MAH、备案号一致，状态有效' }],
-    incidents: [],
-    timeline: [
-      ev('2025-12-20 09:00', '李强', '业务负责人', '创建', undefined, { operatorId: ACTORS.sales.id, after: '草稿' }),
-      ev('2026-03-12 16:10', '李强', '业务负责人', '提交', '提交准入审批', { operatorId: ACTORS.sales.id, before: '草稿', after: '审核中' }),
-      ev('2026-03-15 11:02', '周敏', 'MAH 合规管理员', '审核通过', undefined, { operatorId: ACTORS.compliance.id, before: '审核中', after: '合格' }),
-      ev('2026-04-01 09:30', '周敏', 'MAH 合规管理员', '准入', '授权 V2 审批通过，状态变更为启用', { operatorId: ACTORS.compliance.id, before: '合格', after: '启用', approvalId: 'APV-2026-0001' }),
-      ev('2026-06-01 10:20', '周敏', 'MAH 合规管理员', '核验', '定期复核通过', { operatorId: ACTORS.compliance.id, evidenceHash: fakeHash('备案平台截图-061.png') }),
+    filingNo: 'YB-BJ-2026-10021', filingReceipt: '备案信息表-张伟.pdf', filingValidUntil: '2027-03-31',
+    filingApprovedAt: '2026-03-18 10:20', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    operations: [
+      { at: '2026-03-10 09:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2026-03-18 10:20', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-BJ-2026-10021，有效期至 2027-03-31' },
     ],
   },
   {
-    id: 'REP-002', name: '李强', idType: '身份证', idNo: '320102198511220018', mobile: '13900001234', email: 'liqiang@baiyi.com',
+    id: 'REP-002', name: '李强', gender: '男', photoFile: '照片-李强.jpg', idNo: '320102198511220018', mobile: '13900001234', email: 'liqiang@baiyi.com',
     employmentType: 'MAH直聘', mah: MAH_NAME, mahId: MAH_ID, provider: 'MAH直聘', providerId: null,
-    initiatorId: ACTORS.sales.id, initiatorName: '王芳',
+    userId: null,
     employStart: '2024-06-01', employEnd: '2027-05-31',
     education: '硕士', major: '临床医学', school: '南京医科大学', eduProof: '学历证明-李强.pdf',
-    trainings: [trn('TRN-002', 'REP-002', '2026 医药代表合规培训', '2026-02-20', 88, '2027-02-19', '培训证书-LQ-2026.pdf')],
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-02-20', pledgeFile: '承诺书-李强.pdf',
-    filingNo: 'YB-JS-2026-08812', filingStatus: '有效', filingVerifiedAt: '2026-07-08 15:00',
-    riskCheckResult: '通过', riskCheckDate: '2026-02-18', riskCheckEvidence: '风险核验-李强.png', riskCheckOperator: '周敏',
-    status: '启用', nextVerifyDate: '2026-10-06',
-    authorizations: [auth({ id: 'AUTH-R-002', authNo: 'SQ-2026-008', version: 1, mahId: MAH_ID, productIds: ['V-002'], products: ['二甲双胍缓释片(500mg)'], therapyAreas: ['内分泌'], regions: ['江苏', '浙江'], startDate: '2026-03-01', endDate: '2026-12-31', approvalStatus: '通过', fileName: '授权文件-李强.pdf' })],
-    verifications: [{ id: 'VF-002', taskNo: 'HY-2026-078', queryKey: `${MAH_NAME} + 李强`, result: '有效', method: '人工核验', verifier: '周敏', verifiedAt: '2026-07-08 15:00', nextDate: '2026-10-06', evidence: '备案平台截图-078.png', summary: 'MAH+姓名查询一致' }],
-    incidents: [],
-    timeline: [ev('2026-02-25 14:40', '周敏', 'MAH 合规管理员', '审核通过', undefined, { operatorId: ACTORS.compliance.id, after: '启用' })],
+    filingNo: 'YB-JS-2026-08812', filingReceipt: '备案信息表-李强.pdf', filingValidUntil: '2027-06-30',
+    filingApprovedAt: '2026-02-25 15:00', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    operations: [
+      { at: '2026-02-18 14:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2026-02-25 15:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-JS-2026-08812' },
+    ],
   },
   {
-    id: 'REP-003', name: '王芳', idType: '身份证', idNo: '440106199204080056', mobile: '13700005678', email: 'wangfang@dongfang.com',
+    id: 'REP-003', name: '王芳', gender: '女', photoFile: '照片-王芳.jpg', idNo: '440106199204080056', mobile: '13700005678', email: 'wangfang@dongfang.com',
     employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '东方恒业推广有限公司', providerId: 'VND-002',
-    initiatorId: ACTORS.sales.id, initiatorName: '陈静',
-    employStart: '2026-05-01', employEnd: '2026-12-31',
-    education: '本科', major: '药物制剂', school: '广东药科大学', eduProof: '学历证明-王芳.pdf',
-    trainings: [trn('TRN-003', 'REP-003', '2026 医药代表合规培训', '2026-05-08', 85, '2027-05-07', '培训证书-WF-2026.pdf')],
-    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-05-08', pledgeFile: '承诺书-王芳.pdf',
-    filingNo: 'YB-GD-2026-13044', filingStatus: '有效', filingVerifiedAt: '2026-05-10 09:40',
-    riskCheckResult: '通过', riskCheckDate: '2026-05-09', riskCheckEvidence: '风险核验-王芳.png', riskCheckOperator: '周敏',
-    status: '审核中', nextVerifyDate: '2026-08-08',
-    authorizations: [],
-    verifications: [{ id: 'VF-003', taskNo: 'HY-2026-090', queryKey: 'YB-GD-2026-13044', result: '有效', method: '人工核验', verifier: '周敏', verifiedAt: '2026-05-10 09:40', nextDate: '2026-08-08', evidence: '备案平台截图-090.png', summary: '备案有效' }],
-    incidents: [],
-    timeline: [ev('2026-05-12 17:05', '陈静', '业务负责人', '提交', '提交准入审批，待合规审核', { operatorId: ACTORS.sales.id, after: '审核中' })],
+    userId: null,
+    employStart: '2025-03-01', employEnd: '2026-09-30',
+    education: '本科', major: '药学', school: '广东药科大学', eduProof: '学历证明-王芳.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-09-05', pledgeFile: '承诺书-王芳.pdf',
+    filingNo: 'YB-GD-2025-30156', filingReceipt: '备案信息表-王芳.pdf', filingValidUntil: '2026-09-25',
+    filingApprovedAt: '2025-09-10 11:00', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    operations: [
+      { at: '2025-09-01 09:30', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2025-09-10 11:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-GD-2025-30156' },
+    ],
   },
   {
-    id: 'REP-004', name: '刘洋', idType: '身份证', idNo: '370102199001120033', mobile: '13611112222', email: 'liuyang@kangsheng.com',
+    id: 'REP-004', name: '刘洋', gender: '男', photoFile: '照片-刘洋.jpg', idNo: '370102199001120033', mobile: '13611112222', email: 'liuyang@kangsheng.com',
     employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '康晟云服科技有限公司', providerId: 'VND-003',
-    initiatorId: ACTORS.sales.id, initiatorName: '杨明',
-    employStart: '2026-04-01', employEnd: '2026-12-31',
-    education: '大专', major: '护理学', school: '山东医学高等专科学校', eduProof: '',
-    trainings: [trn('TRN-004', 'REP-004', '2026 医药代表合规培训', '2026-04-15', 80, '2027-04-14', '培训证书-LY-2026.pdf')],
-    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-04-15', pledgeFile: '承诺书-刘洋.pdf',
-    filingNo: 'YB-SD-2026-07701', filingStatus: '有效', filingVerifiedAt: '2026-04-18 13:10',
-    riskCheckResult: '通过', riskCheckDate: '2026-04-16', riskCheckEvidence: '风险核验-刘洋.png', riskCheckOperator: '周敏',
-    status: '补件中', nextVerifyDate: '2026-07-17',
-    authorizations: [], verifications: [], incidents: [],
-    timeline: [ev('2026-04-20 10:30', '周敏', 'MAH 合规管理员', '补件', '学历证明缺失，请于 5 个工作日内补传', { operatorId: ACTORS.compliance.id, after: '补件中' })],
+    userId: null,
+    employStart: '2025-07-01', employEnd: '2027-06-30',
+    education: '本科', major: '药物制剂', school: '沈阳药科大学', eduProof: '学历证明-刘洋.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-10-12', pledgeFile: '承诺书-刘洋.pdf',
+    filingNo: 'YB-SD-2025-40233', filingReceipt: '备案信息表-刘洋.pdf', filingValidUntil: '2026-10-08',
+    filingApprovedAt: '2025-10-15 09:40', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    operations: [
+      { at: '2025-10-09 10:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2025-10-15 09:40', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-SD-2025-40233' },
+    ],
   },
   {
-    id: 'REP-005', name: '陈静', idType: '身份证', idNo: '330106198712030021', mobile: '13588889999', email: 'chenjing@yongtai.com',
-    employmentType: '授权推广', mah: MAH_NAME, mahId: MAH_ID, provider: '永泰汇通推广有限公司', providerId: 'VND-004',
-    initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
-    employStart: '2026-03-01', employEnd: '2026-12-31',
-    education: '本科', major: '药学', school: '浙江大学', eduProof: '学历证明-陈静.pdf',
-    trainings: [trn('TRN-005', 'REP-005', '2026 医药代表合规培训', '2026-03-20', 90, '2027-03-19', '培训证书-CJ-2026.pdf')],
-    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-03-20', pledgeFile: '承诺书-陈静.pdf',
-    filingNo: 'YB-ZJ-2026-05518', filingStatus: '有效', filingVerifiedAt: '2026-03-22 11:00',
-    riskCheckResult: '通过', riskCheckDate: '2026-03-21', riskCheckEvidence: '风险核验-陈静.png', riskCheckOperator: '周敏',
-    status: '合格', nextVerifyDate: '2026-06-20',
-    authorizations: [auth({ id: 'AUTH-R-005', authNo: 'SQ-2026-019', version: 1, mahId: MAH_ID, productIds: ['V-005'], products: ['瑞舒伐他汀钙片(10mg)'], therapyAreas: ['心血管'], regions: ['全国'], startDate: '2026-08-01', endDate: '2026-12-31', approvalStatus: '待审', fileName: '授权文件-陈静.pdf' })],
-    verifications: [], incidents: [],
-    timeline: [ev('2026-03-25 09:40', '周敏', 'MAH 合规管理员', '审核通过', '准入合格，待授权审批通过后启用', { operatorId: ACTORS.compliance.id, after: '合格' })],
-  },
-  {
-    id: 'REP-006', name: '杨明', idType: '身份证', idNo: '510104198609150042', mobile: '13477776666', email: 'yangming@zhilian.com',
-    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: DEMO_PROVIDER, providerId: 'VND-001',
-    initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
-    employStart: '2025-08-01', employEnd: '2026-12-31',
-    education: '本科', major: '预防医学', school: '四川大学', eduProof: '学历证明-杨明.pdf',
-    trainings: [trn('TRN-006', 'REP-006', '2026 医药代表合规培训', '2026-01-10', 86, '2027-01-09', '培训证书-YM-2026.pdf')],
-    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-01-10', pledgeFile: '承诺书-杨明.pdf',
-    filingNo: 'YB-SC-2025-20110', filingStatus: '有效', filingVerifiedAt: '2026-05-02 16:00',
-    riskCheckResult: '通过', riskCheckDate: '2026-01-08', riskCheckEvidence: '风险核验-杨明.png', riskCheckOperator: '周敏',
-    status: '冻结', nextVerifyDate: '2026-08-01',
-    freezeReason: '超授权学术推广', freezeEvidence: '投诉工单-WF-2026-014.pdf',
-    authorizations: [auth({ id: 'AUTH-R-006', authNo: 'SQ-2026-011', version: 1, mahId: MAH_ID, productIds: ['V-001'], products: ['阿托伐他汀钙片(20mg)'], therapyAreas: ['心血管'], regions: ['陕西'], startDate: '2026-01-15', endDate: '2026-12-31', approvalStatus: '通过', fileName: '授权文件-杨明.pdf' })],
-    verifications: [],
-    incidents: [{
-      id: 'INC-001', incidentNo: 'WF-2026-014', source: '投诉', type: '超授权学术推广', risk: '高', status: '调查中',
-      occurredAt: '2026-08-10', foundAt: '2026-08-12', fact: '在未授权区域组织科室会，已暂停未开始活动。',
-      relatedRep: '杨明', relatedVendor: DEMO_PROVIDER, relatedRepId: 'REP-006', relatedVendorId: 'VND-001', relatedMahId: MAH_ID,
-      relatedProjectId: 'PRJ-001', relatedContractId: 'CT-001',
-      evidenceFiles: ['投诉工单-WF-2026-014.pdf'], initialMeasure: '立即冻结代表及未开始活动',
-      investigationConclusion: '', rectification: '', ownerId: ACTORS.compliance.id, ownerName: '周敏', dueDate: '2026-08-31', reviewConclusion: '',
-    }],
-    timeline: [ev('2026-08-12 18:05', '系统', '系统预警', '冻结', '高风险违规事件 WF-2026-014，自动冻结', { before: '启用', after: '冻结' })],
-  },
-  {
-    id: 'REP-007', name: '赵磊', idType: '身份证', idNo: '610103198402110067', mobile: '13366665555', email: 'zhaolei@zhilian.com',
-    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: DEMO_PROVIDER, providerId: 'VND-001',
-    initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
-    employStart: '2025-02-01', employEnd: '2026-12-31',
-    education: '本科', major: '药学', school: '西安交通大学', eduProof: '学历证明-赵磊.pdf',
-    trainings: [trn('TRN-007', 'REP-007', '2025 医药代表合规培训', '2025-06-01', 78, '2026-05-31', '培训证书-ZL-2025.pdf')],
-    pledgeVersion: '反商业贿赂承诺书 V2025.2', pledgeDate: '2025-06-01', pledgeFile: '承诺书-赵磊.pdf',
-    filingNo: 'YB-SN-2025-04420', filingStatus: '有效', filingVerifiedAt: '2026-04-01 09:00',
-    riskCheckResult: '通过', riskCheckDate: '2025-05-28', riskCheckEvidence: '风险核验-赵磊.png', riskCheckOperator: '周敏',
-    status: '失效', nextVerifyDate: '2026-07-01',
-    authorizations: [auth({ id: 'AUTH-R-007', authNo: 'SQ-2025-044', version: 1, mahId: MAH_ID, productIds: ['V-001'], products: ['阿托伐他汀钙片(20mg)'], therapyAreas: ['心血管'], regions: ['陕西'], startDate: '2025-07-01', endDate: '2026-06-30', approvalStatus: '过期', fileName: '授权文件-赵磊.pdf' })],
-    verifications: [], incidents: [],
-    timeline: [ev('2026-06-01 00:00', '系统', '规则引擎', '修改', '培训有效期届满，主状态自动转为失效', { before: '启用', after: '失效' })],
-  },
-  {
-    id: 'REP-008', name: '孙丽', idType: '身份证', idNo: '210102199508220089', mobile: '13255554444', email: 'sunli@dongfang.com',
-    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '东方恒业推广有限公司', providerId: 'VND-002',
-    initiatorId: ACTORS.sales.id, initiatorName: '陈静',
-    employStart: '2026-08-01', employEnd: '2026-12-31',
-    education: '本科', major: '生物制药', school: '沈阳药科大学', eduProof: '',
-    trainings: [],
-    pledgeVersion: '', pledgeDate: '', pledgeFile: '',
-    filingNo: '', filingStatus: '未核验', filingVerifiedAt: '',
-    riskCheckResult: '待核验', riskCheckDate: '', riskCheckEvidence: '', riskCheckOperator: '',
-    status: '草稿', nextVerifyDate: '',
-    authorizations: [], verifications: [], incidents: [],
-    timeline: [ev('2026-08-20 15:40', '陈静', '业务负责人', '创建', '资料未齐，暂存草稿', { operatorId: ACTORS.sales.id, after: '草稿' })],
-  },
-  {
-    id: 'REP-009', name: '黄峰', idType: '身份证', idNo: '420106198910050011', mobile: '13144443333', email: 'huangfeng@kangsheng.com',
-    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '康晟云服科技有限公司', providerId: 'VND-003',
-    initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
-    employStart: '2025-09-01', employEnd: '2026-12-31',
-    education: '本科', major: '药学', school: '武汉大学', eduProof: '学历证明-黄峰.pdf',
-    trainings: [trn('TRN-009', 'REP-009', '2026 医药代表合规培训', '2026-01-08', 83, '2027-01-07', '培训证书-HF-2026.pdf')],
-    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-01-08', pledgeFile: '承诺书-黄峰.pdf',
-    filingNo: 'YB-HB-2025-16602', filingStatus: '有效', filingVerifiedAt: '2026-06-10 10:00',
-    riskCheckResult: '通过', riskCheckDate: '2026-01-06', riskCheckEvidence: '风险核验-黄峰.png', riskCheckOperator: '周敏',
-    status: '整改中', nextVerifyDate: '2026-09-08',
-    rectification: '补齐培训签到表缺页', rectificationOwner: '黄峰', rectificationDue: '2026-08-30',
-    authorizations: [auth({ id: 'AUTH-R-009', authNo: 'SQ-2026-022', version: 1, mahId: MAH_ID, productIds: ['V-003'], products: ['奥美拉唑肠溶胶囊(20mg)'], therapyAreas: ['消化'], regions: ['浙江'], startDate: '2026-02-01', endDate: '2026-12-31', approvalStatus: '通过', fileName: '授权文件-黄峰.pdf' })],
-    verifications: [],
-    incidents: [{
-      id: 'INC-002', incidentNo: 'WF-2026-009', source: '内审', type: '培训记录不完整', risk: '低', status: '整改中',
-      occurredAt: '2026-07-20', foundAt: '2026-07-22', fact: '抽检发现培训签到表缺页，限期补齐。',
-      relatedRep: '黄峰', relatedVendor: '康晟云服科技有限公司', relatedRepId: 'REP-009', relatedVendorId: 'VND-003', relatedMahId: MAH_ID,
-      evidenceFiles: ['抽检记录.pdf'], initialMeasure: '限期整改', investigationConclusion: '资料缺页属实',
-      rectification: '补齐签到表', ownerId: 'REP-009', ownerName: '黄峰', dueDate: '2026-08-30', reviewConclusion: '',
-    }],
-    timeline: [ev('2026-07-22 16:10', '周敏', 'MAH 合规管理员', '修改', '低风险预警，限期整改', { operatorId: ACTORS.compliance.id, after: '整改中' })],
-  },
-  {
-    id: 'REP-010', name: '吴超', idType: '身份证', idNo: '350102199203180074', mobile: '13022221111', email: 'wuchao@yongtai.com',
+    id: 'REP-005', name: '陈静', gender: '女', photoFile: '照片-陈静.jpg', idNo: '330106198712030021', mobile: '13588889999', email: 'chenjing@yongtai.com',
     employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '永泰汇通推广有限公司', providerId: 'VND-004',
-    initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
-    employStart: '2025-11-01', employEnd: '2026-12-31',
-    education: '本科', major: '中药学', school: '福建中医药大学', eduProof: '学历证明-吴超.pdf',
-    trainings: [trn('TRN-010', 'REP-010', '2026 医药代表合规培训', '2026-02-01', 91, '2027-01-31', '培训证书-WC-2026.pdf')],
-    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-02-01', pledgeFile: '承诺书-吴超.pdf',
-    filingNo: 'YB-FJ-2025-19033', filingStatus: '有效', filingVerifiedAt: '2026-06-02 09:10',
-    riskCheckResult: '通过', riskCheckDate: '2026-01-30', riskCheckEvidence: '风险核验-吴超.png', riskCheckOperator: '周敏',
-    status: '启用', nextVerifyDate: '2026-08-31',
-    authorizations: [auth({ id: 'AUTH-R-010', authNo: 'SQ-2026-030', version: 1, mahId: MAH_ID, productIds: ['V-005'], products: ['瑞舒伐他汀钙片(10mg)'], therapyAreas: ['心血管'], regions: ['全国'], startDate: '2026-03-01', endDate: '2026-12-31', approvalStatus: '通过', fileName: '授权文件-吴超.pdf' })],
-    verifications: [], incidents: [],
-    timeline: [ev('2026-02-10 11:00', '周敏', 'MAH 合规管理员', '审核通过', undefined, { operatorId: ACTORS.compliance.id, after: '启用' })],
+    userId: null,
+    employStart: '2024-09-01', employEnd: '2026-08-31',
+    education: '大专', major: '药学', school: '浙江医药高等专科学校', eduProof: '学历证明-陈静.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-08-15', pledgeFile: '承诺书-陈静.pdf',
+    filingNo: 'YB-ZJ-2025-50077', filingReceipt: '备案信息表-陈静.pdf', filingValidUntil: '2026-08-20',
+    filingApprovedAt: '2025-08-18 14:30', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    operations: [
+      { at: '2025-08-12 09:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2025-08-18 14:30', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-ZJ-2025-50077' },
+    ],
   },
   {
-    id: 'REP-011', name: '周宁', idType: '身份证', idNo: '310115198001090015', mobile: '13988880000', email: 'zhouning@exited.com',
+    id: 'REP-006', name: '杨明', gender: '男', photoFile: '照片-杨明.jpg', idNo: '510104198609150042', mobile: '13477776666', email: 'yangming@zhilian.com',
+    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: DEMO_PROVIDER, providerId: 'VND-001',
+    userId: 'u-yangming',
+    employStart: '2026-09-01', employEnd: '2028-08-31',
+    education: '本科', major: '临床医学', school: '四川大学华西医学中心', eduProof: '学历证明-杨明.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-09-02', pledgeFile: '承诺书-杨明.pdf',
+    filingNo: '', filingReceipt: '', filingValidUntil: '',
+    status: '待审核',
+    operations: [
+      { at: '2026-09-06 10:15', by: ACTORS.sales.name, action: '提交审核' },
+    ],
+  },
+  {
+    id: 'REP-007', name: '赵磊', gender: '男', photoFile: '照片-赵磊.jpg', idNo: '610103198402110067', mobile: '13366665555', email: 'zhaolei@zhilian.com',
+    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: DEMO_PROVIDER, providerId: 'VND-001',
+    userId: null,
+    employStart: '2026-08-01', employEnd: '2028-07-31',
+    education: '本科', major: '中药学', school: '陕西中医药大学', eduProof: '学历证明-赵磊.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-08-05', pledgeFile: '承诺书-赵磊.pdf',
+    filingNo: '', filingReceipt: '', filingValidUntil: '',
+    status: '待审核',
+    operations: [
+      { at: '2026-09-01 09:00', by: ACTORS.sales.name, action: '提交审核' },
+    ],
+  },
+  {
+    id: 'REP-008', name: '孙丽', gender: '女', photoFile: '照片-孙丽.jpg', idNo: '210102199508220089', mobile: '13255554444', email: 'sunli@dongfang.com',
+    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '东方恒业推广有限公司', providerId: 'VND-002',
+    userId: 'u-sunli',
+    employStart: '2026-07-01', employEnd: '2028-06-30',
+    education: '本科', major: '预防医学', school: '大连医科大学', eduProof: '',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-07-10', pledgeFile: '承诺书-孙丽.pdf',
+    filingNo: '', filingReceipt: '', filingValidUntil: '',
+    status: '已驳回', reviewNote: '学历证明附件不清晰，请重新上传后再提交',
+    operations: [
+      { at: '2026-07-08 09:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2026-07-12 16:40', by: ACTORS.compliance.name, action: '驳回', note: '学历证明附件不清晰' },
+    ],
+  },
+  {
+    id: 'REP-009', name: '黄峰', gender: '男', photoFile: '照片-黄峰.jpg', idNo: '420106198910050011', mobile: '13144443333', email: 'huangfeng@kangsheng.com',
+    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '康晟云服科技有限公司', providerId: 'VND-003',
+    userId: 'u-huangfeng',
+    employStart: '2025-05-01', employEnd: '2027-04-30',
+    education: '硕士', major: '药理学', school: '华中科技大学同济医学院', eduProof: '学历证明-黄峰.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-01-08', pledgeFile: '承诺书-黄峰.pdf',
+    filingNo: 'YB-HB-2026-60019', filingReceipt: '备案信息表-黄峰.pdf', filingValidUntil: '2026-12-31',
+    filingApprovedAt: '2026-01-12 10:00', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    operations: [
+      { at: '2026-01-05 09:30', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2026-01-12 10:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-HB-2026-60019' },
+    ],
+  },
+  {
+    id: 'REP-010', name: '吴超', gender: '男', photoFile: '照片-吴超.jpg', idNo: '350102199203180074', mobile: '13022221111', email: 'wuchao@yongtai.com',
+    employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '永泰汇通推广有限公司', providerId: 'VND-004',
+    userId: 'u-wuchao',
+    employStart: '2024-10-01', employEnd: '2026-09-30',
+    education: '本科', major: '生物制药', school: '福州大学', eduProof: '学历证明-吴超.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-12-01', pledgeFile: '承诺书-吴超.pdf',
+    filingNo: 'YB-FJ-2025-70104', filingReceipt: '备案信息表-吴超.pdf', filingValidUntil: '2026-11-30',
+    filingApprovedAt: '2025-12-05 11:20', filingApprovedBy: ACTORS.compliance.name,
+    status: '已停用', stopReason: '离职',
+    operations: [
+      { at: '2025-11-28 09:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2025-12-05 11:20', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-FJ-2025-70104' },
+      { at: '2026-08-20 10:00', by: ACTORS.compliance.name, action: '停用', note: '离职；请在国家平台注销备案' },
+    ],
+  },
+  {
+    id: 'REP-011', name: '周宁', gender: '女', photoFile: '照片-周宁.jpg', idNo: '310115198001090015', mobile: '13988880000', email: 'zhouning@exited.com',
     employmentType: 'MAH直聘', mah: MAH_NAME, mahId: MAH_ID, provider: 'MAH直聘', providerId: null,
-    initiatorId: ACTORS.sales.id, initiatorName: '王芳',
-    employStart: '2022-01-01', employEnd: '2026-03-31',
-    education: '硕士', major: '药理学', school: '复旦大学', eduProof: '学历证明-周宁.pdf',
-    trainings: [trn('TRN-011', 'REP-011', '2025 医药代表合规培训', '2025-01-10', 95, '2026-01-09', '培训证书-ZN-2025.pdf')],
-    pledgeVersion: '反商业贿赂承诺书 V2025.2', pledgeDate: '2025-01-10', pledgeFile: '承诺书-周宁.pdf',
-    filingNo: 'YB-SH-2022-00018', filingStatus: '失效', filingVerifiedAt: '2026-04-01 09:00',
-    riskCheckResult: '通过', riskCheckDate: '2025-01-08', riskCheckEvidence: '风险核验-周宁.png', riskCheckOperator: '周敏',
-    status: '退出', nextVerifyDate: '',
-    authorizations: [], verifications: [], incidents: [],
-    timeline: [ev('2026-04-01 10:00', '王芳', '业务负责人', '退出', '劳动关系终止，停止授权', { after: '退出' })],
+    userId: null,
+    employStart: '2023-04-01', employEnd: '2026-03-31',
+    education: '本科', major: '药学', school: '复旦大学药学院', eduProof: '学历证明-周宁.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-04-01', pledgeFile: '承诺书-周宁.pdf',
+    filingNo: 'YB-SH-2023-80321', filingReceipt: '备案信息表-周宁.pdf', filingValidUntil: '2026-03-31',
+    filingApprovedAt: '2025-04-03 09:00', filingApprovedBy: ACTORS.compliance.name,
+    status: '已停用', stopReason: '停止授权',
+    operations: [
+      { at: '2023-04-03 09:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-SH-2023-80321' },
+      { at: '2026-03-25 15:00', by: ACTORS.compliance.name, action: '停用', note: '停止授权，档案保留' },
+    ],
   },
   {
-    id: 'REP-012', name: '马超', idType: '身份证', idNo: '130102199607210028', mobile: '15800001111', email: 'machao@boxin.com',
+    id: 'REP-012', name: '马超', gender: '男', photoFile: '照片-马超.jpg', idNo: '130102199607210028', mobile: '15800001111', email: 'machao@boxin.com',
     employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: '博远医药咨询有限公司', providerId: 'VND-006',
-    initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
-    employStart: '2026-07-01', employEnd: '2026-12-31',
-    education: '高中', major: '—', school: '—', eduProof: '',
-    trainings: [],
-    pledgeVersion: '', pledgeDate: '', pledgeFile: '',
-    filingNo: '', filingStatus: '未核验', filingVerifiedAt: '',
-    riskCheckResult: '未通过', riskCheckDate: '2026-07-20', riskCheckEvidence: '风险核验-马超-未通过.png', riskCheckOperator: '周敏',
-    status: '驳回', nextVerifyDate: '',
-    authorizations: [], verifications: [], incidents: [],
-    timeline: [ev('2026-07-20 14:00', '周敏', 'MAH 合规管理员', '审核驳回', '学历未达大专及以上，且存在未解除风险记录', { operatorId: ACTORS.compliance.id, after: '驳回' })],
+    userId: null,
+    employStart: '2025-11-01', employEnd: '2027-10-31',
+    education: '本科', major: '药学', school: '河北医科大学', eduProof: '学历证明-马超.pdf',
+    pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-02-01', pledgeFile: '承诺书-马超.pdf',
+    filingNo: 'YB-TJ-2026-90215', filingReceipt: '备案信息表-马超.pdf', filingValidUntil: '2027-01-15',
+    filingApprovedAt: '2026-02-05 10:30', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    operations: [
+      { at: '2026-01-30 09:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2026-02-05 10:30', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-TJ-2026-90215' },
+    ],
   },
 ];
 
@@ -650,10 +547,7 @@ export const seedVendors: Vendor[] = [
   },
 ];
 
-export const seedBatchTasks: FilingBatchTask[] = [];
 
-export const PRODUCT_OPTIONS = varieties.map((v) => ({ value: v, label: v }));
-export const PROVIDER_OPTIONS = providers.map((p) => ({ value: p, label: p }));
 
 export function maskIdNo(idNo: string): string {
   if (!idNo || idNo.length < 8) return idNo || '—';
@@ -668,14 +562,9 @@ export function maskAccount(account: string): string {
   return `${account.slice(0, 4)}${'*'.repeat(account.length - 8)}${account.slice(-4)}`;
 }
 
-export function hasActiveAuth(rep: Representative, date = bizToday()): boolean {
-  return rep.authorizations.some((a) =>
-    a.approvalStatus === '通过' && !a.superseded && a.startDate <= date && a.endDate >= date
-  );
-}
-
-export function canRepJoinActivity(rep: Representative): boolean {
-  return (rep.status === '已备案' || rep.status === '启用') && hasActiveAuth(rep) && (rep.filingStatus === '已备案' || rep.filingStatus === '有效');
+/** 代表当前是否可参与推广：已备案且未过备案到期日。供拜访等模块调用。 */
+export function isRepUsable(rep: Representative, date = bizToday()): boolean {
+  return rep.status === '已备案' && !!rep.filingValidUntil && rep.filingValidUntil >= date;
 }
 
 function worst(a: EligibilityVerdict, b: EligibilityVerdict): EligibilityVerdict {
@@ -689,64 +578,6 @@ function fold(hits: EligibilityHit[]): EligibilityVerdict {
     if (h.result === 'BLOCK' || h.result === 'MANUAL_REVIEW') verdict = worst(verdict, h.result);
   });
   return verdict;
-}
-
-export function checkRepresentativeEligibility(
-  rep: Representative,
-  input: { product: string; therapyArea: string; region: string; date: string; vendor?: string; hospital?: string },
-  vendor?: Vendor,
-): EligibilityResult {
-  const hits: EligibilityHit[] = [];
-  const push = (code: string, rule: string, result: EligibilityHit['result'], detail: string) => {
-    hits.push({ code, rule, result, detail });
-  };
-
-  if (rep.status !== '已备案' && rep.status !== '启用') push('REP-001', '代表未完成备案', 'BLOCK', `当前状态：${rep.status}`);
-  else push('REP-001', '代表未完成备案', 'OK', '已完成国家备案登记');
-
-  if (rep.filingStatus !== '已备案' && rep.filingStatus !== '有效') {
-    push('REP-002', '备案状态无效', 'BLOCK', `备案状态：${rep.filingStatus}`);
-  } else push('REP-002', '备案状态无效或超过复核期限', 'OK', '备案有效且未超期');
-
-  const trainingExpired = !rep.trainingValidUntil || rep.trainingValidUntil < input.date;
-  const pledgeBad = !rep.pledgeDate || rep.pledgeVersion !== CURRENT_PLEDGE_TEMPLATE;
-  if (trainingExpired || pledgeBad || (rep.examScore ?? 0) < 60) {
-    push('REP-003', '培训、考核或合规承诺失效', 'BLOCK', trainingExpired ? `培训有效期至 ${rep.trainingValidUntil || '—'}` : pledgeBad ? `承诺书须为 ${CURRENT_PLEDGE_TEMPLATE}` : '成绩不合格');
-  } else push('REP-003', '培训、考核或合规承诺失效', 'OK', `培训有效至 ${rep.trainingValidUntil}`);
-
-  const covering = rep.authorizations.filter((a) =>
-    a.approvalStatus === '通过' && !a.superseded && a.startDate <= input.date && a.endDate >= input.date
-  );
-  if (covering.length === 0) push('REP-004', '无覆盖活动日期的有效授权', 'BLOCK', `活动日期 ${input.date} 无有效授权`);
-  else push('REP-004', '无覆盖活动日期的有效授权', 'OK', `命中授权 ${covering.map((a) => a.authNo).join('、')}`);
-
-  const mahOk = covering.every((a) => a.mahId === rep.mahId);
-  const scopeOk = covering.some((a) =>
-    (a.products.includes(input.product) || a.productIds.includes(PRODUCT_IDS[input.product])) &&
-    (a.therapyAreas.includes(input.therapyArea) || a.therapyAreas.length === 0) &&
-    (a.regions.includes(input.region) || a.regions.includes('全国'))
-  );
-  if (covering.length > 0 && (!scopeOk || !mahOk)) {
-    push('REP-005', '产品/治疗领域/区域超出授权', 'BLOCK', !mahOk ? '责任 MAH 与雇佣关系不一致' : `${input.product} / ${input.therapyArea} / ${input.region} 不在授权范围`);
-  } else if (covering.length > 0) {
-    push('REP-005', '产品/治疗领域/区域超出授权', 'OK', '产品、治疗领域、区域均在授权内');
-  }
-
-  const vendorBlocked = !!vendor && (
-    ['冻结', '退出', '限制合作'].includes(vendor.status)
-    || (!!vendor.accessValidUntil && vendor.accessValidUntil < input.date && vendor.status !== '复审中')
-  );
-  if (vendorBlocked) push('REP-006', '代表所属服务商冻结、退出或复审失效', 'BLOCK', `服务商状态：${vendor!.status}`);
-  else push('REP-006', '代表所属服务商冻结、退出或复审失效', 'OK', vendor ? `服务商 ${vendor.status}` : '无所属服务商或直聘');
-
-  const openMajor = rep.incidents.some((i) => i.risk === '高' && i.status !== '已结案');
-  if (openMajor) push('REP-007', '代表存在未结案重大违规', 'BLOCK', '存在未结案高风险违规事件');
-  else push('REP-007', '代表存在未结案重大违规', 'OK', '无未结案重大违规');
-
-  if (!input.hospital) push('REP-008', '医疗机构准入状态未知或不允许', 'MANUAL_REVIEW', '未提供医疗机构，需人工确认');
-  else push('REP-008', '医疗机构准入状态未知或不允许', 'OK', `医疗机构：${input.hospital}`);
-
-  return { verdict: fold(hits), hits };
 }
 
 export function checkVendorEligibility(
@@ -793,24 +624,16 @@ export function checkVendorEligibility(
 
   const assigned = input.assignedRepIds || [];
   if (assigned.length === 0) {
-    push('VND-005', '拟分配代表不满足 REP-001 至 REP-007', 'MANUAL_REVIEW', '未指定拟分配代表');
+    push('VND-005', '拟分配代表未完成备案或备案已过期', 'MANUAL_REVIEW', '未指定拟分配代表');
   } else {
     const blocked: string[] = [];
     assigned.forEach((id) => {
       const r = reps.find((x) => x.id === id);
       if (!r) { blocked.push(`${id} 不存在`); return; }
-      const el = checkRepresentativeEligibility(r, {
-        product: r.authorizations.find((a) => a.approvalStatus === '通过' && !a.superseded)?.products[0] || input.serviceType,
-        therapyArea: r.authorizations.find((a) => a.approvalStatus === '通过' && !a.superseded)?.therapyAreas[0] || '',
-        region: input.region,
-        date: input.date,
-        hospital: '演示医院',
-      }, vendor);
-      const hard = el.hits.filter((h) => h.result === 'BLOCK' && /^REP-00[1-7]$/.test(h.code));
-      if (hard.length) blocked.push(`${r.name}(${id}): ${hard.map((h) => h.code).join(',')}`);
+      if (!isRepUsable(r, input.date)) blocked.push(`${r.name}(${id}) 未备案或备案已过期`);
     });
-    if (blocked.length) push('VND-005', '拟分配代表不满足 REP-001 至 REP-007', 'BLOCK', blocked.join('；'));
-    else push('VND-005', '拟分配代表不满足 REP-001 至 REP-007', 'OK', assigned.join('、'));
+    if (blocked.length) push('VND-005', '拟分配代表未完成备案或备案已过期', 'BLOCK', blocked.join('；'));
+    else push('VND-005', '拟分配代表未完成备案或备案已过期', 'OK', assigned.join('、'));
   }
 
   if (input.amount && activeContract && input.amount > activeContract.amountCap) {
@@ -860,17 +683,16 @@ export function checkSettlementEligibility(
   }
 
   if (!project || project.assignedRepIds.length === 0) {
-    push('SET-005', '涉及代表存在活动时点备案/授权失效', 'MANUAL_REVIEW', '项目未绑定代表');
+    push('SET-005', '涉及代表备案已过期或未备案', 'MANUAL_REVIEW', '项目未绑定代表');
   } else {
-    const date = bizToday();
     const bad = project.assignedRepIds.map((id) => {
       const r = reps.find((x) => x.id === id);
       if (!r) return `${id} 缺失`;
-      if (r.filingStatus !== '有效' || !hasActiveAuth(r, date)) return `${r.name} 备案/授权失效`;
+      if (!isRepUsable(r)) return `${r.name} 备案已过期或未备案`;
       return null;
     }).filter(Boolean);
-    if (bad.length) push('SET-005', '涉及代表存在活动时点备案/授权失效', 'BLOCK', bad.join('；'));
-    else push('SET-005', '涉及代表存在活动时点备案/授权失效', 'OK', '活动时点代表备案与授权有效');
+    if (bad.length) push('SET-005', '涉及代表备案已过期或未备案', 'BLOCK', bad.join('；'));
+    else push('SET-005', '涉及代表备案已过期或未备案', 'OK', '代表备案均在有效期内');
   }
 
   if (!project) {
@@ -903,21 +725,33 @@ export function checkSettlementEligibility(
   return { verdict: fold(hits), hits };
 }
 
+/** D3 推导：由所属组织推导雇佣类型与服务商（服务商/工作组树下→派遣+上溯服务商；否则 MAH 直聘） */
+export function deriveEmployment(
+  orgs: { id: string; name: string; type: string; parentId?: string | null }[],
+  orgId: string,
+): { employmentType: 'MAH直聘' | '服务商派遣'; providerName: string; providerId: string | null } {
+  let cur = orgs.find((o) => o.id === orgId);
+  while (cur) {
+    if (cur.type === 'provider') {
+      const vendor = seedVendors.find((v) => v.name === cur!.name);
+      return { employmentType: '服务商派遣', providerName: cur.name, providerId: vendor?.id ?? null };
+    }
+    cur = cur.parentId ? orgs.find((o) => o.id === cur!.parentId) : undefined;
+  }
+  return { employmentType: 'MAH直聘', providerName: 'MAH直聘', providerId: null };
+}
+
 export const emptyRepresentative = (): Omit<Representative, 'id'> => ({
-  name: '', idType: '身份证', idNo: '', mobile: '', email: '',
+  name: '', gender: '男', photoFile: '', idNo: '', mobile: '', email: '',
   employmentType: '服务商派遣', mah: MAH_NAME, mahId: MAH_ID, provider: DEMO_PROVIDER, providerId: DEMO_VENDOR_ID,
-  initiatorId: ACTORS.sales.id, initiatorName: ACTORS.sales.name,
+  userId: null,
   employStart: '', employEnd: '',
   education: '本科', major: '', school: '', eduProof: '',
-  trainingPlan: '2026 医药代表合规培训', trainingDate: '', examScore: 0, trainingValidUntil: '', trainingCert: '', trainings: [],
   pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '', pledgeFile: '',
-  filingNo: '', filingStatus: '待提交', filingVerifiedAt: '',
-  riskCheckResult: '待核验', riskCheckDate: '', riskCheckEvidence: '', riskCheckOperator: '',
-  status: '草稿', nextVerifyDate: '',
-  authorizations: [], verifications: [], incidents: [], timeline: [],
+  filingNo: '', filingReceipt: '', filingValidUntil: '',
+  status: '待审核',
+  operations: [],
 });
-
-export const seedActivities: DemoActivity[] = [];
 
 export const emptyVendor = (): Omit<Vendor, 'id'> => ({
   name: '', creditCode: '', legalRep: '', address: '', establishedAt: '', businessScope: '',
@@ -932,15 +766,5 @@ export const emptyVendor = (): Omit<Vendor, 'id'> => ({
   creditCompliance: null, selectionRecords: [], dueDiligence: null, acceptances: [],
   incidents: [], timeline: [], missingDocs: [],
 });
-
-export function emptyIncident(): Omit<ComplianceIncident, 'id' | 'incidentNo'> {
-  return {
-    source: '业务发现', type: '', risk: '中', status: '调查中',
-    occurredAt: '', foundAt: bizToday(), fact: '',
-    evidenceFiles: [], initialMeasure: '', investigationConclusion: '',
-    rectification: '', ownerId: '', ownerName: '', dueDate: '', reviewConclusion: '',
-    relatedMahId: MAH_ID,
-  };
-}
 
 export type { AcceptanceRecord, VendorDocument };

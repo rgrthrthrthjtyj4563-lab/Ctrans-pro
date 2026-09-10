@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, PencilLine, BarChart2, Eye } from 'lucide-react';
+import { Plus, PencilLine, BarChart2 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { Button } from '../components/Button';
@@ -231,9 +231,6 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
               ) : rows.map((p) => {
                 const actual = actualAmountOf(p, tasks);
                 const rowDiff = budgetDiffOf(p, tasks);
-                const linkedTask = tasks.find((task) => task.provider === p.provider
-                  && task.varieties.some((variety) => p.varieties.includes(variety))
-                  && (p.regions.includes(REGION_NATIONWIDE) || task.regions.some((region) => p.regions.includes(region))));
                 return (
                   <tr key={p.id}>
                     <td style={tdText}>{p.year}</td>
@@ -248,11 +245,6 @@ export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
                     <td style={tdText}>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {canWrite && <Button variant="ghost" size="sm" icon={<PencilLine size={13} />} onClick={() => openEdit(p)}>编辑</Button>}
-                        {linkedTask && (
-                          <Button variant="ghost" size="sm" icon={<Eye size={13} />} onClick={() => navigate('task-dispatch', { taskId: linkedTask.id })}>
-                            查看任务详情
-                          </Button>
-                        )}
                         <Button
                           variant="ghost"
                           size="sm"

@@ -8,7 +8,7 @@ export interface DashboardLayoutState {
   sizes: Record<string, SectionSize>;
 }
 
-function storageKey(boardKey: 'pharma' | 'provider') {
+function storageKey(boardKey: 'pharma' | 'provider' | 'platform') {
   return `beiyi.dashboardLayout.${boardKey}`;
 }
 
@@ -78,7 +78,7 @@ function sanitize(
 }
 
 function readLayout(
-  boardKey: 'pharma' | 'provider',
+  boardKey: 'pharma' | 'provider' | 'platform',
   sectionIds: string[],
   defaultHidden: string[],
   specs: Record<string, SectionSizeSpec>,
@@ -92,7 +92,7 @@ function readLayout(
   }
 }
 
-function writeLayout(boardKey: 'pharma' | 'provider', state: DashboardLayoutState) {
+function writeLayout(boardKey: 'pharma' | 'provider' | 'platform', state: DashboardLayoutState) {
   try {
     localStorage.setItem(storageKey(boardKey), JSON.stringify(state));
   } catch {
@@ -101,7 +101,7 @@ function writeLayout(boardKey: 'pharma' | 'provider', state: DashboardLayoutStat
 }
 
 export function useDashboardLayout(
-  boardKey: 'pharma' | 'provider',
+  boardKey: 'pharma' | 'provider' | 'platform',
   sectionIds: string[],
   defaultHidden: string[],
   specs: Record<string, SectionSizeSpec>,

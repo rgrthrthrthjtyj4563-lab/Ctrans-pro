@@ -1,17 +1,18 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Role } from '../types';
+import type { AuthPrincipal } from '../auth/authTypes';
+import { drainLoginAuditEvents } from '../auth/mockGateway';
 import {
-  LOGIN_ROLE_MAP,
   PERM_ORGS,
   PERM_USERS,
   PRESET_ROLES,
-  countGrantedUsers,
   emptyCustomScope,
   enterpriseRootOf,
   isHighRiskRole,
   nextId,
   nowStamp,
   pageHasAction,
+  perspectiveRoleOf,
   resolveGrantAnchor,
   sameLevelDeptNameExists,
   scopeLabel,
@@ -50,6 +51,9 @@ interface PermissionStore {
   orgs: PermOrg[];
   changeLogs: RoleChangeLog[];
   auditEvents: PermAuditEvent[];
+  /** 已认证主体（当前用户 + 当前生效授权角色 + 数据范围） */
+  principal: AuthPrincipal;
+  /** 旧三类页面视角的兼容派生值；页面写操作正逐步改用 can()/组织类型判断 */
   loginRole: Role;
   mappedRole: SysRole;
   preview: PreviewState | null;
@@ -60,10 +64,9 @@ interface PermissionStore {
   startPreview: (state: Omit<PreviewState, 'startedAt'>) => void;
   exitPreview: () => void;
   createRole: (input: { name: string; description: string; defaultScope: ScopeType }) => { ok: boolean; error?: string; role?: SysRole };
-  copyRole: (sourceId: string, name: string, description: string) => { ok: boolean; error?: string; role?: SysRole };
   updateRole: (roleId: string, patch: Partial<SysRole>, summary: string) => { ok: boolean; error?: string };
   setRoleStatus: (roleId: string, status: SysRoleStatus, reason: string) => { ok: boolean; error?: string; affected?: PermUser[] };
-  deleteRole: (roleId: string) => { ok: boolean; error?: string };
+  deleteRole: (roleId: string, reason?: string) => { ok: boolean; error?: string; affected?: PermUser[] };
   createAssignment: (input: { userId: string; roleId: string; effectiveFrom: string; effectiveTo?: string; reason?: string }) => { ok: boolean; error?: string; pendingReview?: boolean };
   revokeAssignment: (assignmentId: string, reason: string) => { ok: boolean; error?: string };
   createUser: (input: { name: string; account: string; phone: string; email: string; orgId: string }) => { ok: boolean; error?: string; user?: PermUser };
@@ -76,23 +79,28 @@ interface PermissionStore {
 
 const PermissionContext = createContext<PermissionStore | null>(null);
 
-const ACTOR = '李航';
-const ACTOR_ROLE = '药厂销售管理员';
-const ACTOR_ORG = '百益制药';
-
-export function PermissionProvider({ loginRole, children }: { loginRole: Role; children: ReactNode }) {
+/** 运行时权限上下文：当前用户 + 当前生效授权角色 + 当前数据范围 */
+export function PermissionProvider({ principal, children }: { principal: AuthPrincipal; children: ReactNode }) {
   const [roles, setRoles] = useState<SysRole[]>(() => [...PRESET_ROLES, ...seedCustomRoles]);
   const [assignments, setAssignments] = useState<RoleAssignment[]>(() => [...seedAssignments]);
   const [orgs, setOrgs] = useState<PermOrg[]>(() => [...PERM_ORGS]);
   const [users, setUsers] = useState<PermUser[]>(() => [...PERM_USERS]);
+  // createAssignment 等回调需要读取「同一次事件里刚创建」的用户，闭包 state 会过期
+  const usersRef = useRef(users);
+  usersRef.current = users;
   const [changeLogs, setChangeLogs] = useState<RoleChangeLog[]>(() => [...seedChangeLogs]);
-  const [auditEvents, setAuditEvents] = useState<PermAuditEvent[]>(() => [...seedPermAudit]);
+  const [auditEvents, setAuditEvents] = useState<PermAuditEvent[]>(
+    // 登录成功/失败审计在认证网关内存中缓冲，壳挂载时并入操作日志
+    () => [...drainLoginAuditEvents(), ...seedPermAudit],
+  );
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
-  const mappedRole = useMemo(() => {
-    const id = LOGIN_ROLE_MAP[loginRole];
-    return roles.find(r => r.id === id) ?? roles[0];
-  }, [loginRole, roles]);
+  const mappedRole = useMemo(
+    () => roles.find(r => r.id === principal.roleId) ?? roles[0],
+    [principal.roleId, roles],
+  );
+  const loginRole = useMemo(() => perspectiveRoleOf(mappedRole), [mappedRole]);
+  const ACTOR = principal.name;
 
   const effectiveRole = useMemo(() => {
     if (!preview) return mappedRole;
@@ -103,9 +111,9 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
     const event: PermAuditEvent = {
       id: nextId('PE'),
       time: nowStamp(),
-      actor: ACTOR,
-      actorRole: ACTOR_ROLE,
-      org: ACTOR_ORG,
+      actor: principal.name,
+      actorRole: principal.roleName,
+      org: principal.orgName,
       resource: partial.resource ?? `${partial.module}`,
       decision: '允许',
       reason: '',
@@ -115,7 +123,7 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
       ...partial,
     };
     setAuditEvents(prev => [event, ...prev]);
-  }, []);
+  }, [principal.name, principal.roleName, principal.orgName]);
 
   const pushLog = useCallback((roleId: string, action: string, summary: string, extra?: Partial<RoleChangeLog>) => {
     const role = roles.find(r => r.id === roleId);
@@ -203,39 +211,10 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
     return { ok: true, role: created };
   }, [logAudit, mappedRole.fieldPolicies, preview, pushLog, roles]);
 
-  const copyRole = useCallback((sourceId: string, name: string, description: string) => {
-    if (preview) return { ok: false, error: '预览模式禁止写操作' };
-    const source = roles.find(r => r.id === sourceId);
-    if (!source) return { ok: false, error: '来源角色不存在' };
-    const trimmed = name.trim();
-    if (!trimmed) return { ok: false, error: '请填写角色名称' };
-    if (roles.some(r => r.name === trimmed)) return { ok: false, error: '同一租户内角色名称必须唯一' };
-    const created: SysRole = {
-      ...source,
-      id: nextId('role-custom'),
-      name: trimmed,
-      description: description.trim() || `从「${source.name}」复制`,
-      kind: 'custom',
-      status: 'draft',
-      copiedFrom: source.id,
-      version: 1,
-      updatedBy: ACTOR,
-      updatedAt: nowStamp(),
-      pagePerms: { ...source.pagePerms },
-      fieldPolicies: { ...source.fieldPolicies },
-      customScope: { ...source.customScope, orgIds: [...source.customScope.orgIds], pharmaIds: [...source.customScope.pharmaIds], providerIds: [...source.customScope.providerIds], groupIds: [...source.customScope.groupIds], deptIds: [...source.customScope.deptIds], varietyIds: [...source.customScope.varietyIds], regionCodes: [...source.customScope.regionCodes] },
-    };
-    setRoles(prev => [created, ...prev]);
-    pushLog(created.id, '复制角色', `从「${source.name}」复制`, { beforeSummary: source.name, afterSummary: '定制 / 草稿', version: 1 });
-    logAudit({ module: '角色管理', action: '复制角色', target: trimmed, roleName: source.name, resource: 'roles.create', beforeSummary: source.name, afterSummary: '定制 / 草稿' });
-    return { ok: true, role: created };
-  }, [logAudit, preview, pushLog, roles]);
-
   const updateRole = useCallback((roleId: string, patch: Partial<SysRole>, summary: string) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
     const current = roles.find(r => r.id === roleId);
     if (!current) return { ok: false, error: '角色不存在' };
-    if (current.kind === 'preset') return { ok: false, error: '预置角色只读，请复制后编辑' };
     if (patch.name && roles.some(r => r.id !== roleId && r.name === patch.name)) {
       return { ok: false, error: '同一租户内角色名称必须唯一' };
     }
@@ -271,7 +250,6 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
     const current = roles.find(r => r.id === roleId);
     if (!current) return { ok: false, error: '角色不存在' };
-    if (current.kind === 'preset') return { ok: false, error: '预置角色不可停用或删除' };
     const affectedIds = assignments.filter(a => a.roleId === roleId && a.status === 'active').map(a => a.userId);
     const affected = users.filter(u => affectedIds.includes(u.id));
     setRoles(prev => prev.map(r => (r.id === roleId ? { ...r, status, version: r.version + 1, updatedBy: ACTOR, updatedAt: nowStamp() } : r)));
@@ -283,28 +261,47 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
       roleName: current.name,
       resource: 'roles.edit',
       reason,
-      afterSummary: `${status} · 影响 ${affected.length} 人`,
+      afterSummary: `${status === 'enabled' ? '启用' : '停用'} · 影响 ${affected.length} 人`,
     });
     return { ok: true, affected };
   }, [assignments, logAudit, preview, pushLog, roles, users]);
 
-  const deleteRole = useCallback((roleId: string) => {
+  const deleteRole = useCallback((roleId: string, reason = '删除角色') => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
     const current = roles.find(r => r.id === roleId);
     if (!current) return { ok: false, error: '角色不存在' };
-    if (current.kind === 'preset') return { ok: false, error: '预置角色不可删除' };
-    if (current.status !== 'draft') return { ok: false, error: '仅未发布的草稿角色可删除' };
-    if (countGrantedUsers(roleId, assignments) > 0 || assignments.some(a => a.roleId === roleId)) {
-      return { ok: false, error: '已被授权或引用的角色不可删除' };
+    // 高危删除守卫：仍有有效授权（active / 待复核）时阻止，须先在「用户与组织」回收；
+    // 历史已回收 / 已过期的引用保留为记录，不阻止删除
+    const activeAssignments = assignments.filter(
+      a => a.roleId === roleId && (a.status === 'active' || a.status === 'pending_review'),
+    );
+    if (activeAssignments.length > 0) {
+      const affected = users.filter(u => activeAssignments.some(a => a.userId === u.id));
+      return {
+        ok: false,
+        error: `尚有 ${affected.length} 名用户持有该角色的有效授权，请先在「用户与组织」回收后再删除`,
+        affected,
+      };
     }
+    const historyCount = assignments.filter(a => a.roleId === roleId).length;
+    const statusWord: Record<SysRoleStatus, string> = { enabled: '启用', disabled: '停用', draft: '草稿' };
     setRoles(prev => prev.filter(r => r.id !== roleId));
-    logAudit({ module: '角色管理', action: '删除角色', target: current.name, roleName: current.name, resource: 'roles.delete', reason: '删除未引用草稿' });
+    logAudit({
+      module: '角色管理',
+      action: '删除角色',
+      target: current.name,
+      roleName: current.name,
+      resource: 'roles.delete',
+      reason,
+      beforeSummary: `${current.kind === 'preset' ? '预置' : '定制'} · ${statusWord[current.status]} · v${current.version}`,
+      afterSummary: historyCount > 0 ? `已删除 · 保留 ${historyCount} 条历史授权记录` : '已删除 · 无历史授权',
+    });
     return { ok: true };
-  }, [assignments, logAudit, preview, roles]);
+  }, [assignments, logAudit, preview, roles, users]);
 
   const createAssignment = useCallback((input: { userId: string; roleId: string; effectiveFrom: string; effectiveTo?: string; reason?: string }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
-    const user = users.find(u => u.id === input.userId);
+    const user = usersRef.current.find(u => u.id === input.userId);
     if (!user) return { ok: false, error: '用户不存在' };
     const role = roles.find(r => r.id === input.roleId);
     if (!role) return { ok: false, error: '角色不存在' };
@@ -315,8 +312,11 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
     if (input.effectiveTo && input.effectiveTo < input.effectiveFrom) {
       return { ok: false, error: '到期日期不能早于生效日期' };
     }
-    if (user.account === 'lihang' && (input.roleId === 'role-sys-admin' || input.roleId === 'role-platform-ops')) {
-      return { ok: false, error: '授权人不得授予超出自身管理边界的角色' };
+    if (
+      principal.scope !== 'ALL_PLATFORM' &&
+      (input.roleId === 'role-sys-admin' || input.roleId === 'role-platform-ops')
+    ) {
+      return { ok: false, error: '授权人不得授予超出自身管理边界的角色（平台级角色仅平台侧可授）' };
     }
     const highRisk = isHighRiskRole(role);
     const temporary = Boolean(input.effectiveTo);
@@ -358,7 +358,7 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
         : `${scopeOrgName} · ${scopeLabel(scope)}`,
     });
     return { ok: true, pendingReview };
-  }, [assignments, logAudit, orgs, preview, roles, users]);
+  }, [assignments, logAudit, orgs, preview, principal.scope, roles]);
 
   const revokeAssignment = useCallback((assignmentId: string, reason: string) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
@@ -411,6 +411,8 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
       createdAt: nowStamp(),
     };
     setUsers(prev => [...prev, user]);
+    // 同一事件里可能立即 createAssignment（新建用户即分配角色），闭包/渲染都拿不到新值，这里即时同步 ref
+    usersRef.current = [...usersRef.current, user];
     logAudit({
       module: MOD_USER_ORG,
       action: '新建用户',
@@ -549,6 +551,7 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
     orgs,
     changeLogs,
     auditEvents,
+    principal,
     loginRole,
     mappedRole,
     preview,
@@ -559,7 +562,6 @@ export function PermissionProvider({ loginRole, children }: { loginRole: Role; c
     startPreview,
     exitPreview,
     createRole,
-    copyRole,
     updateRole,
     setRoleStatus,
     deleteRole,

@@ -21,9 +21,11 @@ Thumbs.db
 
 # Local agent / IDE skill copies
 .agent/
+.agents/
 .claude/
 .codebuddy/
 .codex/
+.codex_work/
 .continue/
 .cursor/
 .gemini/
@@ -34,6 +36,7 @@ Thumbs.db
 .trae/
 .windsurf/
 .zcode/
+skills-lock.json
 
 # Temp
 .tmp-*
@@ -42,6 +45,13 @@ Thumbs.db
 # Local exported demo copies
 Start Execution/
 Start Execution.zip
+
+# Local working materials (design drafts, exports, standalone prompt projects)
+stitch_/
+output/
+交付物/
+执行提示词/
+执行提示词.zip
 
 # Python bytecode (ui-ux-pro-max prompt pack)
 __pycache__/

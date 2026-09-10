@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Copy, Eye, Plus, Shield, Trash2 } from 'lucide-react';
+import { ArrowLeft, Eye, Pencil, Plus, Shield, Trash2 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
@@ -8,7 +8,7 @@ import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { MetricCard } from '../components/MetricCard';
-import { StatusTag, Tag } from '../components/StatusTag';
+import { StatusTag } from '../components/StatusTag';
 import { usePermission } from '../context/PermissionContext';
 import {
   PAGE_ACTION_META,
@@ -71,8 +71,6 @@ export function RoleManage({ addToast, navigate }: Props) {
   const [tab, setTab] = useState<DetailTab>('pages');
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [copySource, setCopySource] = useState<SysRole | null>(null);
-  const [formSourceId, setFormSourceId] = useState('');
   const [formName, setFormName] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formScope, setFormScope] = useState<ScopeType>('PHARMA');
@@ -83,6 +81,7 @@ export function RoleManage({ addToast, navigate }: Props) {
     description: string;
     impact?: string;
     variant?: 'danger' | 'warning';
+    confirmLabel?: string;
     onConfirm: () => void;
   } | null>(null);
 
@@ -93,7 +92,6 @@ export function RoleManage({ addToast, navigate }: Props) {
   const filtered = useMemo(() => {
     return roles.filter(r => {
       if (applied.name && !r.name.includes(applied.name)) return false;
-      if (applied.kind && r.kind !== applied.kind) return false;
       if (applied.status && r.status !== applied.status) return false;
       return true;
     });
@@ -101,47 +99,33 @@ export function RoleManage({ addToast, navigate }: Props) {
 
   const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const detail = roles.find(r => r.id === detailId) ?? null;
-  const readonly = !detail || detail.kind === 'preset' || !canEdit;
+  const readonly = !detail || !canEdit;
 
   const stats = useMemo(() => ({
-    preset: roles.filter(r => r.kind === 'preset').length,
-    custom: roles.filter(r => r.kind === 'custom').length,
+    total: roles.length,
+    draft: roles.filter(r => r.status === 'draft').length,
     enabled: roles.filter(r => r.status === 'enabled').length,
     members: new Set(assignments.filter(a => a.status === 'active').map(a => a.userId)).size,
   }), [roles, assignments]);
 
   function openCreate() {
-    setFormSourceId(roles.find(r => r.id === 'role-pharma-sales')?.id ?? '');
     setFormName('');
     setFormDesc('');
     setFormScope('PHARMA');
-    setFormError('');
-    setCopySource(null);
-    setCreateOpen(true);
-  }
-
-  function openCopy(role: SysRole) {
-    setCopySource(role);
-    setFormName(`${role.name}-副本`);
-    setFormDesc(`从「${role.name}」复制的定制角色`);
-    setFormScope(role.defaultScope);
     setFormError('');
     setCreateOpen(true);
   }
 
   function submitCreate() {
-    const source = copySource ?? roles.find(r => r.id === formSourceId);
-    const result = source
-      ? store.copyRole(source.id, formName, formDesc)
-      : store.createRole({ name: formName, description: formDesc, defaultScope: formScope });
+    const result = store.createRole({ name: formName, description: formDesc, defaultScope: formScope });
     if (!result.ok) {
       setFormError(result.error || '保存失败');
       return;
     }
     addToast({
       type: 'success',
-      title: copySource ? '角色已复制' : '角色已创建',
-      description: `${formName}（草稿${source && !copySource ? `，从「${source.name}」复制` : '，默认无业务写权限'}）`,
+      title: '角色已创建',
+      description: `${formName}（草稿 · 默认无业务写权限，可在详情中配置后发布）`,
     });
     setCreateOpen(false);
     if (result.role) {
@@ -169,15 +153,43 @@ export function RoleManage({ addToast, navigate }: Props) {
   }
 
   function askDelete(role: SysRole) {
+    // 高危删除：仍有有效授权时先拦截并引导回收，无有效授权方可删除
+    const activeAssignments = assignments.filter(
+      a => a.roleId === role.id && (a.status === 'active' || a.status === 'pending_review'),
+    );
+    const affectedUsers = users.filter(u => activeAssignments.some(a => a.userId === u.id));
+    if (affectedUsers.length > 0) {
+      setConfirm({
+        title: `「${role.name}」尚有有效授权，暂不可删除`,
+        description: `以下 ${affectedUsers.length} 名用户仍持有该角色的有效授权，须先在「用户与组织」回收全部授权后才能删除。`,
+        impact: affectedUsers.map(u => `${u.name}（${u.orgName}）`).join('、'),
+        variant: 'warning',
+        confirmLabel: '去用户与组织回收',
+        onConfirm: () => {
+          setConfirm(null);
+          navigate('departments', { userOrgRoleId: role.id });
+        },
+      });
+      return;
+    }
+    const historyCount = assignments.filter(a => a.roleId === role.id).length;
+    const logCount = changeLogs.filter(c => c.roleId === role.id).length;
     setConfirm({
       title: `删除「${role.name}」`,
-      description: '仅草稿且未被授权的角色可以删除，删除后不可恢复。',
+      description: `将永久删除该角色（${statusWord(role.status)} · v${role.version}），删除后不可恢复。`,
+      impact: [
+        historyCount > 0
+          ? `历史授权记录 ${historyCount} 条：保留供审计查询，用户详情中将展示为「(已删除角色)」`
+          : '无任何授权记录',
+        logCount > 0 ? `角色变更记录 ${logCount} 条：随角色一并不可再访问` : '无角色变更记录',
+      ].join('；') + '。',
       variant: 'danger',
+      confirmLabel: '确认删除',
       onConfirm: () => {
-        const r = store.deleteRole(role.id);
+        const r = store.deleteRole(role.id, '管理员删除角色');
         if (!r.ok) addToast({ type: 'error', title: '无法删除', description: r.error });
         else {
-          addToast({ type: 'success', title: '角色已删除' });
+          addToast({ type: 'success', title: '角色已删除', description: role.name });
           if (detailId === role.id) setDetailId(null);
         }
         setConfirm(null);
@@ -196,7 +208,6 @@ export function RoleManage({ addToast, navigate }: Props) {
         canEdit={canEdit}
         canDelete={canDelete}
         onBack={() => setDetailId(null)}
-        onCopy={() => openCopy(detail)}
         onDisable={() => askDisable(detail)}
         onEnable={() => {
           const r = store.setRoleStatus(detail.id, 'enabled', '重新启用');
@@ -216,7 +227,7 @@ export function RoleManage({ addToast, navigate }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="角色管理"
-        description="以角色为模板配置页面、按钮、数据范围和敏感字段。预置角色只读，定制角色可从预置复制。"
+        description="以角色为模板配置页面、按钮、数据范围和敏感字段，改动「保存并发布」后生效。"
         actions={canCreate ? (
           <Button variant="primary" size="md" icon={<Plus size={14} />} onClick={openCreate}>新建角色</Button>
         ) : undefined}
@@ -224,8 +235,8 @@ export function RoleManage({ addToast, navigate }: Props) {
 
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-          <MetricCard title="预置角色" value={stats.preset} icon={Shield} compact />
-          <MetricCard title="定制角色" value={stats.custom} icon={Shield} iconColor="#2F6BCE" iconBg="#EBF2FE" compact />
+          <MetricCard title="角色总数" value={stats.total} icon={Shield} compact />
+          <MetricCard title="草稿中" value={stats.draft} icon={Shield} iconColor="#2F6BCE" iconBg="#EBF2FE" compact />
           <MetricCard title="启用中" value={stats.enabled} icon={Shield} iconColor="#248A5A" iconBg="#E6F5ED" compact />
           <MetricCard title="有效授权人数" value={stats.members} icon={Shield} iconColor="#C77A16" iconBg="#FEF3E2" compact />
         </div>
@@ -233,7 +244,6 @@ export function RoleManage({ addToast, navigate }: Props) {
         <FilterBar
           fields={[
             { id: 'name', label: '角色名称', type: 'text', placeholder: '搜索角色名称' },
-            { id: 'kind', label: '角色类型', type: 'select', options: [{ value: 'preset', label: '预置' }, { value: 'custom', label: '定制' }] },
             { id: 'status', label: '状态', type: 'select', options: [{ value: 'enabled', label: '启用' }, { value: 'disabled', label: '停用' }, { value: 'draft', label: '草稿' }] },
           ]}
           values={filters}
@@ -250,17 +260,17 @@ export function RoleManage({ addToast, navigate }: Props) {
 
         <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
               <thead>
                 <tr>
-                  {['角色名称', '类型', '状态', '已授权人数', '权限摘要', '默认数据范围', '最近修改人', '最近修改时间', '操作'].map(h => (
+                  {['角色名称', '状态', '已授权人数', '权限摘要', '默认数据范围', '最近修改人', '最近修改时间', '操作'].map(h => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {pageData.length === 0 ? (
-                  <tr><td colSpan={9} style={{ padding: 0 }}><EmptyState title="没有符合条件的角色" description="调整筛选条件，或新建一个定制角色" /></td></tr>
+                  <tr><td colSpan={8} style={{ padding: 0 }}><EmptyState title="没有符合条件的角色" description="调整筛选条件，或新建一个角色" /></td></tr>
                 ) : pageData.map((role, idx) => {
                   const members = countGrantedUsers(role.id, assignments);
                   const summary = permSummary(role);
@@ -270,32 +280,32 @@ export function RoleManage({ addToast, navigate }: Props) {
                         <div style={{ fontWeight: 600 }}>{role.name}</div>
                         <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{role.description}</div>
                       </td>
-                      <td style={tdStyle}>
-                        <Tag label={role.kind === 'preset' ? '预置' : '定制'} color={role.kind === 'preset' ? 'brand' : 'info'} />
-                      </td>
                       <td style={tdStyle}><StatusTag status={statusWord(role.status)} /></td>
                       <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>{members}</td>
                       <td style={tdStyle}>
                         <div style={{ fontSize: 'var(--fs-12)', color: '#374151' }}>{summary.countText}</div>
-                        {summary.riskText && (
-                          <div style={{ marginTop: 4 }}><Tag label={summary.riskText} color="warning" /></div>
-                        )}
                       </td>
                       <td style={tdStyle}>{scopeLabel(role.defaultScope)}</td>
                       <td style={tdStyle}>{role.updatedBy}</td>
                       <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", color: '#667085', whiteSpace: 'nowrap' }}>{role.updatedAt}</td>
                       <td style={tdStyle}>
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <Button variant="ghost" size="sm" icon={<Eye size={13} />} onClick={() => { setDetailId(role.id); setTab('pages'); }}>
-                            {role.kind === 'preset' ? '查看' : '配置'}
-                          </Button>
-                          {canCreate && (
-                            <Button variant="ghost" size="sm" icon={<Copy size={13} />} onClick={() => openCopy(role)}>复制</Button>
+                          {canEdit && !previewReadOnly ? (
+                            <Button variant="ghost" size="sm" icon={<Pencil size={13} />} onClick={() => { setDetailId(role.id); setTab('pages'); }}>编辑</Button>
+                          ) : (
+                            <Button variant="ghost" size="sm" icon={<Eye size={13} />} onClick={() => { setDetailId(role.id); setTab('pages'); }}>查看</Button>
                           )}
-                          {role.kind === 'custom' && role.status === 'enabled' && canEdit && (
+                          {canEdit && role.status === 'enabled' && (
                             <Button variant="ghost" size="sm" onClick={() => askDisable(role)}>停用</Button>
                           )}
-                          {role.kind === 'custom' && role.status === 'draft' && canDelete && (
+                          {canEdit && role.status !== 'enabled' && (
+                            <Button variant="ghost" size="sm" onClick={() => {
+                              const r = store.setRoleStatus(role.id, 'enabled', '重新启用');
+                              if (!r.ok) addToast({ type: 'error', title: '无法启用', description: r.error });
+                              else addToast({ type: 'success', title: '角色已启用' });
+                            }}>启用</Button>
+                          )}
+                          {canDelete && (
                             <Button variant="ghost" size="sm" icon={<Trash2 size={13} />} onClick={() => askDelete(role)}>删除</Button>
                           )}
                         </div>
@@ -316,14 +326,10 @@ export function RoleManage({ addToast, navigate }: Props) {
 
       <RoleFormModal
         open={createOpen}
-        copySource={copySource}
-        sourceId={formSourceId}
-        sourceOptions={roles.filter(r => r.status === 'enabled')}
         name={formName}
         desc={formDesc}
         scope={formScope}
         error={formError}
-        onSource={setFormSourceId}
         onName={setFormName}
         onDesc={setFormDesc}
         onScope={setFormScope}
@@ -338,6 +344,7 @@ export function RoleManage({ addToast, navigate }: Props) {
           description={confirm.description}
           impact={confirm.impact}
           variant={confirm.variant}
+          confirmLabel={confirm.confirmLabel}
           onConfirm={confirm.onConfirm}
           onCancel={() => setConfirm(null)}
         />
@@ -346,11 +353,10 @@ export function RoleManage({ addToast, navigate }: Props) {
   );
 }
 
-/** 列表「权限摘要」：页面/操作计数 + 高危操作点名 */
-function permSummary(role: SysRole): { countText: string; riskText: string } {
+/** 列表「权限摘要」：页面/操作计数 */
+function permSummary(role: SysRole): { countText: string } {
   let pages = 0;
   let writes = 0;
-  const riskLabels = new Set<string>();
   for (const p of RESOURCE_PAGES) {
     const granted = role.pagePerms[p.id] ?? [];
     if (granted.length === 0) continue;
@@ -358,13 +364,9 @@ function permSummary(role: SysRole): { countText: string; riskText: string } {
     for (const key of granted) {
       if (key === 'view') continue;
       writes += 1;
-      const def = p.actions.find(a => a.key === key);
-      if (def?.risk) riskLabels.add(def.label);
     }
   }
-  const countText = `${pages} 个页面 · ${writes} 项操作`;
-  const riskText = riskLabels.size > 0 ? `含${Array.from(riskLabels).join('、')} ${riskLabels.size} 项` : '';
-  return { countText, riskText };
+  return { countText: `${pages} 个页面 · ${writes} 项操作` };
 }
 
 function statusWord(status: SysRoleStatus): '启用' | '停用' | '草稿' {
@@ -372,18 +374,14 @@ function statusWord(status: SysRoleStatus): '启用' | '停用' | '草稿' {
 }
 
 function RoleFormModal({
-  open, copySource, sourceId, sourceOptions, name, desc, scope, error,
-  onSource, onName, onDesc, onScope, onClose, onSubmit,
+  open, name, desc, scope, error,
+  onName, onDesc, onScope, onClose, onSubmit,
 }: {
   open: boolean;
-  copySource: SysRole | null;
-  sourceId: string;
-  sourceOptions: SysRole[];
   name: string;
   desc: string;
   scope: ScopeType;
   error: string;
-  onSource: (v: string) => void;
   onName: (v: string) => void;
   onDesc: (v: string) => void;
   onScope: (v: ScopeType) => void;
@@ -393,40 +391,24 @@ function RoleFormModal({
   return (
     <Modal
       open={open}
-      title={copySource ? `复制角色 · ${copySource.name}` : '新建定制角色'}
+      title="新建角色"
       onClose={onClose}
       width={560}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button variant="primary" onClick={onSubmit}>{copySource ? '复制为定制角色' : '创建草稿'}</Button>
+          <Button variant="primary" onClick={onSubmit}>创建草稿</Button>
         </>
       }
     >
       <div style={{ display: 'grid', gap: 14 }}>
-        {copySource ? (
-          <InfoBanner>
-            复制结果始终为定制角色。来源角色不受影响，可在复制后单独调整页面、按钮和数据范围。
-          </InfoBanner>
-        ) : (
-          <InfoBanner>
-            建议从相近角色复制后再微调，避免从空白矩阵逐格配置造成漏项。
-          </InfoBanner>
-        )}
+        <InfoBanner>
+          新角色以草稿创建，默认仅有工作台查看权限；创建后进入角色详情配置页面、按钮、数据范围与敏感字段，「保存并发布」后生效。
+        </InfoBanner>
         {error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{error}</div>}
         <Field label="角色名称" required>
           <input value={name} onChange={e => onName(e.target.value)} style={inputStyle} placeholder="同一租户内唯一" />
         </Field>
-        {!copySource && (
-          <Field label="从角色复制" hint="复制来源角色的页面、按钮、数据范围与字段策略；选「从空白开始」则默认无业务写权限">
-            <select value={sourceId} onChange={e => onSource(e.target.value)} style={inputStyle}>
-              <option value="">从空白开始（不推荐）</option>
-              {sourceOptions.map(r => (
-                <option key={r.id} value={r.id}>{r.name}（{r.kind === 'preset' ? '预置' : '定制'}）</option>
-              ))}
-            </select>
-          </Field>
-        )}
         <Field label="角色说明">
           <textarea
             value={desc}
@@ -436,13 +418,11 @@ function RoleFormModal({
             placeholder="给其他管理员看的职责说明"
           />
         </Field>
-        {!copySource && !sourceId && (
-          <Field label="默认数据范围" hint="可在角色详情中再调整">
-            <select value={scope} onChange={e => onScope(e.target.value as ScopeType)} style={inputStyle}>
-              {SCOPE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </Field>
-        )}
+        <Field label="默认数据范围" hint="可在角色详情中再调整">
+          <select value={scope} onChange={e => onScope(e.target.value as ScopeType)} style={inputStyle}>
+            {SCOPE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </Field>
       </div>
     </Modal>
   );
@@ -471,7 +451,7 @@ function draftDiff(role: SysRole, draft: SysRole) {
 
 function RoleDetail({
   role, tab, onTabChange, readonly, previewReadOnly, canEdit, canDelete,
-  onBack, onCopy, onDisable, onEnable, onDelete, navigate, addToast, confirm, setConfirm,
+  onBack, onDisable, onEnable, onDelete, navigate, addToast, confirm, setConfirm,
 }: {
   role: SysRole;
   tab: DetailTab;
@@ -481,13 +461,12 @@ function RoleDetail({
   canEdit: boolean;
   canDelete: boolean;
   onBack: () => void;
-  onCopy: () => void;
   onDisable: () => void;
   onEnable: () => void;
   onDelete: () => void;
   navigate: NavigateFn;
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  confirm: { title: string; description: string; impact?: string; variant?: 'danger' | 'warning'; onConfirm: () => void } | null;
+  confirm: { title: string; description: string; impact?: string; variant?: 'danger' | 'warning'; confirmLabel?: string; onConfirm: () => void } | null;
   setConfirm: (c: typeof confirm) => void;
 }) {
   const store = usePermission();
@@ -503,7 +482,6 @@ function RoleDetail({
   const members = assignments.filter(a => a.roleId === role.id);
   const activeMemberCount = new Set(members.filter(m => m.status === 'active').map(m => m.userId)).size;
   const history = changeLogs.filter(c => c.roleId === role.id);
-  const sourceName = role.copiedFrom ? store.roles.find(r => r.id === role.copiedFrom)?.name : undefined;
   const dirty = JSON.stringify(draft) !== JSON.stringify(role);
   const diff = useMemo(() => draftDiff(role, draft), [draft, role]);
   const modules = Array.from(new Set(RESOURCE_PAGES.map(p => p.module)));
@@ -583,14 +561,13 @@ function RoleDetail({
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="outline" size="md" icon={<ArrowLeft size={14} />} onClick={onBack}>返回列表</Button>
-            {canEdit && <Button variant="outline" size="md" icon={<Copy size={14} />} onClick={onCopy}>复制</Button>}
-            {role.kind === 'custom' && role.status === 'enabled' && canEdit && (
+            {canEdit && role.status === 'enabled' && (
               <Button variant="outline" size="md" onClick={onDisable}>停用</Button>
             )}
-            {role.kind === 'custom' && role.status !== 'enabled' && canEdit && (
+            {canEdit && role.status !== 'enabled' && (
               <Button variant="outline" size="md" onClick={onEnable}>启用</Button>
             )}
-            {role.kind === 'custom' && role.status === 'draft' && canDelete && (
+            {canDelete && (
               <Button variant="danger" size="md" icon={<Trash2 size={14} />} onClick={onDelete}>删除</Button>
             )}
             {!locked && (
@@ -602,15 +579,10 @@ function RoleDetail({
 
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Tag label={role.kind === 'preset' ? '预置角色' : '定制角色'} color={role.kind === 'preset' ? 'brand' : 'info'} />
           <StatusTag status={statusWord(role.status)} />
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>版本 v{role.version}</span>
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>适用租户 {role.tenant}</span>
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>已授权 {activeMemberCount} 人</span>
-          {sourceName && <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>复制自 {sourceName}</span>}
-          {role.kind === 'preset' && (
-            <span style={{ fontSize: 'var(--fs-12)', color: '#C77A16' }}>预置角色不可修改、删除或停用，请复制为定制角色后再调整</span>
-          )}
         </div>
 
         {tab === 'pages' && (
@@ -718,7 +690,7 @@ function RoleDetail({
         {tab === 'scope' && (
           <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 20 }}>
             <InfoBanner>
-              角色模板只定义范围策略；授权时系统按策略与人员所属组织自动定位权限覆盖根节点（如「本药厂」锚定到药厂根节点）。例外跨组织权限请复制为定制角色，不在用户详情开放任意组织选择。
+              角色模板只定义范围策略；授权时系统按策略与人员所属组织自动定位权限覆盖根节点（如「本药厂」锚定到药厂根节点）。例外跨组织权限请单独新建角色调整，不在用户详情开放任意组织选择。
             </InfoBanner>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16 }}>
               {SCOPE_OPTIONS.map(opt => (
@@ -829,9 +801,6 @@ function RoleDetail({
           <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 760 }}>
             <Field label="角色名称" required>
               <input value={draft.name} disabled={locked} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} style={inputStyle} />
-            </Field>
-            <Field label="角色类型">
-              <input value={role.kind === 'preset' ? '预置' : '定制'} disabled style={inputStyle} />
             </Field>
             <Field label="适用租户">
               <input value={role.tenant} disabled style={inputStyle} />
@@ -963,6 +932,7 @@ function RoleDetail({
           description={confirm.description}
           impact={confirm.impact}
           variant={confirm.variant}
+          confirmLabel={confirm.confirmLabel}
           onConfirm={confirm.onConfirm}
           onCancel={() => setConfirm(null)}
         />

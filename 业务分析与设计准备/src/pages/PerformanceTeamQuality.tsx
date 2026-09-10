@@ -149,6 +149,14 @@ export function PerformanceTeamQuality({ addToast }: Props) {
     setSpDetailFor(null)
   }
 
+  function revokeGroup() {
+    if (!revokeBlock) return
+    patchBatch(revokeBlock.batchNo, { status: "已撤销", actualAmount: undefined })
+    appendOp(revokeBlock.batchNo, { actor: provider, time: now(), action: "工作组绩效撤销" })
+    addToast({ type: "success", title: "工作组绩效已撤销" })
+    setRevokeBlock(null)
+  }
+
   const filterFields = [
     { id: "query", label: "绩效批次号", type: "text" as const, placeholder: "请输入批次号" },
     { id: "provider", label: "服务提供方", type: "select" as const, options: [{ value: "", label: "全部" }, { value: provider, label: provider }] },
@@ -318,7 +326,7 @@ export function PerformanceTeamQuality({ addToast }: Props) {
                         <button style={linkBtn} onClick={() => setDetailFor(b)}>
                           查看
                         </button>
-                        {!isDirect && b.status !== "未打绩效" && identity === "工作组" && nextSpecialist && (
+                        {!isDirect && (b.status !== "未打绩效" || settings.mode === "灵活模式") && identity === "工作组" && nextSpecialist && (
                           <button style={linkBrand} onClick={() => setSpecialistFor(nextSpecialist)}>
                             给服务专员打绩效
                           </button>
@@ -401,12 +409,12 @@ export function PerformanceTeamQuality({ addToast }: Props) {
 
       <ConfirmDialog
         open={!!revokeBlock}
-        title="无法撤销工作组绩效"
-        description={`该批次还有 ${revokeBlock ? recordsOfBatch(revokeBlock.batchNo).filter((r) => r.status === "已生效").length : 0} 条专员绩效已生效。请先撤销专员绩效，再撤销工作组绩效。`}
-        impact="撤销顺序：先撤销专员绩效，再撤销工作组绩效"
-        confirmLabel="知道了"
+        title={settings.mode === "灵活模式" ? "撤销工作组绩效？" : "无法撤销工作组绩效"}
+        description={settings.mode === "灵活模式" ? "灵活模式下两层评级互不制约，可直接撤销工作组绩效，不影响专员绩效记录。" : `该批次还有 ${revokeBlock ? recordsOfBatch(revokeBlock.batchNo).filter((r) => r.status === "已生效").length : 0} 条专员绩效已生效。请先撤销专员绩效，再撤销工作组绩效。`}
+        impact={settings.mode === "灵活模式" ? "专员绩效保留，可分别撤销。" : "撤销顺序：先撤销专员绩效，再撤销工作组绩效"}
+        confirmLabel={settings.mode === "灵活模式" ? "确认撤销" : "知道了"}
         variant="warning"
-        onConfirm={() => setRevokeBlock(null)}
+        onConfirm={settings.mode === "灵活模式" ? revokeGroup : () => setRevokeBlock(null)}
         onCancel={() => setRevokeBlock(null)}
       />
       <ConfirmDialog

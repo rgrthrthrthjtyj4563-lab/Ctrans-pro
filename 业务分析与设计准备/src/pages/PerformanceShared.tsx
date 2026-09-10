@@ -8,16 +8,17 @@ import { Button } from "../components/Button"
 import { Tag } from "../components/StatusTag"
 import { formatCNY, formatCNYUpper } from "../constants"
 import {
-  EVAL_DIMENSIONS,
   type Evaluation,
   type PerfBatch,
   type SpecialistRecord,
   type PerformanceRuleConfig,
   evalTotal,
+  getEvalDimensions,
   itemsDefault,
   itemsWorkload,
   recordsOfBatch,
   useRule,
+  usePerfSettings,
   validateCap,
   validateCoef,
   validateEval,
@@ -238,6 +239,8 @@ export function SpecialistFormModal({
   onSubmit: (actual: number, evaluation: Evaluation) => void
 }) {
   const rule = useRule()
+  const settings = usePerfSettings()
+  const dimensions = getEvalDimensions(settings)
   const [actual, setActual] = useState(0)
   const [evaluation, setEvaluation] = useState<Evaluation>({ p1: 0.85, p2: 0.85, p3: 0.85, p4: 0.85 })
   useEffect(() => {
@@ -255,7 +258,7 @@ export function SpecialistFormModal({
   const cap = def * rule.capRatio
   const capPct = Math.round(rule.capRatio * 100)
   const err = validateCap(actual, def, rule) ?? validateEval(evaluation)
-  const total = evalTotal(evaluation)
+  const total = evalTotal(evaluation, settings)
   const isStage2 = operator === "工作组"
   return (
     <Modal
@@ -396,7 +399,7 @@ export function SpecialistFormModal({
           </tr>
         </thead>
         <tbody>
-          {EVAL_DIMENSIONS.map((dim) => (
+          {dimensions.map((dim) => (
             <tr key={dim.key}>
               <td style={td}>{dim.label}</td>
               <td style={{ ...td, textAlign: "right", ...mono }}>
@@ -624,6 +627,7 @@ export function SpecialistDetailModal({
   onClose,
   onDownload,
   onRevoke,
+  canRevoke = true,
 }: {
   open: boolean
   record: SpecialistRecord | null
@@ -631,11 +635,14 @@ export function SpecialistDetailModal({
   onClose: () => void
   onDownload: (record: SpecialistRecord) => void
   onRevoke: (record: SpecialistRecord) => void
+  canRevoke?: boolean
 }) {
+  const settings = usePerfSettings()
+  const dimensions = getEvalDimensions(settings)
   if (!record) return null
   const def = itemsDefault(record.items)
   const cap = def * rule.capRatio
-  const total = evalTotal(record.evaluation)
+  const total = evalTotal(record.evaluation, settings)
   return (
     <Modal
       open={open}
@@ -649,7 +656,7 @@ export function SpecialistDetailModal({
           </Button>
           {record.status === "已生效" && (
             <>
-              <Button variant="outline" onClick={() => onRevoke(record)}>
+              <Button variant="outline" disabled={!canRevoke} onClick={() => onRevoke(record)}>
                 撤销
               </Button>
               <Button variant="primary" onClick={() => onDownload(record)}>
@@ -737,7 +744,7 @@ export function SpecialistDetailModal({
           </tr>
         </thead>
         <tbody>
-          {EVAL_DIMENSIONS.map((dim) => (
+          {dimensions.map((dim) => (
             <tr key={dim.key}>
               <td style={td}>{dim.label}</td>
               <td style={{ ...td, textAlign: "right", ...mono }}>
@@ -800,13 +807,15 @@ export function StatementModal({
   onClose: () => void
   onDownload: (record: SpecialistRecord) => void
 }) {
+  const settings = usePerfSettings()
+  const dimensions = getEvalDimensions(settings)
   if (!record) return null
   const def = itemsDefault(record.items)
   const actual = record.actualAmount ?? 0
   const monthLabel = `${record.month.replace("-", "年")}月`
   const [y, m] = record.month.split("-").map(Number)
   const days = new Date(y, m, 0).getDate()
-  const total = evalTotal(record.evaluation)
+  const total = evalTotal(record.evaluation, settings)
   return (
     <Modal
       open={open}
@@ -894,17 +903,14 @@ export function StatementModal({
                 合计</th>
             </tr>
             <tr>
-              <th>20%</th>
-              <th>25%</th>
-              <th>35%</th>
-              <th>20%</th>
+              {dimensions.map((dim) => <th key={dim.key}>{Math.round(dim.weight * 100)}%</th>)}
               <th>100%</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td className="c">评分</td>
-              {EVAL_DIMENSIONS.map((dim) => (
+              {dimensions.map((dim) => (
                 <td className="c" key={dim.key}>
                   {record.evaluation ? record.evaluation[dim.key].toFixed(2) : "—"}
                 </td>

@@ -13,6 +13,7 @@ import {
   Table2,
   Shield,
   Folder,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react';
 import type { MenuItem } from '../types';
@@ -32,6 +33,7 @@ export const MENU_ICONS: Record<string, LucideIcon> = {
   'table-2': Table2,
   shield: Shield,
   folder: Folder,
+  'bar-chart-3': BarChart3,
 };
 
 const STAMP = '2026-09-04 10:40';
@@ -48,7 +50,7 @@ function item(
   };
 }
 
-/** 2026-09-04 按需求重排：三棵登录角色树的全集；结算明细/医生主数据/角色预览/药厂业务开关整体砍掉 */
+/** 2026-09-04 按需求重排：三棵登录角色树的全集；结算明细/医生主数据/角色预览整体砍掉 */
 /** 2026-09-04 服务商准入收敛双角色：服务商端独立菜单组；合规端更名「服务商准入审核」；药厂销售不参与 */
 const SEED_MENU_ITEMS: MenuItem[] = [
   item({
@@ -221,6 +223,15 @@ const SEED_MENU_ITEMS: MenuItem[] = [
     sort: 3,
   }),
   item({
+    id: 'menu-business-switch',
+    name: '药厂配置开关',
+    type: 'page',
+    parentId: 'group-admin',
+    pageId: 'business-switch',
+    sort: 4,
+    hideForRoles: ['服务提供商'],
+  }),
+  item({
     id: 'group-perm',
     name: '权限管理',
     type: 'group',
@@ -304,6 +315,32 @@ const SEED_MENU_ITEMS: MenuItem[] = [
     parentId: 'group-performance',
     pageId: 'performance-specialist',
     sort: 2,
+  }),
+  item({
+    id: 'menu-performance-settings',
+    name: '绩效设置',
+    type: 'page',
+    parentId: 'group-performance',
+    pageId: 'performance-settings',
+    sort: 3,
+  }),
+  item({
+    id: 'group-stats',
+    name: '统计管理',
+    type: 'group',
+    parentId: null,
+    section: '',
+    iconKey: 'bar-chart-3',
+    sort: 12,
+  }),
+  item({
+    id: 'menu-biz-detail-export',
+    name: '业务明细导出',
+    type: 'page',
+    parentId: 'group-stats',
+    pageId: 'biz-detail-export',
+    sort: 1,
+    hideForRoles: ['服务提供商'],
   }),
 ];
 

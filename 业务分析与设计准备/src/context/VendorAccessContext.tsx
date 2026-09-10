@@ -6,14 +6,16 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { ACTORS, DEMO_VENDOR_ID } from '../data/complianceData';
-import type { Role, VendorAccessAttachments, VendorAccessHistory, VendorAccessRecord } from '../types';
+import { DEMO_VENDOR_ID } from '../data/complianceData';
+import type { VendorAccessAttachments, VendorAccessHistory, VendorAccessRecord } from '../types';
+import { usePermission } from './PermissionContext';
 
 /**
  * 服务商准入共享 store：服务商提交 / 药厂合规审核的最小闭环。
  * 状态机：草稿 →(提交)→ 待提交 →(通过)→ 已通过（终态）
  *                            ↘(驳回，原因必填)→ 已驳回 →(服务商修改重提)→ 待提交
- * 同一会话内切换登录角色后，双方看到的是同一份记录。
+ * 同一份记录对所有登录角色共享；写操作守卫按「当前角色的 pagePerms（can()）」
+ * 判定，操作人取已认证主体，不再按旧登录视角相等放行。
  */
 
 export interface VendorAccessInput {
@@ -89,7 +91,7 @@ const SEED_RECORDS: VendorAccessRecord[] = [
     contactName: '刘国栋',
     contactMobile: '13900002222',
     businessLicenseFile: '东方恒业-营业执照.pdf',
-    attachments: { qualification: '东方恒业-会议服务资质.pdf' },
+    attachments: { contract: '东方恒业-准入服务合同.pdf', qualification: '东方恒业-会议服务资质.pdf' },
     status: '待提交',
     submittedAt: '2026-09-03 15:20',
     history: [
@@ -106,6 +108,7 @@ const SEED_RECORDS: VendorAccessRecord[] = [
     contactName: '孙嘉',
     contactMobile: '13700003333',
     businessLicenseFile: '康晟云服-营业执照.jpg',
+    attachments: { contract: '康晟云服-准入服务合同.pdf' },
     status: '已驳回',
     submittedAt: '2026-08-30 11:05',
     reviewedAt: '2026-09-01 09:30',
@@ -133,7 +136,7 @@ const SEED_RECORDS: VendorAccessRecord[] = [
     contactName: '郑伟',
     contactMobile: '13600004444',
     businessLicenseFile: '永泰汇通-营业执照.pdf',
-    attachments: { qualification: '永泰汇通-企业信用报告.pdf', supplement: '永泰汇通-情况补充说明.pdf' },
+    attachments: { contract: '永泰汇通-准入服务合同.pdf', qualification: '永泰汇通-企业信用报告.pdf', supplement: '永泰汇通-情况补充说明.pdf' },
     status: '已通过',
     submittedAt: '2026-08-28 10:00',
     reviewedAt: '2026-08-29 14:10',
@@ -154,10 +157,12 @@ function missingFieldsOf(input: VendorAccessInput): string[] {
   if (!input.contactName.trim()) miss.push('联系人姓名');
   if (!input.contactMobile.trim()) miss.push('联系电话');
   if (!input.businessLicenseFile.trim()) miss.push('营业执照文件');
+  if (!input.attachments?.contract?.trim()) miss.push('准入服务合同文件');
   return miss;
 }
 
-export function VendorAccessProvider({ loginRole, children }: { loginRole: Role; children: ReactNode }) {
+export function VendorAccessProvider({ children }: { children: ReactNode }) {
+  const { principal, can } = usePermission();
   const [records, setRecords] = useState<VendorAccessRecord[]>(() => SEED_RECORDS.map((r) => ({ ...r })));
 
   const myRecord = useMemo(
@@ -165,7 +170,10 @@ export function VendorAccessProvider({ loginRole, children }: { loginRole: Role;
     [records],
   );
 
-  const operator = loginRole === '药厂合规部门' ? ACTORS.compliance : ACTORS.vendor;
+  // 操作人取已认证主体；历史条目的角色标签用登录视角（业务链语义）
+  const operator = { name: principal.name };
+  const isVendorSide = can('vendor-access', 'submit');
+  const isReviewer = can('vendor-access', 'approve');
 
   const nextRecordId = useCallback(() => {
     const max = records.reduce((m, r) => Math.max(m, Number(r.id.replace(/[^0-9]/g, '')) || 0), 0);
@@ -186,13 +194,13 @@ export function VendorAccessProvider({ loginRole, children }: { loginRole: Role;
         id: nextHistoryId(),
         action,
         operator: operator.name,
-        role: loginRole === '药厂合规部门' ? '药厂合规部门' : '服务提供商',
+        role: principal.roleName,
         time: stamp(),
         comment,
       },
       ...record.history,
     ],
-    [loginRole, nextHistoryId, operator.name],
+    [nextHistoryId, operator.name, principal.roleName],
   );
 
   /** 同一统一社会信用代码只允许一条有效主体档案 */
@@ -204,7 +212,8 @@ export function VendorAccessProvider({ loginRole, children }: { loginRole: Role;
 
   const saveDraft = useCallback(
     (input: VendorAccessInput): VendorAccessOpResult => {
-      if (loginRole !== '服务提供商') return { ok: false, error: '仅服务商可维护本企业准入资料' };
+      if (!can('vendor-access', 'create') && !can('vendor-access', 'edit'))
+        return { ok: false, error: '当前角色无准入资料维护权限' };
       if (myRecord && myRecord.status !== '草稿') return { ok: false, error: '当前状态不可保存草稿' };
       const creditCode = input.creditCode.trim();
       if (creditCode && creditCodeTaken(creditCode, myRecord?.id)) {
@@ -227,19 +236,19 @@ export function VendorAccessProvider({ loginRole, children }: { loginRole: Role;
           creditCode,
           status: '草稿',
           history: [
-            { id: nextHistoryId(), action: '保存草稿', operator: operator.name, role: loginRole, time: now },
+            { id: nextHistoryId(), action: '保存草稿', operator: operator.name, role: principal.roleName, time: now },
           ],
         };
         setRecords((prev) => [created, ...prev]);
       }
       return { ok: true };
     },
-    [creditCodeTaken, loginRole, myRecord, nextHistoryId, nextRecordId, operator.name, pushHistory],
+    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principal.roleName, pushHistory],
   );
 
   const submit = useCallback(
     (input: VendorAccessInput): VendorAccessOpResult => {
-      if (loginRole !== '服务提供商') return { ok: false, error: '仅服务商可提交准入资料' };
+      if (!isVendorSide) return { ok: false, error: '当前角色无准入提交权限' };
       if (myRecord && !['草稿', '已驳回'].includes(myRecord.status)) {
         return { ok: false, error: '当前状态不可重复提交' };
       }
@@ -277,19 +286,19 @@ export function VendorAccessProvider({ loginRole, children }: { loginRole: Role;
           status: '待提交',
           submittedAt: now,
           history: [
-            { id: nextHistoryId(), action: '提交', operator: operator.name, role: loginRole, time: now },
+            { id: nextHistoryId(), action: '提交', operator: operator.name, role: principal.roleName, time: now },
           ],
         };
         setRecords((prev) => [created, ...prev]);
       }
       return { ok: true };
     },
-    [creditCodeTaken, loginRole, myRecord, nextHistoryId, nextRecordId, operator.name, pushHistory],
+    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principal.roleName, pushHistory],
   );
 
   const approve = useCallback(
     (recordId: string): VendorAccessOpResult => {
-      if (loginRole !== '药厂合规部门') return { ok: false, error: '仅药厂合规部门可审核' };
+      if (!isReviewer) return { ok: false, error: '当前角色无准入审核权限' };
       const target = records.find((r) => r.id === recordId);
       if (!target) return { ok: false, error: '记录不存在' };
       if (target.status !== '待提交') return { ok: false, error: '仅待提交状态可审核' };
@@ -310,12 +319,12 @@ export function VendorAccessProvider({ loginRole, children }: { loginRole: Role;
       );
       return { ok: true };
     },
-    [loginRole, operator.name, pushHistory, records],
+    [isReviewer, operator.name, pushHistory, records],
   );
 
   const reject = useCallback(
     (recordId: string, reason: string): VendorAccessOpResult => {
-      if (loginRole !== '药厂合规部门') return { ok: false, error: '仅药厂合规部门可审核' };
+      if (!isReviewer) return { ok: false, error: '当前角色无准入审核权限' };
       const target = records.find((r) => r.id === recordId);
       if (!target) return { ok: false, error: '记录不存在' };
       if (target.status !== '待提交') return { ok: false, error: '仅待提交状态可审核' };
@@ -338,15 +347,15 @@ export function VendorAccessProvider({ loginRole, children }: { loginRole: Role;
       );
       return { ok: true };
     },
-    [loginRole, operator.name, pushHistory, records],
+    [isReviewer, operator.name, pushHistory, records],
   );
 
   const deleteDraft = useCallback((): VendorAccessOpResult => {
-    if (loginRole !== '服务提供商') return { ok: false, error: '仅服务商可删除草稿' };
+    if (!isVendorSide) return { ok: false, error: '当前角色无删除草稿权限' };
     if (!myRecord || myRecord.status !== '草稿') return { ok: false, error: '仅草稿可删除' };
     setRecords((prev) => prev.filter((r) => r.id !== myRecord.id));
     return { ok: true };
-  }, [loginRole, myRecord]);
+  }, [isVendorSide, myRecord]);
 
   const value: VendorAccessStore = {
     records,

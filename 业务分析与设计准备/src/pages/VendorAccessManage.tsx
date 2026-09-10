@@ -18,12 +18,13 @@ import { EmptyState } from '../components/EmptyState';
 import { MetricCard } from '../components/MetricCard';
 import { FieldGroup, FieldItem } from '../components/DetailDrawer';
 import type { ToastMessage } from '../components/Toast';
-import type { Role, VendorAccessHistory, VendorAccessRecord } from '../types';
+import type { Role, VendorAccessAttachments, VendorAccessHistory, VendorAccessRecord } from '../types';
 import {
   emptyVendorAccessInput,
   useVendorAccess,
   type VendorAccessInput,
 } from '../context/VendorAccessContext';
+import { usePermission } from '../context/PermissionContext';
 import { Field, inputStyle, tdStyle, thStyle } from './complianceUi';
 
 /**
@@ -42,13 +43,19 @@ interface Props {
 
 const mono = "'JetBrains Mono', monospace";
 
-/** 准入材料清单：营业执照必传（落 businessLicenseFile），其余为选传附件 */
+/** 准入材料清单：营业执照、准入服务合同必传，其余为选传附件 */
 const ATTACHMENT_DEFS = [
   {
     key: 'license',
     name: '营业执照（副本）',
     required: true,
     requirement: '彩色扫描件，PDF / JPG / PNG，不超过 5MB，须清晰可辨统一社会信用代码',
+  },
+  {
+    key: 'contract',
+    name: '准入服务合同',
+    required: true,
+    requirement: '双方盖章的准入服务合同或框架协议扫描件，PDF / JPG / PNG',
   },
   {
     key: 'qualification',
@@ -67,7 +74,7 @@ const ATTACHMENT_DEFS = [
 type AttachmentKey = (typeof ATTACHMENT_DEFS)[number]['key'];
 
 function attachmentFileOf(
-  source: { businessLicenseFile?: string; attachments?: { qualification?: string; supplement?: string } },
+  source: { businessLicenseFile?: string; attachments?: VendorAccessAttachments },
   key: AttachmentKey,
 ): string {
   if (key === 'license') return source.businessLicenseFile ?? '';
@@ -75,21 +82,26 @@ function attachmentFileOf(
 }
 
 export function VendorAccessManage({ addToast, currentRole, view = 'main' }: Props) {
+  void currentRole;
   const store = useVendorAccess();
+  const { can } = usePermission();
+  // 分支按当前角色的动作权限判定（整改方向：不再按旧登录视角相等放行）
+  const isReviewer = can('vendor-access', 'approve');
+  const canMaintain = can('vendor-access', 'submit');
 
-  if (currentRole === '药厂销售部门') {
+  if (!isReviewer && !canMaintain) {
     return (
       <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <EmptyState
           icon={Ban}
           title="无权访问"
-          description="服务商准入模块仅对服务商与药厂合规部门开放，当前角色未开通该页面权限。"
+          description="服务商准入模块仅对服务商（提交方）与具备审核权限的角色开放，当前登录角色未开通该页面的操作权限。"
         />
       </div>
     );
   }
 
-  if (currentRole === '药厂合规部门') {
+  if (isReviewer) {
     return <ComplianceReview addToast={addToast} records={store.records} approve={store.approve} reject={store.reject} />;
   }
 
@@ -282,10 +294,11 @@ function EditPanel({
   }
 
   const uploadedCount = ATTACHMENT_DEFS.filter((d) => attachmentFileOf(form, d.key).trim()).length;
+  const requiredTotal = ATTACHMENT_DEFS.filter((d) => d.required).length;
   const uploadTarget = ATTACHMENT_DEFS.find((d) => d.key === uploadFor);
 
   return (
-    <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 24, maxWidth: 880 }}>
+    <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 24 }}>
       {rejectionReason !== undefined && (
         <div style={{ marginBottom: 16 }}>
           <RejectionBanner text={rejectionReason} />
@@ -329,7 +342,7 @@ function EditPanel({
               <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>准入材料清单</span>
               <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>按以下要求上传附件</span>
               <span style={{ marginLeft: 'auto', fontSize: 'var(--fs-12)', color: uploadedCount ? '#248A5A' : '#C77A16', fontWeight: 600 }}>
-                已传 {uploadedCount} / {ATTACHMENT_DEFS.length} 项（必传 1 项）
+                已传 {uploadedCount} / {ATTACHMENT_DEFS.length} 项（必传 {requiredTotal} 项）
               </span>
             </div>
             {ATTACHMENT_DEFS.map((def, idx) => {
@@ -443,7 +456,7 @@ function ReadonlyAccessPanel({ record, onResubmit }: { record: VendorAccessRecor
   const status = record.status;
 
   return (
-    <div style={{ maxWidth: 880 }}>
+    <div>
       {status === '待提交' && (
         <StatusBanner tone="info" tag="待提交">
           <strong>待药厂合规审核</strong>：资料已于 {record.submittedAt} 提交，暂不可修改。下一步由药厂合规部门通过或驳回。

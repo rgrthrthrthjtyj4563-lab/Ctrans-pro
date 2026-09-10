@@ -8,8 +8,10 @@ import {
   Building2,
   Archive,
   ChevronLeft,
-  Users,
   Smartphone,
+  TabletSmartphone,
+  Repeat,
+  Presentation,
   type LucideIcon,
 } from "lucide-react"
 import { Dashboard } from "./pages/Dashboard"
@@ -32,22 +34,31 @@ import { ExecutionChainConfig } from "./pages/ExecutionChainConfig"
 import { MenuManage } from "./pages/MenuManage"
 import { PerformanceTeamQuality } from "./pages/PerformanceTeamQuality"
 import { PerformanceSpecialist } from "./pages/PerformanceSpecialist"
-import { PerformanceCoefficientConfig } from "./pages/PerformanceCoefficientConfig"
+import { PerformanceSettings } from "./pages/PerformanceSettings"
 import { PreviewBanner } from "./pages/permUi"
 import { BaiyeeAI } from "./pages/BaiyeeAI"
 import { RepAppointmentMobileDemo } from "./pages/RepAppointmentMobileDemo"
+import { FullMobileDemo } from "./pages/FullMobileDemo"
+import { PharmaConfigSwitch } from "./pages/PharmaConfigSwitch"
+import { BizDetailExport } from "./pages/BizDetailExport"
 import { BrandLogo } from "./components/Brand"
 import { DisplaySettingsMenu } from "./components/DisplaySettingsMenu"
 import { ToastContainer } from "./components/Toast"
 import type { ToastMessage } from "./components/Toast"
-import { getRoleDashboardData } from "./data/mockData"
+import { getRoleDashboardData, getPlatformWorkbenchData } from "./data/mockData"
 import { TaskDataProvider } from "./context/TaskDataContext"
 import { DisplayPreferenceProvider } from "./context/DisplayPreferenceContext"
 import { PermissionProvider, usePermission } from "./context/PermissionContext"
 import { VendorAccessProvider } from "./context/VendorAccessContext"
+import { RepFilingProvider } from "./context/RepFilingContext"
 import { RESOURCE_PAGES } from "./data/permissions"
 import { buildNavGroups, seedMenuItems, type NavItem } from "./data/menus"
-import type { MenuItem, NavFocus, NavigateFn, PageId, Role } from "./types"
+import { AuthProvider, useAuth } from "./auth/AuthProvider"
+import { LoginPage } from "./auth/LoginPage"
+import { authGateway } from "./auth/mockGateway"
+import { DEMO_ACCOUNT_HINTS, DEMO_PASSWORD } from "./auth/authProfiles"
+import type { AuthPrincipal } from "./auth/authTypes"
+import type { MenuItem, NavFocus, NavigateFn, PageId } from "./types"
 
 const pageLabels: Record<string, string> = {
   dashboard: "工作台",
@@ -66,7 +77,7 @@ const pageLabels: Record<string, string> = {
   "vendor-access": "服务商准入",
   "vendor-access-records": "提交记录",
   settlement: "结算明细",
-  "business-switch": "药厂业务开关",
+  "business-switch": "药厂配置开关",
   "price-config": "价目表配置",
   roles: "角色管理",
   menus: "菜单管理",
@@ -76,7 +87,8 @@ const pageLabels: Record<string, string> = {
   "execution-chain": "执行链路配置",
   "performance-team": "团队工作质量评价",
   "performance-specialist": "服务专员绩效",
-  "performance-coefficient": "绩效系数配置",
+  "performance-settings": "绩效设置",
+  "biz-detail-export": "业务明细导出",
   "baiyee-ai": "baiyee-AI",
 }
 
@@ -92,6 +104,7 @@ const pageSections: Record<string, string> = {
   settlement: "绩效管理",
   "performance-team": "绩效管理",
   "performance-specialist": "绩效管理",
+  "performance-settings": "绩效管理",
   doctors: "品种管理",
   varieties: "品种管理",
   "variety-auth": "品种管理",
@@ -106,6 +119,7 @@ const pageSections: Record<string, string> = {
   departments: "权限管理",
   "audit-log": "系统管理",
   "execution-chain": "系统管理",
+  "biz-detail-export": "统计管理",
 }
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
@@ -481,14 +495,45 @@ function StubPage({
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
+/**
+ * 多方式登录改造：未认证只渲染登录页；认证成功后按会话挂载业务壳。
+ * Workbench 以 session.id 为 key —— 登出或换账号时整棵业务树（含内存数据）重建。
+ */
 export default function App() {
-  const [currentRole, setCurrentRole] = useState<Role>("药厂销售部门")
+  return (
+    <AuthProvider>
+      <Root />
+    </AuthProvider>
+  )
+}
+
+function Root() {
+  const { session } = useAuth()
+  if (!session) return <LoginPage />
+  return <Workbench key={session.id} principal={session.principal} />
+}
+
+/** 平台侧角色走管理工作台；其余按旧三类视角落在药厂/服务商工作台 */
+const PLATFORM_ROLE_IDS = new Set([
+  "role-platform-ops",
+  "role-sys-admin",
+  "role-account-admin",
+])
+
+function dashboardVariantOf(principal: AuthPrincipal): "pharma" | "provider" | "platform" {
+  if (PLATFORM_ROLE_IDS.has(principal.roleId)) return "platform"
+  return principal.perspective === "服务提供商" ? "provider" : "pharma"
+}
+
+function Workbench({ principal }: { principal: AuthPrincipal }) {
   return (
     <DisplayPreferenceProvider>
       <TaskDataProvider>
-        <PermissionProvider loginRole={currentRole}>
-          <VendorAccessProvider loginRole={currentRole}>
-            <AppShell currentRole={currentRole} setCurrentRole={setCurrentRole} />
+        <PermissionProvider principal={principal}>
+          <VendorAccessProvider>
+            <RepFilingProvider>
+              <AppShell />
+            </RepFilingProvider>
           </VendorAccessProvider>
         </PermissionProvider>
       </TaskDataProvider>
@@ -496,13 +541,7 @@ export default function App() {
   )
 }
 
-function AppShell({
-  currentRole,
-  setCurrentRole,
-}: {
-  currentRole: Role
-  setCurrentRole: (role: Role) => void
-}) {
+function AppShell() {
   const {
     visiblePages,
     preview,
@@ -511,7 +550,11 @@ function AppShell({
     orgs,
     users,
     logAudit,
+    principal,
+    loginRole: currentRole,
   } = usePermission()
+  const { setSession, signOut } = useAuth()
+  const dashboardVariant = dashboardVariantOf(principal)
   const [currentPage, setCurrentPage] = useState<PageId>("dashboard")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [menuItems, setMenuItems] = useState<MenuItem[]>(() => seedMenuItems())
@@ -537,11 +580,40 @@ function AppShell({
   const [mobileDemoOpen, setMobileDemoOpen] = useState(false)
   const [mobileDemoShown, setMobileDemoShown] = useState(false)
   const mobileDemoCloseTimer = useRef<number | null>(null)
+  // 完整移动端演示：iframe 加载 public/mobile-app 构建产物
+  const [fullMobileDemoOpen, setFullMobileDemoOpen] = useState(false)
+  const [fullMobileDemoShown, setFullMobileDemoShown] = useState(false)
+  const fullMobileDemoCloseTimer = useRef<number | null>(null)
 
   const addToast = useCallback((msg: Omit<ToastMessage, "id">) => {
     const id = `toast-${Date.now()}`
     setToasts((prev) => [...prev, { ...msg, id }])
   }, [])
+
+  const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
+  // 演示环境一键切换角色：复用密码登录网关换发新会话；
+  // session.id 变化使 Workbench 整树重建，自动回到新角色工作台（数据重置为种子态）
+  const switchAccount = useCallback(
+    async (account: string) => {
+      setSwitchingAccount(account)
+      const result = await authGateway.loginPassword({
+        account,
+        password: DEMO_PASSWORD,
+      })
+      setSwitchingAccount(null)
+      if (!result.ok) {
+        addToast({
+          type: "error",
+          title: "切换失败",
+          description: result.failure.message,
+        })
+        return
+      }
+      setShowUserMenu(false)
+      setSession(result.session)
+    },
+    [addToast, setSession],
+  )
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
@@ -593,7 +665,7 @@ function AppShell({
         return (
           <Dashboard
             navigate={navigate}
-            role={currentRole}
+            variant={dashboardVariant}
             addToast={addToast}
           />
         )
@@ -676,8 +748,14 @@ function AppShell({
         return <PerformanceTeamQuality addToast={addToast} />
       case "performance-specialist":
         return <PerformanceSpecialist addToast={addToast} />
-      case "performance-coefficient":
-        return <PerformanceCoefficientConfig addToast={addToast} />
+      case "performance-settings":
+        return <PerformanceSettings addToast={addToast} operator={principal.name} />
+      case "business-switch":
+        return <PharmaConfigSwitch addToast={addToast} currentRole={currentRole} />
+      case "biz-detail-export":
+        return (
+          <BizDetailExport addToast={addToast} currentRole={currentRole} />
+        )
       case "baiyee-ai":
         return <BaiyeeAI navigate={navigate} />
       default:
@@ -686,7 +764,10 @@ function AppShell({
   }
 
   const SIDEBAR_W = sidebarCollapsed ? 60 : 240
-  const notificationCount = getRoleDashboardData(currentRole).unreadCount
+  const notificationCount =
+    dashboardVariant === "platform"
+      ? getPlatformWorkbenchData(principal.roleId, principal.roleName).unreadCount
+      : getRoleDashboardData(currentRole).unreadCount
 
   // 面包屑优先取当前角色可见的菜单项名称与所属目录（vendor-access 双角色各有入口名）
   const menuMetaByPage = useMemo(() => {
@@ -709,8 +790,6 @@ function AppShell({
     ].filter(Boolean)
   })()
 
-  const roles: Role[] = ["药厂合规部门", "药厂销售部门", "服务提供商"]
-
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
@@ -724,7 +803,7 @@ function AppShell({
             (c) => c.disabled || visiblePages.has(c.id),
           )
           // 改造前行为：目录至少要有一个「非置灰且有查看权限」的子项才显示，
-          // 仅剩置灰项（如药厂业务开关）的目录整组隐藏
+          // 仅剩置灰项的目录整组隐藏
           if (!children.some((c) => !c.disabled && visiblePages.has(c.id)))
             return null
           return { ...item, children }
@@ -778,14 +857,38 @@ function AppShell({
     }, demoMs)
   }
 
+  function openFullMobileDemo() {
+    if (fullMobileDemoCloseTimer.current) {
+      window.clearTimeout(fullMobileDemoCloseTimer.current)
+      fullMobileDemoCloseTimer.current = null
+    }
+    setShowUserMenu(false)
+    setFullMobileDemoOpen(true)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setFullMobileDemoShown(true))
+    })
+  }
+
+  function closeFullMobileDemo() {
+    setFullMobileDemoShown(false)
+    if (fullMobileDemoCloseTimer.current)
+      window.clearTimeout(fullMobileDemoCloseTimer.current)
+    fullMobileDemoCloseTimer.current = window.setTimeout(() => {
+      setFullMobileDemoOpen(false)
+      fullMobileDemoCloseTimer.current = null
+    }, demoMs)
+  }
+
   useEffect(() => {
-    if (!mobileDemoOpen) return
+    if (!mobileDemoOpen && !fullMobileDemoOpen) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeMobileDemo()
+      if (event.key !== "Escape") return
+      if (mobileDemoOpen) closeMobileDemo()
+      if (fullMobileDemoOpen) closeFullMobileDemo()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [mobileDemoOpen, demoMs])
+  }, [mobileDemoOpen, fullMobileDemoOpen, demoMs])
 
   return (
     <div
@@ -975,7 +1078,7 @@ function AppShell({
                     flexShrink: 0,
                   }}
                 >
-                  运
+                  {principal.name.slice(0, 1)}
                 </div>
                 {!sidebarCollapsed && (
                   <div style={{ minWidth: 0 }}>
@@ -985,18 +1088,25 @@ function AppShell({
                         fontWeight: 500,
                         color: "var(--color-sidebar-text)",
                         lineHeight: 1,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
-                      演示账号
+                      {principal.name}
                     </div>
                     <div
                       style={{
                         fontSize: "var(--fs-11)",
                         color: "var(--color-sidebar-accent)",
                         marginTop: 2,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
+                      title={`${principal.orgName} · ${principal.roleName}`}
                     >
-                      {currentRole}
+                      {principal.roleName}
                     </div>
                   </div>
                 )}
@@ -1020,75 +1130,49 @@ function AppShell({
                 >
                   <div
                     style={{
-                      fontSize: "var(--fs-11)",
-                      fontWeight: 600,
-                      color: "#4B5563",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      padding: "4px 8px",
-                      marginBottom: 4,
+                      padding: "6px 8px 8px",
+                      borderBottom: "1px solid var(--color-sidebar-line)",
+                      marginBottom: 6,
                     }}
                   >
-                    角色切换
-                  </div>
-                  {roles.map((role) => (
-                    <button
-                      key={role}
-                      onClick={() => {
-                        if (preview) exitPreview()
-                        setCurrentRole(role)
-                        setShowUserMenu(false)
-                        // 服务商首屏默认进入服务商准入（其余角色回工作台）
-                        setCurrentPage(
-                          role === "服务提供商" ? "vendor-access" : "dashboard",
-                        )
-                        addToast({
-                          type: "info",
-                          title: `已切换角色：${role}`,
-                          description: "菜单与首页已按当前角色权限刷新。",
-                        })
-                      }}
+                    <div
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        padding: "7px 8px",
                         fontSize: "var(--fs-13)",
-                        color:
-                          currentRole === role
-                            ? "var(--color-sidebar-accent)"
-                            : "var(--color-sidebar-text)",
-                        background:
-                          currentRole === role
-                            ? "color-mix(in srgb, var(--color-sidebar-accent) 8%, transparent)"
-                            : "none",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        gap: 8,
-                      }}
-                      onMouseEnter={(e) => {
-                        if (currentRole !== role)
-                          (e.currentTarget as HTMLButtonElement).style.background =
-                            "rgba(255,255,255,0.04)"
-                      }}
-                      onMouseLeave={(e) => {
-                        if (currentRole !== role)
-                          (e.currentTarget as HTMLButtonElement).style.background =
-                            "none"
+                        fontWeight: 600,
+                        color: "var(--color-sidebar-text)",
                       }}
                     >
-                      <Users size={13} /> {role}
-                    </button>
-                  ))}
-                  <div
-                    style={{
-                      height: 1,
-                      background: "var(--color-sidebar-line)",
-                      margin: "8px 0",
-                    }}
-                  />
+                      {principal.name}
+                      <span
+                        style={{
+                          marginLeft: 6,
+                          fontSize: "var(--fs-11)",
+                          fontWeight: 400,
+                          color: "#6B7280",
+                        }}
+                      >
+                        {principal.account}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "var(--fs-11)",
+                        color: "var(--color-sidebar-accent)",
+                        marginTop: 3,
+                      }}
+                    >
+                      {principal.roleName} · {principal.orgName}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "var(--fs-11)",
+                        color: "#6B7280",
+                        marginTop: 2,
+                      }}
+                    >
+                      数据范围：{principal.scopeOrgName}
+                    </div>
+                  </div>
                   <div
                     style={{
                       fontSize: "var(--fs-11)",
@@ -1130,6 +1214,144 @@ function AppShell({
                   >
                     <Smartphone size={13} /> 医药代表移动端
                   </button>
+                  <button
+                    type="button"
+                    onClick={openFullMobileDemo}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      width: "100%",
+                      padding: "7px 8px",
+                      fontSize: "var(--fs-13)",
+                      color: "var(--color-sidebar-text)",
+                      background: "none",
+                      border: "none",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => {
+                      ;(e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(255,255,255,0.04)"
+                    }}
+                    onMouseLeave={(e) => {
+                      ;(e.currentTarget as HTMLButtonElement).style.background =
+                        "none"
+                    }}
+                  >
+                    <TabletSmartphone size={13} /> 完整移动端
+                  </button>
+                  <div
+                    style={{
+                      fontSize: "var(--fs-11)",
+                      fontWeight: 600,
+                      color: "#4B5563",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      padding: "4px 8px",
+                      marginTop: 6,
+                      marginBottom: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                    }}
+                  >
+                    <Repeat size={11} /> 切换角色
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "var(--fs-11)",
+                      color: "#6B7280",
+                      padding: "0 8px 4px",
+                    }}
+                  >
+                    切换后回到对应工作台，演示数据重置
+                  </div>
+                  <div
+                    style={{
+                      maxHeight: 216,
+                      overflowY: "auto",
+                      marginBottom: 2,
+                    }}
+                  >
+                    {DEMO_ACCOUNT_HINTS.filter(
+                      (hint) => hint.userId !== principal.userId,
+                    ).map((hint) => (
+                      <button
+                        key={hint.userId}
+                        type="button"
+                        disabled={switchingAccount !== null}
+                        onClick={() => void switchAccount(hint.account)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          width: "100%",
+                          padding: "6px 8px",
+                          background: "none",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor:
+                            switchingAccount !== null ? "wait" : "pointer",
+                          textAlign: "left",
+                          opacity: switchingAccount === hint.account ? 0.6 : 1,
+                        }}
+                        onMouseEnter={(e) => {
+                          ;(
+                            e.currentTarget as HTMLButtonElement
+                          ).style.background = "rgba(255,255,255,0.04)"
+                        }}
+                        onMouseLeave={(e) => {
+                          ;(e.currentTarget as HTMLButtonElement).style.background =
+                            "none"
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: "var(--fs-13)",
+                              color: "var(--color-sidebar-text)",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {hint.name}
+                            <span
+                              style={{
+                                marginLeft: 6,
+                                fontSize: "var(--fs-11)",
+                                color: "#6B7280",
+                              }}
+                            >
+                              {hint.account}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "var(--fs-11)",
+                              color: "var(--color-sidebar-accent)",
+                              marginTop: 2,
+                            }}
+                          >
+                            {hint.roleName} · {hint.orgName}
+                          </div>
+                        </div>
+                        {switchingAccount === hint.account && (
+                          <span
+                            style={{
+                              marginLeft: "auto",
+                              fontSize: "var(--fs-11)",
+                              color: "#6B7280",
+                              flexShrink: 0,
+                            }}
+                          >
+                            切换中…
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                   <div
                     style={{
                       height: 1,
@@ -1138,6 +1360,11 @@ function AppShell({
                     }}
                   />
                   <button
+                    onClick={() => {
+                      // 统一登出：销毁内存会话，业务壳整树卸载回到登录页
+                      setShowUserMenu(false)
+                      void signOut()
+                    }}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -1251,6 +1478,16 @@ function AppShell({
                   工作台
                 </span>
               )}
+              <button
+                type="button"
+                className="project-intro-entry"
+                onClick={() => window.open("/project-intro/index.html", "_blank", "noopener,noreferrer")}
+                title="打开药合作系统重构项目介绍"
+              >
+                <Presentation size={15} strokeWidth={2.2} />
+                <span>项目介绍</span>
+                <span className="project-intro-entry__pulse" aria-hidden="true" />
+              </button>
             </nav>
 
             {/* Global search */}
@@ -1363,7 +1600,7 @@ function AppShell({
                   fontWeight: 500,
                 }}
               >
-                百益健康科技
+                {principal.enterpriseName}
               </span>
               <span
                 style={{
@@ -1375,7 +1612,7 @@ function AppShell({
                   fontWeight: 600,
                 }}
               >
-                {currentRole}
+                {principal.roleName}
               </span>
             </div>
           </header>
@@ -1409,6 +1646,21 @@ function AppShell({
             onExit={closeMobileDemo}
             reducedMotion={reducedMotion}
           />
+        </div>
+      )}
+
+      {fullMobileDemoOpen && (
+        <div
+          className="demo-scene-overlay"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1400,
+            opacity: fullMobileDemoShown ? 1 : 0,
+            transition: reducedMotion ? "none" : `opacity ${demoMs}ms ease`,
+          }}
+        >
+          <FullMobileDemo onExit={closeFullMobileDemo} />
         </div>
       )}
 

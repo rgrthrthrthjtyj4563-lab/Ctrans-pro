@@ -1,5 +1,15 @@
 import { Fragment, useEffect, useMemo, useState } from "react"
-import { Bell, Plus, Eye, Upload, Wrench, ChevronDown } from "lucide-react"
+import {
+  Bell,
+  Plus,
+  Eye,
+  Upload,
+  Wrench,
+  ChevronDown,
+  Download,
+  FileText,
+  RefreshCw,
+} from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
 import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
@@ -49,6 +59,12 @@ import {
   providers,
 } from "../data/mockData"
 import { chainPathLabel } from "../domain/taskV4"
+import {
+  FILE_KIND_LABEL,
+  downloadAttachment,
+  fileKindOf,
+  isInlinePreviewable,
+} from "../utils/attachment"
 import type {
   NavFocus,
   NavigateFn,
@@ -221,6 +237,16 @@ export function TaskExecution({
   const [reportUploadTask, setReportUploadTask] = useState<Task | null>(null)
   const [uploadEditing, setUploadEditing] = useState<ReportFile | null>(null)
   const [reviewTask, setReviewTask] = useState<Task | null>(null)
+  // 附件在线预览：记 taskId+reportId，渲染时从最新 tasks 解析，保证预览的是当前版本
+  const [previewRef, setPreviewRef] = useState<{
+    taskId: string
+    reportId: string
+  } | null>(null)
+  const previewReport = previewRef
+    ? (tasks
+        .find((t) => t.id === previewRef.taskId)
+        ?.reports.find((r) => r.id === previewRef.reportId) ?? null)
+    : null
 
   useEffect(() => {
     if (navFocus?.taskId) {
@@ -678,6 +704,9 @@ export function TaskExecution({
               }
             : undefined
         }
+        onPreviewReport={(report) =>
+          detail && setPreviewRef({ taskId: detail.id, reportId: report.id })
+        }
         onConfirmTask={
           isProvider && detail?.taskStatus === "待确认"
             ? () => {
@@ -808,17 +837,21 @@ export function TaskExecution({
           setReportUploadTask(null)
           setUploadEditing(null)
         }}
-        onSave={(payload) => {
+        onSave={(reportId, payload) => {
           if (!reportUploadTask) return
-          const r = uploadEditing
-            ? reuploadReport(reportUploadTask.id, uploadEditing.id, payload)
-            : uploadReport(reportUploadTask.id, payload)
+          const target = live(reportUploadTask)?.reports.find(
+            (r) => r.id === reportId,
+          )
+          const isReupload = target?.status === "驳回"
+          const r = isReupload
+            ? reuploadReport(reportUploadTask.id, reportId, payload)
+            : uploadReport(reportUploadTask.id, reportId, payload)
           if (!r.ok)
             addToast({ type: "error", title: "上传失败", description: r.error })
           else {
             addToast({
               type: "success",
-              title: uploadEditing ? "报告已重新上传" : "报告已上传",
+              title: isReupload ? "报告已重新上传" : "报告已上传",
               description: "状态：待审核",
             })
             setReportUploadTask(null)
@@ -827,9 +860,17 @@ export function TaskExecution({
         }}
       />
 
+      <AttachmentPreviewModal
+        report={previewReport}
+        onClose={() => setPreviewRef(null)}
+      />
+
       <ReviewModal
         task={live(reviewTask)}
         onClose={() => setReviewTask(null)}
+        onPreviewReport={(report) =>
+          reviewTask && setPreviewRef({ taskId: reviewTask.id, reportId: report.id })
+        }
         onSave={(reportId, pass, comment) => {
           if (!reviewTask) return
           const r = reviewReport(reviewTask.id, reportId, pass, comment)
@@ -2617,6 +2658,7 @@ export function TaskDetailModal({
   onConfirmTask,
   onUploadReport,
   onReuploadReport,
+  onPreviewReport,
 }: {
   task: Task | null
   tab: DetailTab
@@ -2629,6 +2671,7 @@ export function TaskDetailModal({
   onConfirmTask?: () => void
   onUploadReport?: () => void
   onReuploadReport?: (report: ReportFile) => void
+  onPreviewReport?: (report: ReportFile) => void
 }) {
   if (!task) return null
   return (
@@ -2644,6 +2687,7 @@ export function TaskDetailModal({
       onConfirmTask={onConfirmTask}
       onUploadReport={onUploadReport}
       onReuploadReport={onReuploadReport}
+      onPreviewReport={onPreviewReport}
     />
   )
 }
@@ -2715,9 +2759,314 @@ function DetailStatus({ label }: { label: string }) {
       已退回: "danger",
       已驳回: "danger",
       待提交: "default",
+      待上传: "default",
       "—": "default",
     }
   return <Tag label={label} color={color[label] ?? "default"} />
+}
+
+type LifecycleViewId = "stage4" | "stage5" | "loop" | "stage6"
+
+const LIFECYCLE_STEP_NAMES = [
+  "药厂发包",
+  "服务商承接",
+  "任务拆解下发",
+  "任务执行中",
+  "结算确认",
+  "结算完结",
+]
+
+const LIFECYCLE_VIEWS: {
+  id: LifecycleViewId
+  label: string
+  stage: number
+  loop?: boolean
+}[] = [
+  { id: "stage4", label: "阶段 4 · 执行中", stage: 4 },
+  { id: "stage5", label: "阶段 5 · 第 1 次结算确认", stage: 5 },
+  { id: "loop", label: "循环 · 第 2 次结算继续执行", stage: 4, loop: true },
+  { id: "stage6", label: "阶段 6 · 结算完结归档", stage: 6 },
+]
+
+function taskLifecycleStage(task: Task): number {
+  if (task.taskStatus === "已结算") return 6
+  if (
+    task.settlements.length > 0 ||
+    task.opsLogs.some((log) => log.action === "发起结算" || log.action === "结算确认")
+  ) {
+    return 5
+  }
+  if (task.taskStatus === "执行中") {
+    return task.workgroupSplits.length > 0 || task.workloadAssigns.length > 0 ? 4 : 3
+  }
+  return 2
+}
+
+function taskLifecycleTimes(task: Task): string[] {
+  const day = (value?: string) => (value ? value.slice(0, 10) : "")
+  const logDay = (actions: string[]) => {
+    const log = task.opsLogs.find((item) => actions.includes(item.action))
+    return log ? day(log.time) : ""
+  }
+  const t1 = logDay(["创建任务"]) || day(task.createdAt)
+  const t2 = logDay(["确认任务"])
+  const t3 = logDay(["分配任务量"]) || t2
+  const unsettledPeriod = task.settlementPeriods.find(
+    (period) =>
+      !task.settlements.some(
+        (bill) => bill.settlementPeriodId === period.id && bill.confirmed && !bill.voided,
+      ),
+  )
+  const planned = [
+    day(task.createdAt) || day(task.startDate),
+    day(task.startDate),
+    day(task.startDate),
+    day(task.startDate),
+    unsettledPeriod?.endDate || day(task.endDate),
+    day(task.endDate),
+  ]
+  const actual = [t1, t2, t3, t3, logDay(["发起结算", "结算确认"]), logDay(["结算完结"])]
+  return actual.map((value, index) => value || planned[index] || "")
+}
+
+function TaskLifecycleBar({ task }: { task: Task }) {
+  const realStage = useMemo(() => taskLifecycleStage(task), [task])
+  const times = useMemo(() => taskLifecycleTimes(task), [task])
+  const [viewId, setViewId] = useState<LifecycleViewId | null>(() =>
+    realStage >= 4
+      ? (LIFECYCLE_VIEWS.find((view) => view.stage === realStage && !view.loop)?.id ?? null)
+      : null,
+  )
+  const activeView = LIFECYCLE_VIEWS.find((view) => view.id === viewId)
+  const activeStage = activeView ? activeView.stage : realStage
+  const loopBadge = Boolean(activeView?.loop)
+  // 结算确认等待中的当前节点用琥珀黄（等待/审核语义），执行与完结阶段用品牌绿
+  const amberCurrent = activeStage === 5
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--color-border)",
+        borderRadius: 8,
+        background: "var(--color-surface)",
+        padding: "12px 16px 16px",
+        marginBottom: 16,
+      }}
+    >
+      <style>{`@keyframes taskLifecyclePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.8;transform:scale(1.08)}}`}</style>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 10,
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingBottom: 12,
+          borderBottom: "1px solid var(--color-border)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "var(--color-brand)",
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              color: "var(--color-text-3)",
+            }}
+          >
+            业务生命周期状态模拟
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 2,
+            padding: 3,
+            background: "var(--color-canvas)",
+            border: "1px solid var(--color-border)",
+            borderRadius: 8,
+          }}
+        >
+          {LIFECYCLE_VIEWS.map((view) => {
+            const active = viewId === view.id
+            return (
+              <button
+                key={view.id}
+                type="button"
+                onClick={() => setViewId(view.id)}
+                style={{
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  fontSize: "var(--fs-12)",
+                  background: active ? "var(--color-surface)" : "transparent",
+                  color: active ? "var(--color-brand)" : "var(--color-text-2)",
+                  fontWeight: active ? 650 : 500,
+                  boxShadow: active ? "0 1px 3px rgba(16, 24, 40, 0.12)" : "none",
+                }}
+              >
+                {view.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+          gap: 4,
+          padding: "20px 8px 0",
+        }}
+      >
+        {LIFECYCLE_STEP_NAMES.map((name, index) => {
+          const stepNo = index + 1
+          const done = stepNo < activeStage
+          const current = stepNo === activeStage
+          const date = times[index]
+          return (
+            <div
+              key={name}
+              style={{
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                textAlign: "center",
+              }}
+            >
+              {stepNo < LIFECYCLE_STEP_NAMES.length && (
+                <span
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    top: 15,
+                    width: "100%",
+                    height: 2,
+                    background:
+                      stepNo < activeStage ? "var(--color-brand)" : "var(--color-border)",
+                  }}
+                />
+              )}
+              <span
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "var(--fs-12)",
+                  fontWeight: 700,
+                  ...(done
+                    ? { background: "var(--color-brand)", color: "#fff" }
+                    : current
+                      ? {
+                          background: amberCurrent ? "#F59E0B" : "var(--color-brand)",
+                          color: "#fff",
+                          boxShadow: amberCurrent
+                            ? "0 0 0 4px rgba(245, 158, 11, 0.2)"
+                            : "0 0 0 4px var(--color-brand-subtle)",
+                          animation:
+                            "taskLifecyclePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+                        }
+                      : {
+                          background: "var(--color-table-stripe)",
+                          border: "1px solid var(--color-border)",
+                          color: "var(--color-text-3)",
+                        }),
+                }}
+              >
+                {done ? (
+                  "✓"
+                ) : current && loopBadge ? (
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                    }}
+                  >
+                    {stepNo}
+                    <RefreshCw size={11} strokeWidth={2.5} />
+                  </span>
+                ) : (
+                  stepNo
+                )}
+              </span>
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  marginTop: 10,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "var(--fs-12)",
+                    fontWeight: current ? 650 : 500,
+                    color: current
+                      ? amberCurrent
+                        ? "var(--color-warning-fg)"
+                        : "var(--color-brand)"
+                      : done
+                        ? "var(--color-text-1)"
+                        : "var(--color-text-3)",
+                  }}
+                >
+                  {stepNo}. {name}
+                </span>
+                {current && (
+                  <span
+                    style={{
+                      background: amberCurrent
+                        ? "var(--color-warning-bg)"
+                        : "var(--color-brand-subtle)",
+                      color: amberCurrent ? "var(--color-warning-fg)" : "var(--color-brand)",
+                      fontSize: "var(--fs-10)",
+                      fontWeight: 500,
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {loopBadge ? "第2期循环" : "当前"}
+                  </span>
+                )}
+              </div>
+              {!current && (
+                <span
+                  style={{
+                    marginTop: 3,
+                    fontSize: "var(--fs-11)",
+                    color: "var(--color-text-3)",
+                  }}
+                >
+                  {date || "—"}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function TaskDetailV5({
@@ -2732,6 +3081,7 @@ function TaskDetailV5({
   onConfirmTask,
   onUploadReport,
   onReuploadReport,
+  onPreviewReport,
 }: {
   task: Task
   tab: DetailTab
@@ -2744,6 +3094,7 @@ function TaskDetailV5({
   onConfirmTask?: () => void
   onUploadReport?: () => void
   onReuploadReport?: (report: ReportFile) => void
+  onPreviewReport?: (report: ReportFile) => void
 }) {
   const [allocationWorkGroup, setAllocationWorkGroup] = useState<string | null>(
     null,
@@ -2751,7 +3102,10 @@ function TaskDetailV5({
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null)
   const [selectedBill, setSelectedBill] = useState<string | null>(null)
   const remain = remainingOfTask(task)
-  const pendingReports = task.reports.filter(
+  const pendingUploadReports = task.reports.filter(
+    (r) => r.status === "待上传",
+  ).length
+  const pendingReviewReports = task.reports.filter(
     (r) => r.status === "待审核",
   ).length
   const baseSplits = task.workgroupSplits.length
@@ -2790,16 +3144,18 @@ function TaskDetailV5({
     region:
       report.region ??
       (task.regions[index % Math.max(1, task.regions.length)] ?? "—"),
-    fileName: report.fileName ?? "—",
-    submitter: report.uploadedBy,
-    time: report.uploadedAt,
+    fileName: report.fileName ?? "",
+    submitter: report.uploadedBy || "—",
+    time: report.uploadedAt || "—",
     version: report.version ?? 1,
     status:
       report.status === "通过"
         ? "审核通过"
         : report.status === "驳回"
           ? "已退回"
-          : "待审核",
+          : report.status === "待上传"
+            ? "待上传"
+            : "待审核",
     opinion: report.comment || (report.status === "待审核" ? "资料完整性待核验" : "—"),
     settled: !!report.settledBillNo,
     raw: report,
@@ -2807,7 +3163,12 @@ function TaskDetailV5({
   const tabs: { id: DetailTab label: string badge?: number }[] = [
     { id: "plan", label: "任务计划" },
     { id: "exec", label: "任务拆解" },
-    { id: "report", label: "报告与审核", badge: pendingReports },
+    {
+      id: "report",
+      label: "报告与审核",
+      // 服务商关注待上传，药厂关注待审核
+      badge: isProvider ? pendingUploadReports : pendingReviewReports,
+    },
     { id: "settle", label: "结算周期与结算单" },
     { id: "log", label: "操作记录" },
   ]
@@ -3110,6 +3471,7 @@ function TaskDetailV5({
         />
       ) : (
         <>
+          <TaskLifecycleBar task={task} />
           <div
             style={{
               display: "flex",
@@ -3523,20 +3885,30 @@ function TaskDetailV5({
           {tab === "report" && (
             <Section
               title="报告与审核"
-              subtitle={`待审核 ${pendingReports} 条 · 报告由服务商上传，药厂审核`}
+              subtitle={`待上传 ${pendingUploadReports} 条 · 待审核 ${pendingReviewReports} 条 · 报告任务由药厂分派生成，服务商按记录上传，药厂审核`}
             >
               {isProvider && task.taskStatus === "执行中" && onUploadReport && (
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "flex-end",
+                    alignItems: "center",
+                    gap: 8,
                     marginBottom: 10,
                   }}
                 >
+                  {!pendingUploadReports && (
+                    <span
+                      style={{ fontSize: "var(--fs-12)", color: "#98A2B3" }}
+                    >
+                      暂无待上传的报告记录
+                    </span>
+                  )}
                   <Button
                     variant="primary"
                     size="sm"
                     icon={<Upload size={13} />}
+                    disabled={!pendingUploadReports}
                     onClick={onUploadReport}
                   >
                     上传报告
@@ -3580,7 +3952,46 @@ function TaskDetailV5({
                           </div>
                         )}
                       </td>
-                      <td style={td}>{row.fileName}</td>
+                      <td style={td}>
+                        {row.fileName ? (
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <span
+                              title={row.fileName}
+                              style={{
+                                maxWidth: 170,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {row.fileName}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onPreviewReport?.(row.raw)}
+                              style={{
+                                border: "none",
+                                background: "none",
+                                padding: 0,
+                                color: "#2F6BCE",
+                                cursor: "pointer",
+                                fontSize: "var(--fs-12)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              预览
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ color: "#98A2B3" }}>—</span>
+                        )}
+                      </td>
                       <td style={td}>{row.variety}</td>
                       <td style={td}>{row.region}</td>
                       <td style={td}>{row.submitter}</td>
@@ -3608,9 +4019,15 @@ function TaskDetailV5({
                           >
                             审核
                           </Button>
-                        ) : isProvider &&
-                          (row.status === "待审核" ||
-                            row.status === "已退回") ? (
+                        ) : isProvider && row.status === "待上传" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onReuploadReport?.(row.raw)}
+                          >
+                            上传
+                          </Button>
+                        ) : isProvider && row.status === "已退回" ? (
                           <Button
                             variant="outline"
                             size="sm"
@@ -3619,9 +4036,7 @@ function TaskDetailV5({
                             重新上传
                           </Button>
                         ) : (
-                          <Button variant="ghost" size="sm">
-                            查看
-                          </Button>
+                          <span style={{ color: "#98A2B3" }}>—</span>
                         )}
                       </td>
                     </tr>
@@ -3629,7 +4044,7 @@ function TaskDetailV5({
                   {!reportRows.length && (
                     <tr>
                       <td style={td} colSpan={9}>
-                        暂无报告；服务商可在本页签上传报告附件。
+                        本任务未包含报告类服务项目，无需提交报告。
                       </td>
                     </tr>
                   )}
@@ -6846,45 +7261,52 @@ function ReportUploadModal({
   onSave,
 }: {
   task: Task | null
-  /** 重新上传时预填的原报告；新上传为空 */
+  /** 指定上传/重传的报告记录（待上传或已退回）；为空时先在弹框内选择记录 */
   editing?: ReportFile | null
   onClose: () => void
-  onSave: (payload: {
-    name: string
-    fileName: string
-    variety: string
-    region: string
-    itemName?: string
-  }) => void
+  onSave: (
+    reportId: string,
+    payload: {
+      name: string
+      fileName: string
+      variety: string
+      region: string
+      itemName?: string
+      url?: string
+    },
+  ) => void
 }) {
-  const [name, setName] = useState("")
+  const [selectedId, setSelectedId] = useState("")
   const [fileName, setFileName] = useState("")
-  const [variety, setVariety] = useState("")
-  const [region, setRegion] = useState("")
-  const [itemName, setItemName] = useState("")
+  const [fileUrl, setFileUrl] = useState<string | undefined>(undefined)
   useEffect(() => {
-    setName(editing?.name?.replace(/\.pdf$/i, "") ?? "")
+    setSelectedId(editing?.id ?? "")
     setFileName(editing?.fileName ?? "")
-    setVariety(editing?.variety ?? task?.varieties[0] ?? "")
-    setRegion(editing?.region ?? task?.regions[0] ?? "")
-    setItemName(editing?.itemName ?? "")
+    setFileUrl(undefined)
   }, [task?.id, editing?.id])
   if (!task) return null
-  // 报告类服务项目：上传时关联，作为报告模式结算的计价依据
-  const reportItems = task.serviceItems.filter(
-    (it) => it.category !== "市场推广服务",
+  // 可上传目标：药厂分派生成的待上传记录 + 被退回待重传的记录
+  const targets = task.reports.filter(
+    (r) => r.status === "待上传" || r.status === "驳回",
   )
+  const target =
+    editing ?? task.reports.find((r) => r.id === selectedId) ?? null
   const invalidExt =
     fileName &&
     !REPORT_FILE_ACCEPT.split(",").some((ext) =>
       fileName.toLowerCase().endsWith(ext),
     )
-  const canSubmit =
-    name.trim() && fileName.trim() && variety && !invalidExt && (reportItems.length === 0 || itemName)
+  const isReupload = target?.status === "驳回"
+  const canSubmit = !!target && !!fileName.trim() && !invalidExt
+  const lockedFieldStyle: React.CSSProperties = {
+    ...inputStyle,
+    background: "#F9FAFB",
+    color: "#475467",
+  }
   return (
     <Modal
       open={!!task}
-      title={editing ? "重新上传报告" : "上传报告"}
+      title={isReupload ? "重新上传报告" : "上传报告"}
       onClose={onClose}
       width={560}
       footer={
@@ -6896,123 +7318,224 @@ function ReportUploadModal({
             variant="primary"
             disabled={!canSubmit}
             onClick={() =>
-              onSave({
-                name: name.trim(),
+              target &&
+              onSave(target.id, {
+                name: target.name,
                 fileName: fileName.trim(),
-                variety,
-                region,
-                itemName: itemName || undefined,
+                variety: target.variety ?? "",
+                region: target.region ?? "",
+                itemName: target.itemName,
+                url: fileUrl,
               })
             }
           >
-            {editing ? "重新上传" : "提交"}
+            {isReupload ? "重新上传" : "提交"}
           </Button>
         </>
       }
     >
-      {editing && (
+      {!editing && (
+        <Field label="选择报告任务">
+          <select
+            value={selectedId}
+            onChange={(e) => {
+              setSelectedId(e.target.value)
+              setFileName("")
+              setFileUrl(undefined)
+            }}
+            style={inputStyle}
+          >
+            <option value="">请选择</option>
+            {targets.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}（{r.variety ?? "—"} · {r.region ?? "全国"}
+                {r.status === "驳回" ? " · 已退回" : ""}）
+              </option>
+            ))}
+          </select>
+          <div
+            style={{
+              fontSize: "var(--fs-12)",
+              color: "#9CA3AF",
+              marginTop: 4,
+            }}
+          >
+            报告任务由药厂分派生成；名称、品种、区域随记录带出，不可修改。
+          </div>
+        </Field>
+      )}
+      {isReupload && (
         <Banner color="warning">
           重新上传后报告将回到「待审核」，原审核意见清空；版本号累加留痕。
         </Banner>
       )}
-      <Field label="报告名称">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={inputStyle}
-          placeholder="如 市场分析报告"
-        />
-      </Field>
-      <div style={{ height: 10 }} />
-      <Field label="附件">
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="file"
-            accept={REPORT_FILE_ACCEPT}
-            style={{ fontSize: "var(--fs-12)" }}
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) {
-                setFileName(file.name)
-                if (!name.trim())
-                  setName(file.name.replace(/\.[^.]+$/, ""))
-              }
-            }}
-          />
-          {fileName && (
-            <span
+      {target && (
+        <>
+          {!editing && <div style={{ height: 10 }} />}
+          <Field label="报告名称">
+            <input value={target.name} readOnly style={lockedFieldStyle} />
+          </Field>
+          <div style={{ height: 10 }} />
+          <Field label="附件">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="file"
+                accept={REPORT_FILE_ACCEPT}
+                style={{ fontSize: "var(--fs-12)" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    setFileName(file.name)
+                    setFileUrl(URL.createObjectURL(file))
+                  }
+                }}
+              />
+              {fileName && (
+                <span
+                  style={{
+                    fontSize: "var(--fs-12)",
+                    color: invalidExt ? "#C73A3A" : "#2F6BCE",
+                  }}
+                >
+                  {fileName}
+                </span>
+              )}
+            </div>
+            {invalidExt && (
+              <div
+                style={{
+                  fontSize: "var(--fs-12)",
+                  color: "#C73A3A",
+                  marginTop: 4,
+                }}
+              >
+                不支持的附件格式，允许：{REPORT_FILE_ACCEPT}
+              </div>
+            )}
+            <div
               style={{
                 fontSize: "var(--fs-12)",
-                color: invalidExt ? "#C73A3A" : "#2F6BCE",
+                color: "#9CA3AF",
+                marginTop: 4,
               }}
             >
-              {fileName}
-            </span>
-          )}
-        </div>
-        {invalidExt && (
-          <div style={{ fontSize: "var(--fs-12)", color: "#C73A3A", marginTop: 4 }}>
-            不支持的附件格式，允许：{REPORT_FILE_ACCEPT}
-          </div>
-        )}
-        <div style={{ fontSize: "var(--fs-12)", color: "#9CA3AF", marginTop: 4 }}>
-          原型仅登记文件名，不上传真实文件。
-        </div>
-      </Field>
-      <div style={{ height: 10 }} />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 12,
-        }}
-      >
-        <Field label="所属品种">
-          <select
-            value={variety}
-            onChange={(e) => setVariety(e.target.value)}
-            style={inputStyle}
-          >
-            {task.varieties.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="所属区域">
-          <select
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-            style={inputStyle}
-          >
-            {task.regions.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
-      {reportItems.length > 0 && (
-        <>
-          <div style={{ height: 10 }} />
-          <Field label="关联服务项目（结算计价依据）">
-            <select
-              value={itemName}
-              onChange={(e) => setItemName(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">请选择</option>
-              {reportItems.map((it) => (
-                <option key={it.id} value={it.name}>
-                  {it.name}（{it.category} · {formatCNY(it.unitPrice)}/
-                  {it.unit}）
-                </option>
-              ))}
-            </select>
+              上传后药厂可在线预览（图片/PDF）或下载；历史演示附件为占位示例。
+            </div>
           </Field>
+          <div style={{ height: 10 }} />
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 12,
+            }}
+          >
+            <Field label="所属品种">
+              <input value={target.variety ?? "—"} readOnly style={lockedFieldStyle} />
+            </Field>
+            <Field label="所属区域">
+              <input value={target.region ?? "全国"} readOnly style={lockedFieldStyle} />
+            </Field>
+          </div>
+          {target.itemName && (
+            <>
+              <div style={{ height: 10 }} />
+              <Field label="关联服务项目（结算计价依据）">
+                <input value={target.itemName} readOnly style={lockedFieldStyle} />
+              </Field>
+            </>
+          )}
         </>
+      )}
+    </Modal>
+  )
+}
+
+function AttachmentPreviewModal({
+  report,
+  onClose,
+}: {
+  report: ReportFile | null
+  onClose: () => void
+}) {
+  if (!report || !report.fileName) return null
+  const fileName = report.fileName
+  const kind = fileKindOf(fileName)
+  // 仅本会话真实上传的文件可在线内嵌预览；种子演示附件展示占位卡
+  const inlineable = isInlinePreviewable(kind) && !!report.url
+  return (
+    <Modal
+      open
+      title="附件预览"
+      onClose={onClose}
+      width={680}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            关闭
+          </Button>
+          <Button
+            variant="primary"
+            icon={<Download size={14} />}
+            onClick={() => downloadAttachment(fileName, report.url)}
+          >
+            下载到本地
+          </Button>
+        </>
+      }
+    >
+      <Info label="报告名称" value={report.name} />
+      <div style={{ height: 10 }} />
+      <Info label="附件" value={`${fileName} · ${FILE_KIND_LABEL[kind]}`} />
+      <div style={{ height: 12 }} />
+      {inlineable ? (
+        kind === "image" ? (
+          <img
+            src={report.url}
+            alt={fileName}
+            style={{
+              width: "100%",
+              maxHeight: 360,
+              objectFit: "contain",
+              border: "1px solid var(--color-border)",
+              borderRadius: 8,
+              background: "#F9FAFB",
+            }}
+          />
+        ) : (
+          <iframe
+            src={report.url}
+            title={fileName}
+            style={{
+              width: "100%",
+              height: 380,
+              border: "1px solid var(--color-border)",
+              borderRadius: 8,
+            }}
+          />
+        )
+      ) : (
+        <div
+          style={{
+            border: "1px dashed var(--color-border)",
+            borderRadius: 8,
+            padding: "32px 20px",
+            textAlign: "center",
+            background: "#F9FAFB",
+            color: "#667085",
+            fontSize: "var(--fs-13)",
+            lineHeight: 1.9,
+          }}
+        >
+          <FileText size={28} style={{ marginBottom: 6 }} />
+          <div style={{ color: "#344054", fontWeight: 600 }}>{fileName}</div>
+          <div>{FILE_KIND_LABEL[kind]} · 演示占位预览</div>
+          <div style={{ fontSize: "var(--fs-12)", color: "#98A2B3" }}>
+            {report.url
+              ? "该格式暂不支持在线预览，可下载到本地查看。"
+              : "正式环境此处在线展示原始文件；演示附件可下载占位文件查看。"}
+          </div>
+        </div>
       )}
     </Modal>
   )
@@ -7022,10 +7545,12 @@ function ReviewModal({
   task,
   onClose,
   onSave,
+  onPreviewReport,
 }: {
   task: Task | null
   onClose: () => void
   onSave: (reportId: string, pass: boolean, comment: string) => void
+  onPreviewReport?: (report: ReportFile) => void
 }) {
   const pending = task?.reports.find((r) => r.status === "待审核")
   const [comment, setComment] = useState("")
@@ -7061,6 +7586,27 @@ function ReviewModal({
       ) : (
         <>
           <Info label="报告名称" value={pending.name} />
+          <div style={{ height: 10 }} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              fontSize: "var(--fs-13)",
+            }}
+          >
+            <span style={{ color: "#667085", minWidth: 72 }}>附件</span>
+            <span>{pending.fileName ?? "—"}</span>
+            {pending.fileName && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onPreviewReport?.(pending)}
+              >
+                预览
+              </Button>
+            )}
+          </div>
           <div style={{ height: 10 }} />
           <Field label="审核意见（驳回时必填）">
             <textarea

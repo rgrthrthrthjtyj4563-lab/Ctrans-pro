@@ -14,6 +14,7 @@ export type ScopeType =
   | "DEPT"
   | "DEPT_AND_CHILD"
   | "SELF"
+  | "MOBILE"
   | "CUSTOM"
 export type SysRoleKind = "preset" | "custom"
 export type SysRoleStatus = "enabled" | "disabled" | "draft"
@@ -61,6 +62,11 @@ export const SCOPE_OPTIONS: { value: ScopeType label: string hint: string }[] =
       hint: "授权生效组织及其全部下级部门",
     },
     { value: "SELF", label: "仅本人", hint: "仅本人填报与本人结算" },
+    {
+      value: "MOBILE",
+      label: "移动端",
+      hint: "数据仅在移动端 App 生效；该角色账号不可登录 Web 后台",
+    },
     {
       value: "CUSTOM",
       label: "指定范围",
@@ -115,7 +121,6 @@ export interface SysRole {
   defaultScope: ScopeType
   customScope: CustomScope
   version: number
-  copiedFrom?: string
   updatedBy: string
   updatedAt: string
   /** 页面 id → 已授权动作。未出现的页面视为无权限。 */
@@ -258,9 +263,9 @@ export const RESOURCE_PAGES: ResourcePage[] = [
   },
   {
     id: "rep-filing",
-    module: "企业用户管理",
+    module: "合规管理",
     name: "医药代表备案管理",
-    description: "代表建档、核验与催补备案",
+    description: "代表名单、备案台账与到期提醒",
     actions: acts("rep-filing", [
       "view",
       "create",
@@ -362,6 +367,13 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     actions: acts("execution-chain", ["view", "edit"]),
   },
   {
+    id: "business-switch",
+    module: "系统管理",
+    name: "药厂配置开关",
+    description: "维护药厂业务合规模式、拜访留痕、定位与轨迹校验规则",
+    actions: acts("business-switch", ["view", "edit"]),
+  },
+  {
     id: "performance-team",
     module: "绩效管理",
     name: "团队工作质量评价",
@@ -378,12 +390,19 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     actions: acts("performance-specialist", ["view", "submit", "export"]),
   },
   {
-    id: "performance-coefficient",
-    module: "系统管理",
-    name: "绩效系数配置",
+    id: "performance-settings",
+    module: "绩效管理",
+    name: "绩效设置",
+    description: "打绩效业务开关、评级模式与系数/权重/上限配置",
+    actions: acts("performance-settings", ["view", "edit"]),
+  },
+  {
+    id: "biz-detail-export",
+    module: "统计管理",
+    name: "业务明细导出",
     description:
-      "质量系数区间（阶段一）与专员实发上限 X%（阶段二/直达），打绩效提交时实时读取",
-    actions: acts("performance-coefficient", ["view", "edit"]),
+      "按对账单与服务方生成业务明细导出报告：筛选统计口径、选择模板、单页预览并导出 PDF",
+    actions: acts("biz-detail-export", ["view", "create", "export"]),
   },
 ]
 
@@ -511,7 +530,6 @@ export const PRESET_ROLES: SysRole[] = [
       ["departments", ["view", "create", "edit", "delete"]],
       ["audit-log", ["view"]],
       ["baiyee-ai", ["view"]],
-      ["performance-coefficient", ["view", "edit"]],
     ]),
   }),
   role({
@@ -526,7 +544,7 @@ export const PRESET_ROLES: SysRole[] = [
     pagePerms: perms([
       ["dashboard", ["view"]],
       ["rep-filing", ["view", "create", "edit"]],
-      ["vendor-access", ["view"]],
+      ["audit-log", ["view"]],
     ]),
     fieldPolicies: {
       ...ALL_VISIBLE,
@@ -546,6 +564,7 @@ export const PRESET_ROLES: SysRole[] = [
     updatedAt: "2026-08-20 16:08",
     pagePerms: perms([
       ["dashboard", ["view"]],
+      ["rep-filing", ["view", "create", "edit"]],
       ["budget-plan", ["view", "create", "edit", "export"]],
       ["task-dispatch", ["view", "create", "edit", "submit", "export"]],
       ["hospital-visits", ["view", "export"]],
@@ -555,7 +574,9 @@ export const PRESET_ROLES: SysRole[] = [
       ["variety-auth", ["view", "create", "edit", "delete"]],
       ["price-config", ["view", "edit"]],
       ["execution-chain", ["view", "edit"]],
-      ["roles", ["view", "create", "edit"]],
+      ["business-switch", ["view", "edit"]],
+      ["biz-detail-export", ["view", "create", "export"]],
+      ["roles", ["view", "create", "edit", "delete"]], // 原型演示授权：真实后端仅平台运营/系统管理员
       ["menus", ["view", "create", "edit"]], // 原型演示授权：真实后端仅平台运营/系统管理员
       ["role-preview", ["view"]],
       ["departments", ["view", "create", "edit", "delete"]],
@@ -579,6 +600,8 @@ export const PRESET_ROLES: SysRole[] = [
       ["doctors", ["view"]],
       ["audit-log", ["view"]],
       ["baiyee-ai", ["view", "submit"]],
+      ["business-switch", ["view"]],
+      ["biz-detail-export", ["view", "create", "export"]],
     ]),
     fieldPolicies: {
       ...ALL_VISIBLE,
@@ -609,6 +632,7 @@ export const PRESET_ROLES: SysRole[] = [
       ["variety-auth", ["view", "edit"]],
       ["performance-team", ["view", "submit", "export"]],
       ["performance-specialist", ["view", "submit", "export"]],
+      ["performance-settings", ["view", "edit"]],
     ]),
     fieldPolicies: {
       ...ALL_VISIBLE,
@@ -641,10 +665,10 @@ export const PRESET_ROLES: SysRole[] = [
   role({
     id: "role-specialist",
     name: "服务专员",
-    description: "本人填报、证据上传、本人结算查看",
+    description: "本人填报、证据上传、本人结算查看（仅移动端 App，不可登录 Web 后台）",
     kind: "preset",
     status: "enabled",
-    defaultScope: "SELF",
+    defaultScope: "MOBILE",
     updatedBy: "陈伟",
     updatedAt: "2026-08-15 11:12",
     pagePerms: perms([
@@ -671,7 +695,7 @@ export const seedCustomRoles: SysRole[] = [
     id: "role-custom-region-sales",
     name: "药厂区域销售经理",
     description:
-      "从药厂销售管理员复制，数据范围为本部门及以下；授权挂在西北大区即可覆盖陕西、四川办事处",
+      "数据范围为本部门及以下；授权挂在西北大区即可覆盖陕西、四川办事处",
     kind: "custom",
     status: "enabled",
     defaultScope: "DEPT_AND_CHILD",
@@ -679,7 +703,6 @@ export const seedCustomRoles: SysRole[] = [
       ...emptyCustomScope(),
       pharmaIds: ["org-pharma"],
     },
-    copiedFrom: "role-pharma-sales",
     version: 2,
     updatedBy: "李航",
     updatedAt: "2026-08-24 15:06",
@@ -805,7 +828,7 @@ export function resolveGrantAnchor(
     hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
   } else if (scope === "PROVIDER") {
     hit = nearestAncestorOfType(orgs, userOrgId, "provider")
-  } else if (scope === "GROUP" || scope === "SELF") {
+  } else if (scope === "GROUP" || scope === "SELF" || scope === "MOBILE") {
     hit = nearestAncestorOfType(orgs, userOrgId, "group")
   } else {
     hit = current
@@ -1044,7 +1067,7 @@ export const seedAssignments: RoleAssignment[] = [
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
     scopeOrgName: "工作组三",
-    scope: "SELF",
+    scope: "MOBILE",
     effectiveFrom: "2026-06-01",
     grantedBy: "陈伟",
     grantedAt: "2026-06-01 11:05",
@@ -1056,7 +1079,7 @@ export const seedAssignments: RoleAssignment[] = [
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
     scopeOrgName: "工作组三",
-    scope: "SELF",
+    scope: "MOBILE",
     effectiveFrom: "2026-06-01",
     grantedBy: "陈伟",
     grantedAt: "2026-06-01 11:06",
@@ -1068,7 +1091,7 @@ export const seedAssignments: RoleAssignment[] = [
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
     scopeOrgName: "工作组三",
-    scope: "SELF",
+    scope: "MOBILE",
     effectiveFrom: "2026-06-01",
     effectiveTo: "2026-08-01",
     grantedBy: "陈伟",
@@ -1081,7 +1104,7 @@ export const seedAssignments: RoleAssignment[] = [
     roleId: "role-specialist",
     scopeOrgId: "org-provider-east",
     scopeOrgName: "东方恒业推广有限公司",
-    scope: "SELF",
+    scope: "MOBILE",
     effectiveFrom: "2026-07-15",
     grantedBy: "陈伟",
     grantedAt: "2026-07-15 16:40",
@@ -1109,13 +1132,26 @@ export const seedAssignments: RoleAssignment[] = [
     roleId: "role-specialist",
     scopeOrgId: "org-provider-smart",
     scopeOrgName: "智联科技有限公司",
-    scope: "SELF",
+    scope: "MOBILE",
     effectiveFrom: "2026-08-01",
     effectiveTo: "2026-09-30",
     grantedBy: "李航",
     grantedAt: "2026-08-01 10:00",
     status: "active",
     reason: "临时支援 · 服务商专员",
+  },
+  {
+    id: "g-13",
+    userId: "u-zhengjie",
+    roleId: "role-account-admin",
+    scopeOrgId: "org-platform",
+    scopeOrgName: "百益健康科技",
+    scope: "ALL_PLATFORM",
+    effectiveFrom: "2026-09-02",
+    grantedBy: "王敏",
+    grantedAt: "2026-09-02 09:36",
+    status: "active",
+    reason: "账户建档与解锁专职 · 预置授权",
   },
 ]
 
@@ -1355,10 +1391,35 @@ export const seedPermAudit: PermAuditEvent[] = [
   },
 ]
 
-export const LOGIN_ROLE_MAP: Record<Role, string> = {
-  药厂销售部门: "role-pharma-sales",
-  药厂合规部门: "role-pharma-compliance",
-  服务提供商: "role-provider-admin",
+/**
+ * 真实授权角色（SysRole）→ 旧三类登录视角（Role）的兼容映射。
+ * 登录、菜单与权限判定一律以 SysRole + pagePerms 为准；此映射仅服务于
+ * 尚未迁移的页面内「视角分支」（如任务执行按销售/服务商渲染不同操作），
+ * 属于整改方案中「逐步替换」的过渡层，新增角色必须在此登记。
+ */
+export const PERSPECTIVE_BY_ROLE_ID: Record<string, Role> = {
+  "role-pharma-sales": "药厂销售部门",
+  "role-custom-region-sales": "药厂销售部门",
+  "role-pharma-compliance": "药厂合规部门",
+  "role-provider-admin": "服务提供商",
+  "role-group-lead": "服务提供商",
+  "role-specialist": "服务提供商",
+  // 平台侧角色没有业务视角：页面访问已由 visiblePages 收敛到系统管理页，
+  // 这里给中性视角仅为工作台/菜单兼容渲染，不代表获得业务操作权
+  "role-platform-ops": "药厂销售部门",
+  "role-sys-admin": "药厂销售部门",
+  "role-account-admin": "药厂销售部门",
+}
+
+/** 运行期新建的定制角色按数据范围推导视角（无登记时兜底） */
+export function perspectiveRoleOf(role: SysRole): Role {
+  const mapped = PERSPECTIVE_BY_ROLE_ID[role.id]
+  if (mapped) return mapped
+  if (role.defaultScope === "PROVIDER" || role.defaultScope === "GROUP" || role.defaultScope === "SELF")
+    return "服务提供商"
+  if (pageHasAction(role, "vendor-access", "approve") || role.name.includes("合规"))
+    return "药厂合规部门"
+  return "药厂销售部门"
 }
 
 export const VARIETY_OPTIONS = [

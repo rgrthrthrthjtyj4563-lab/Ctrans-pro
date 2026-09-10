@@ -29,11 +29,11 @@ export interface Evaluation {
   p4: number // 服务预算匹配度 20%
 }
 
-export const EVAL_DIMENSIONS: { key: keyof Evaluation; label: string; weight: number }[] = [
-  { key: "p1", label: "服务程序 / 制度 / 职业道德遵循", weight: 0.2 },
-  { key: "p2", label: "服务态度及专业水平反馈", weight: 0.25 },
-  { key: "p3", label: "服务记录准确性 / 相关性 / 完整性", weight: 0.35 },
-  { key: "p4", label: "服务预算匹配度", weight: 0.2 },
+export const EVAL_DIMENSIONS: { key: keyof Evaluation; label: string }[] = [
+  { key: "p1", label: "服务程序 / 制度 / 职业道德遵循" },
+  { key: "p2", label: "服务态度及专业水平反馈" },
+  { key: "p3", label: "服务记录准确性 / 相关性 / 完整性" },
+  { key: "p4", label: "服务预算匹配度" },
 ]
 
 /** 专员绩效记录（一专员一条；阶段二挂工作组批次，直达不挂工作组） */
@@ -71,7 +71,7 @@ export interface PerfBatch {
   ops: { actor: string; time: string; action: string }[]
 }
 
-// ── 校验配置（系统管理→绩效系数配置，实时读取非快照） ───────────────────────
+// ── 绩效设置（服务商配置，实时读取非快照） ──────────────────────────────────
 
 export interface PerformanceRuleConfig {
   coefMin: number
@@ -85,43 +85,119 @@ export const DEFAULT_RULE: PerformanceRuleConfig = {
   capRatio: 1.2,
 }
 
-const RULE_KEY = "beiye-perf-rule"
-const RULE_EVT = "beiye-perf-rule-change"
+export type PerfMode = "层级模式" | "灵活模式"
 
-export function getRule(): PerformanceRuleConfig {
+export interface PerformanceSettings extends PerformanceRuleConfig {
+  mode: PerfMode
+  weights: [number, number, number, number]
+  updatedAt?: string
+}
+
+export interface PerformanceSettingsLog {
+  id: string
+  changedAt: string
+  operator: string
+  summary: string
+}
+
+export const DEFAULT_SETTINGS: PerformanceSettings = {
+  mode: "层级模式",
+  coefMin: 0.6,
+  coefMax: 1.2,
+  weights: [20, 25, 35, 20],
+  capRatio: 1.2,
+}
+
+const SETTINGS_KEY = "beiye-perf-settings"
+const SETTINGS_EVT = "beiye-perf-settings-change"
+const SETTINGS_LOG_KEY = "beiye-perf-settings-log"
+
+function validSettings(value: Partial<PerformanceSettings>): value is PerformanceSettings {
+  return (value.mode === "层级模式" || value.mode === "灵活模式") &&
+    typeof value.coefMin === "number" && typeof value.coefMax === "number" &&
+    typeof value.capRatio === "number" && Array.isArray(value.weights) && value.weights.length === 4 &&
+    value.weights.every((weight) => typeof weight === "number")
+}
+
+export function getSettings(): PerformanceSettings {
   try {
-    const raw = localStorage.getItem(RULE_KEY)
-    if (!raw) return { ...DEFAULT_RULE }
-    const parsed = JSON.parse(raw) as PerformanceRuleConfig
-    if (
-      typeof parsed.coefMin === "number" &&
-      typeof parsed.coefMax === "number" &&
-      typeof parsed.capRatio === "number"
-    )
-      return parsed
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return { ...DEFAULT_SETTINGS, weights: [...DEFAULT_SETTINGS.weights] as PerformanceSettings["weights"] }
+    const parsed = JSON.parse(raw) as Partial<PerformanceSettings>
+    if (validSettings(parsed)) return { ...parsed, weights: [...parsed.weights] as PerformanceSettings["weights"] }
   } catch {
     /* 演示原型：落 localStorage 失败时回退默认 */
   }
-  return { ...DEFAULT_RULE }
+  return { ...DEFAULT_SETTINGS, weights: [...DEFAULT_SETTINGS.weights] as PerformanceSettings["weights"] }
 }
 
-export function setRule(next: PerformanceRuleConfig) {
+export function saveSettings(next: PerformanceSettings) {
+  const safe = { ...next, weights: [...next.weights] as PerformanceSettings["weights"] }
   try {
-    localStorage.setItem(RULE_KEY, JSON.stringify(next))
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(safe))
   } catch {
     /* ignore */
   }
-  window.dispatchEvent(new Event(RULE_EVT))
+  window.dispatchEvent(new Event(SETTINGS_EVT))
+}
+
+export function getSettingsLogs(): PerformanceSettingsLog[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_LOG_KEY) ?? "[]") as PerformanceSettingsLog[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export function appendSettingsLog(log: PerformanceSettingsLog) {
+  const next = [log, ...getSettingsLogs()].slice(0, 50)
+  try {
+    localStorage.setItem(SETTINGS_LOG_KEY, JSON.stringify(next))
+  } catch {
+    /* 演示原型：日志存储失败时不阻断设置保存 */
+  }
+  window.dispatchEvent(new Event(SETTINGS_EVT))
+}
+
+export function resetSettings() {
+  const next = { ...DEFAULT_SETTINGS, weights: [...DEFAULT_SETTINGS.weights] as PerformanceSettings["weights"], updatedAt: new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") }
+  saveSettings(next)
+  return next
+}
+
+export function usePerfSettings(): PerformanceSettings {
+  const [settings, setSettings] = useReducer(() => getSettings(), getSettings())
+  useEffect(() => {
+    const on = () => setSettings()
+    window.addEventListener(SETTINGS_EVT, on)
+    return () => window.removeEventListener(SETTINGS_EVT, on)
+  }, [])
+  return settings
+}
+
+/** 兼容既有表单消费点：规则从完整设置派生。 */
+export function getRule(): PerformanceRuleConfig {
+  const { coefMin, coefMax, capRatio } = getSettings()
+  return { coefMin, coefMax, capRatio }
+}
+
+export function setRule(next: PerformanceRuleConfig) {
+  const current = getSettings()
+  saveSettings({ ...current, ...next, updatedAt: new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") })
 }
 
 export function useRule(): PerformanceRuleConfig {
-  const [rule, setR] = useReducer(() => getRule(), getRule())
-  useEffect(() => {
-    const on = () => setR()
-    window.addEventListener(RULE_EVT, on)
-    return () => window.removeEventListener(RULE_EVT, on)
-  }, [])
-  return rule
+  const { coefMin, coefMax, capRatio } = usePerfSettings()
+  return { coefMin, coefMax, capRatio }
+}
+
+export function getEvalDimensions(settings = getSettings()) {
+  return EVAL_DIMENSIONS.map((dimension, index) => ({ ...dimension, weight: settings.weights[index] / 100 }))
+}
+
+export function canWritePerf() {
+  return true
 }
 
 // ── 演示数据（与 public/绩效管理界面预览.html V1.6 一致） ─────────────────────
@@ -230,20 +306,26 @@ export function recordsOfBatch(batchNo: string) {
   return state.records.filter((r) => r.batchNo === batchNo)
 }
 export function patchBatch(batchNo: string, patch: Partial<PerfBatch>) {
+  if (!canWritePerf()) return false
   state.batches = state.batches.map((b) =>
     b.batchNo === batchNo ? { ...b, ...patch } : b,
   )
   emit()
+  return true
 }
 export function patchRecord(id: string, patch: Partial<SpecialistRecord>) {
+  if (!canWritePerf()) return false
   state.records = state.records.map((r) => (r.id === id ? { ...r, ...patch } : r))
   emit()
+  return true
 }
 export function appendOp(batchNo: string, op: { actor: string; time: string; action: string }) {
+  if (!canWritePerf()) return false
   state.batches = state.batches.map((b) =>
     b.batchNo === batchNo ? { ...b, ops: [...b.ops, op] } : b,
   )
   emit()
+  return true
 }
 
 /** 订阅 store 变化（页面级刷新） */
@@ -264,9 +346,9 @@ export const itemsWorkload = (items: BizItem[]) =>
 export const itemsDefault = (items: BizItem[]) =>
   items.reduce((s, i) => s + i.count * i.unitPrice, 0)
 
-export function evalTotal(e?: Evaluation): number | null {
+export function evalTotal(e?: Evaluation, settings = getSettings()): number | null {
   if (!e) return null
-  const t = EVAL_DIMENSIONS.reduce((s, dim) => s + e[dim.key] * dim.weight, 0)
+  const t = getEvalDimensions(settings).reduce((s, dim) => s + e[dim.key] * dim.weight, 0)
   return Math.round(t * 100) / 100
 }
 

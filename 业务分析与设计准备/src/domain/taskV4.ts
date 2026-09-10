@@ -348,7 +348,8 @@ export function taskHasExecData(task: Task): boolean {
   return (
     task.workgroupSplits.length > 0 ||
     task.workloadAssigns.length > 0 ||
-    task.reports.length > 0 ||
+    // 「待上传」报告记录是药厂分派的投影，不算服务商执行数据
+    task.reports.some((r) => r.status !== "待上传") ||
     validBills(task).length > 0
   )
 }

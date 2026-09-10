@@ -77,6 +77,9 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '待审': { label: '待审', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '撤销': { label: '撤销', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   '过期': { label: '过期', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
+  // 医药代表备案（最简版）
+  '已停用': { label: '已停用', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
+  '即将到期': { label: '即将到期', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   // 服务商状态
   '尽调中': { label: '尽调中', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
   '审批中': { label: '审批中', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },

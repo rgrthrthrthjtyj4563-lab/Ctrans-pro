@@ -114,7 +114,7 @@ interface MutationResult<T = void> {
   data?: T
 }
 
-/** 上传 / 重新上传报告的表单载荷 */
+/** 上传 / 重新上传报告的表单载荷（报告名称/品种/区域由分派记录锁定，仅附件可变） */
 export interface ReportUploadPayload {
   name: string
   fileName: string
@@ -122,6 +122,8 @@ export interface ReportUploadPayload {
   region: string
   /** 关联服务项目（报告类任务结算计价依据）；纯推广任务可空 */
   itemName?: string
+  /** 本会话真实文件的 ObjectURL；种子/演示场景可空 */
+  url?: string
 }
 
 /** 发起结算载荷：结算品种取任务、月份取 input，明细 = 任务量部分数量 或 已通过报告 */
@@ -142,6 +144,44 @@ function nextId(prefix: string, ids: string[]): string {
     .map((id) => Number(id.replace(/\D/g, "")))
     .filter((n) => !Number.isNaN(n))
   return `${prefix}-${pad(Math.max(0, ...nums) + 1)}`
+}
+
+/** 报告记录与报告类服务项目的匹配键：品种|地区|服务项目 */
+function reportItemKey(variety?: string, region?: string, itemName?: string) {
+  return `${variety ?? ""}|${region ?? ""}|${itemName ?? ""}`
+}
+
+/**
+ * 分派即选定：药厂创建任务勾选报告类服务项目时已确定要做哪些报告，
+ * 按品种×地区×服务项目补齐缺失的「待上传」报告记录（已有同键记录不重复生成）。
+ */
+export function ensurePendingReports(task: Task): Task {
+  if (task.taskStatus === "已撤销") return task
+  const wanted = task.serviceItems.filter(
+    (it) => it.category !== "市场推广服务",
+  )
+  if (!wanted.length) return task
+  const existing = new Set(
+    task.reports.map((r) => reportItemKey(r.variety, r.region, r.itemName)),
+  )
+  const missing = wanted.filter(
+    (it) => !existing.has(reportItemKey(it.variety, it.region, it.name)),
+  )
+  if (!missing.length) return task
+  const base = task.reports.length
+  const pending: ReportFile[] = missing.map((it, i) => ({
+    id: `${task.id}-RQ-${base + i + 1}`,
+    name: it.name,
+    uploadedAt: "",
+    uploadedBy: "",
+    status: "待上传",
+    comment: "",
+    variety: it.variety,
+    region: it.region,
+    itemName: it.name,
+    category: it.category,
+  }))
+  return { ...task, reports: [...task.reports, ...pending] }
 }
 
 /** 剩余可结算金额：只汇总已确认且未作废结算单；结算完结后作废为 0 */
@@ -372,6 +412,7 @@ interface TaskDataContextValue {
   ) => MutationResult<Task>
   uploadReport: (
     taskId: string,
+    reportId: string,
     payload: ReportUploadPayload,
   ) => MutationResult<Task>
   reuploadReport: (
@@ -440,7 +481,9 @@ interface TaskDataContextValue {
 const TaskDataContext = createContext<TaskDataContextValue | null>(null)
 
 export function TaskDataProvider({ children }: { children: ReactNode }) {
-  const [tasks, setTasks] = useState<Task[]>(() => clone(seedTasks))
+  const [tasks, setTasks] = useState<Task[]>(() =>
+    clone(seedTasks).map(ensurePendingReports),
+  )
   const [budgetPlans, setBudgetPlans] = useState<BudgetPlan[]>(() =>
     clone(seedBudgetPlans),
   )
@@ -932,7 +975,9 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
           },
         ],
       }
-      setTasks((prev) => [task, ...prev])
+      // 分派即选定：报告类服务项目同步生成「待上传」报告记录
+      const finalized = ensurePendingReports(task)
+      setTasks((prev) => [finalized, ...prev])
       const warnings: string[] = []
       if (!rec.configured) warnings.push("未配置预算，已允许创建")
       else if (planAmount > rec.amount)
@@ -943,7 +988,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         warnings.push(
           `预算推荐 ${formatCNY(rec.amount)}，计划总金额 ${formatCNY(planAmount)}（仅提示）`,
         )
-      return { ok: true, data: task, warning: warnings.join("；") || undefined }
+      return { ok: true, data: finalized, warning: warnings.join("；") || undefined }
     },
     [
       auths,
@@ -1369,40 +1414,40 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const uploadReport = useCallback(
     (
       taskId: string,
+      reportId: string,
       payload: ReportUploadPayload,
     ): MutationResult<Task> => {
       const task = tasks.find((t) => t.id === taskId)
       if (!task) return { ok: false, error: "任务不存在" }
-      if (!payload.name.trim()) return { ok: false, error: "请填写报告名称" }
+      const report = task.reports.find((r) => r.id === reportId)
+      if (!report) return { ok: false, error: "报告记录不存在" }
+      if (report.status !== "待上传")
+        return { ok: false, error: "该报告已上传，请等待审核；被退回的报告请走重新上传" }
       if (!payload.fileName.trim()) return { ok: false, error: "请选择报告附件" }
-      if (!payload.variety) return { ok: false, error: "请选择所属品种" }
-      const matchedItem = task.serviceItems.find(
-        (it) => it.category !== "市场推广服务" && it.name === payload.itemName,
-      )
-      const report: ReportFile = {
-        id: `${taskId}-RP-${task.reports.length + 1}`,
-        name: payload.name.trim(),
-        uploadedAt: DEMO_NOW,
-        uploadedBy: task.provider,
-        status: "待审核",
-        comment: "",
-        fileName: payload.fileName.trim(),
-        variety: payload.variety,
-        region: payload.region,
-        itemName: matchedItem?.name,
-        category: matchedItem?.category,
-        serviceMonth: DEMO_NOW.slice(0, 7),
-        version: 1,
-      }
+      // 名称/品种/区域/服务项目由分派记录锁定，仅登记附件
       const next: Task = {
         ...task,
-        reports: [...task.reports, report],
+        reports: task.reports.map((r) =>
+          r.id === reportId
+            ? {
+                ...r,
+                fileName: payload.fileName.trim(),
+                url: payload.url,
+                uploadedAt: DEMO_NOW,
+                uploadedBy: task.provider,
+                status: "待审核",
+                comment: "",
+                serviceMonth: DEMO_NOW.slice(0, 7),
+                version: 1,
+              }
+            : r,
+        ),
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: ROLE_ACTOR["服务提供商"],
           role: "服务提供商",
           action: "上传报告",
-          detail: `${report.name} · 附件 ${report.fileName}`,
+          detail: `${report.name} · 附件 ${payload.fileName.trim()}`,
           afterState: "执行中",
         }),
       }
@@ -1422,6 +1467,8 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       if (!task) return { ok: false, error: "任务不存在" }
       const report = task.reports.find((r) => r.id === reportId)
       if (!report) return { ok: false, error: "报告不存在" }
+      if (report.status === "待上传")
+        return { ok: false, error: "该报告尚未上传过附件，请直接上传" }
       if (report.status === "通过")
         return { ok: false, error: "审核通过的报告已锁定，不可重新上传" }
       if (report.settledBillNo)
@@ -1440,6 +1487,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
                 ...r,
                 name: payload.name.trim(),
                 fileName: payload.fileName.trim(),
+                url: payload.url,
                 variety: payload.variety,
                 region: payload.region,
                 itemName: matchedItem?.name ?? r.itemName,

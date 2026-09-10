@@ -6,8 +6,8 @@
  *      显示统一走 constants.ts 的 formatCNY / cny。
  *   2. 弹框：确认 / 调整 / 详情 / 创建一律居中 Modal。
  *   3. 区域：落库值 = 省级行政区或「全国」。
- *   4. 角色两套：登录切换器仅三项（Role）；业务链四类（BizRole）只出现在数据与权限矩阵。
- *   5. 状态只用手册 7 词（数据层）：任务=待确认/执行中/已结算/已撤销；对账=未发起/对账中/已结算；报告=待审核/通过/驳回。
+ *   4. 身份以 SysRole + 生效授权为准；Role 三项仅作页面渲染视角；业务链四类（BizRole）只出现在数据与权限矩阵。
+ *   5. 状态只用手册 7 词（数据层）：任务=待确认/执行中/已结算/已撤销；对账=未发起/对账中/已结算；报告=待上传/待审核/通过/驳回（待上传=药厂分派报告任务后、服务商上传前）。
  *      展示层可映射为主状态（待服务商确认/执行中/待药厂处理/已结算/已撤销）+辅助状态（对账中/报告待审核）。
  *   6. 金额字段：链路只用手册词——服务总金额（=计划总金额）、已结算金额、剩余可结算金额、发包金额、工作量；
  *      预算计划/预算执行分析两页专属：年度预算/月度预算/已结算实际/偏离额/偏离率/未结算任务计划金额。
@@ -29,8 +29,8 @@ export type TaskStatus = "待确认" | "执行中" | "已结算" | "已撤销"
 /** 对账状态（与任务状态两列并行） */
 export type ReconStatus = "未发起" | "对账中" | "已结算"
 
-/** 报告状态（仅报告类） */
-export type ReportStatus = "待审核" | "通过" | "驳回"
+/** 报告状态（仅报告类）；待上传 = 分派即生成、服务商尚未上传附件 */
+export type ReportStatus = "待上传" | "待审核" | "通过" | "驳回"
 
 /** 工作量进度（专员侧，手册原词） */
 export type WorkloadProgress = "已完成" | "待审核" | "未完成"
@@ -104,9 +104,13 @@ export interface CreateSubAuthInput {
   regions: string[]
 }
 
-// ===== 登录角色 / 业务角色（两套，禁止混用） =====
+// ===== 登录视角 / 业务角色（两套，禁止混用） =====
 
-/** 登录切换角色（部门视角），仅三项。业务链仍是 药厂 → 服务提供商 → 工作组 → 服务专员 */
+/**
+ * 旧三类「部门视角」。多方式登录改造后，登录身份以 SysRole + 生效授权为准，
+ * 该类型仅作为页面渲染分支的兼容派生值（permissions.perspectiveRoleOf），
+ * 不得用于权限判定。业务链仍是 药厂 → 服务提供商 → 工作组 → 服务专员。
+ */
 export type Role = "药厂销售部门" | "药厂合规部门" | "服务提供商"
 
 /** 业务角色（mock 数据，不出现在登录切换器） */
@@ -405,8 +409,10 @@ export interface ReportFile {
   uploadedBy: string
   status: ReportStatus
   comment: string
-  /** 附件文件名 */
+  /** 附件文件名；待上传记录为空 */
   fileName?: string
+  /** 本次会话上传的真实文件 ObjectURL（仅内存，种子数据无）；用于在线预览/下载 */
+  url?: string
   /** 所属品种；缺省按任务品种轮转展示 */
   variety?: string
   /** 所属区域；全国性报告可留空 */
@@ -583,7 +589,7 @@ export interface AuditLogEntry {
   result: "成功" | "失败"
 }
 
-export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "departments" | "audit-log" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-coefficient"
+export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "departments" | "audit-log" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export"
 
 export type MenuType = "group" | "page"
 
@@ -820,6 +826,23 @@ export interface SalesWorkbenchData {
   quickActions: DashboardQuickAction[]
 }
 
+/**
+ * 平台管理角色工作台（平台运营 / 系统管理员 / 账户管理员，以及未来平台侧定制角色）。
+ * 登录改造后工作台不再只有药厂/服务商两类视角；平台侧角色需要中性的管理与监控视角。
+ */
+export interface PlatformWorkbenchData {
+  roleLabel: string
+  headline: string
+  subtitle: string
+  unreadCount: number
+  metrics: DashboardMetric[]
+  insights: DashboardInsight[]
+  queue: DashboardQueueItem[]
+  quickActions: DashboardQuickAction[]
+  recentOperations: DashboardRecentOperation[]
+  spotlight: { title: string; items: DashboardStatItem[] }
+}
+
 export interface DashboardRoleData {
   role: Role
   headline: string
@@ -884,17 +907,11 @@ export interface RepFilingAnalysis {
   top: RepFilingItem[]
 }
 
-// ===== 医药代表备案 / 服务商准入 =====
+// ===== 医药代表备案（最简版） / 服务商准入 =====
 
-export type RepresentativeStatus = "草稿" | "待合规确认" | "待提交" | "审核中" | "补件中" | "合格" | "待备案提交" | "已备案" | "提交失败" | "变更待提交" | "删除待提交" | "已删除" | "启用" | "冻结" | "整改中" | "复核中" | "失效" | "退出" | "驳回"
+export type RepresentativeStatus = "待审核" | "已驳回" | "已备案" | "已停用"
 
-export type EmploymentType = "MAH直聘" | "服务商派遣" | "授权推广"
-
-export type FilingVerifyResult = "有效" | "无结果" | "失效" | "异常待人工确认" | "待核验"
-export type FilingVerifyMethod = "人工核验" | "接口核验" | "批量复核"
-export type NmpaFilingStatus = "待提交" | "已备案" | "提交失败" | "变更待提交" | "删除待提交" | "已删除"
-
-export type AuthApprovalStatus = "待审" | "通过" | "驳回" | "撤销" | "过期"
+export type EmploymentType = "MAH直聘" | "服务商派遣"
 
 export type VendorStatus = "草稿" | "待提交" | "尽调中" | "审批中" | "补件中" | "驳回" | "准入通过" | "可合作" | "复审中" | "限制合作" | "冻结" | "退出"
 
@@ -990,33 +1007,6 @@ export interface VendorCreditCompliance {
   checkedAt: string
 }
 
-export interface RepTraining {
-  id: string
-  repId: string
-  planName: string
-  completedAt: string
-  examScore: number
-  validUntil: string
-  certFile: string
-}
-
-/** 前端演示用活动记录；后续可由活动模块替代。 */
-export interface DemoActivity {
-  id: string
-  repId: string
-  name: string
-  startDate: string
-  status: "未开始" | "进行中" | "已结束" | "不可执行"
-}
-
-export interface FilingBatchTask {
-  id: string
-  createdAt: string
-  creatorId: string
-  repIds: string[]
-  items: { repId: string result: FilingVerifyResult evidence?: string }[]
-}
-
 export interface Actor {
   id: string
   name: string
@@ -1037,34 +1027,47 @@ export interface ComplianceAuditEvent {
   evidenceHash?: string
 }
 
-export interface RepAuthorization {
-  id: string
-  authNo: string
-  version: number
-  mahId: string
-  productIds: string[]
-  products: string[]
-  therapyAreas: string[]
-  regions: string[]
-  startDate: string
-  endDate: string
-  approvalStatus: AuthApprovalStatus
-  fileName: string
-  superseded?: boolean
-  supersededById?: string
+export interface RepOperation {
+  at: string
+  by: string
+  action: string
+  note?: string
 }
 
-export interface RepFilingVerification {
+export interface Representative {
   id: string
-  taskNo: string
-  queryKey: string
-  result: FilingVerifyResult
-  method: FilingVerifyMethod
-  verifier: string
-  verifiedAt: string
-  nextDate: string
-  evidence: string
-  summary: string
+  name: string
+  gender: "男" | "女"
+  photoFile: string
+  idNo: string
+  mobile: string
+  email: string
+  employmentType: EmploymentType
+  mah: string
+  mahId: string
+  provider: string
+  providerId: string | null
+  /** 桥接用户体系（PermUser.id）；历史数据无关联为 null */
+  userId: string | null
+  employStart: string
+  employEnd: string
+  education: string
+  major: string
+  school: string
+  eduProof: string
+  pledgeVersion: string
+  pledgeDate: string
+  pledgeFile: string
+  filingNo: string
+  filingReceipt: string
+  /** 备案到期日；审核通过时必填，默认审核当日 +1 年 */
+  filingValidUntil: string
+  filingApprovedAt?: string
+  filingApprovedBy?: string
+  status: RepresentativeStatus
+  reviewNote?: string
+  stopReason?: string
+  operations: RepOperation[]
 }
 
 export interface ComplianceIncident {
@@ -1092,67 +1095,6 @@ export interface ComplianceIncident {
   ownerName: string
   dueDate: string
   reviewConclusion: string
-}
-
-export interface Representative {
-  id: string
-  name: string
-  gender?: "男" | "女"
-  photoFile?: string
-  idType: string
-  idNo: string
-  mobile: string
-  email: string
-  employmentType: EmploymentType
-  mah: string
-  mahId: string
-  provider: string
-  providerId: string | null
-  initiatorId: string
-  initiatorName: string
-  employStart: string
-  employEnd: string
-  contractOrAuthNo?: string
-  agreementFile?: string
-  education: string
-  major: string
-  school: string
-  eduProof: string
-  /** 兼容当前备案页表单；培训历史仍以 trainings 为准。 */
-  trainingPlan?: string
-  trainingDate?: string
-  examScore?: number
-  trainingValidUntil?: string
-  trainingCert?: string
-  trainings: RepTraining[] // 导入数据，页面内不手填；有效期与成绩以最新一条为准
-  pledgeVersion: string // 以下三项由承诺库同步，页面内不手填
-  pledgeDate: string
-  pledgeFile: string
-  filingNo: string
-  filingStatus: FilingVerifyResult | NmpaFilingStatus | "未核验"
-  filingVerifiedAt: string
-  filingSubmittedAt?: string
-  filingSubmittedBy?: string
-  filingReceipt?: string
-  riskCheckResult: "通过" | "未通过" | "待核验"
-  riskCheckDate: string
-  riskCheckEvidence: string
-  riskCheckOperator: string
-  status: RepresentativeStatus
-  nextVerifyDate: string
-  blockedActivityIds?: string[]
-  freezeReason?: string
-  freezeEvidence?: string
-  rectification?: string
-  rectificationOwner?: string
-  rectificationDue?: string
-  investigationConclusion?: string
-  unfreezeReviewerId?: string
-  currentApprovalId?: string
-  authorizations: RepAuthorization[]
-  verifications: RepFilingVerification[]
-  incidents: ComplianceIncident[]
-  timeline: ComplianceAuditEvent[]
 }
 
 export interface VendorDocument {
@@ -1271,6 +1213,7 @@ export interface VendorAccessHistory {
 
 /** 选传附件（资质/补充说明等），营业执照仍走 businessLicenseFile 必传字段 */
 export interface VendorAccessAttachments {
+  contract?: string
   qualification?: string
   supplement?: string
 }

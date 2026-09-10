@@ -42,6 +42,18 @@ import {
 import type { NavFocus } from '../types';
 import type { ToastMessage } from '../components/Toast';
 import { Field, InfoBanner, inputStyle, tdStyle, thStyle } from './permUi';
+import { useRepFiling } from '../context/RepFilingContext';
+import { nowText } from './complianceUi';
+import {
+  CURRENT_PLEDGE_TEMPLATE,
+  EDU_OPTIONS,
+  MED_MAJORS,
+  MAH_ID,
+  MAH_NAME,
+  allocRepId,
+  deriveEmployment,
+} from '../data/complianceData';
+import type { Representative } from '../types';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
@@ -115,7 +127,14 @@ export function UserOrgManage({ addToast, navFocus }: Props) {
   const [createDept, setCreateDept] = useState<{ parentId: string; name: string; showParentSelect: boolean } | null>(null);
   const [moveDept, setMoveDept] = useState<{ orgId: string; targetId: string; reason: string } | null>(null);
   const [renameDept, setRenameDept] = useState<{ orgId: string; name: string } | null>(null);
-  const [createUserOpen, setCreateUserOpen] = useState<{ name: string; account: string; phone: string; email: string; orgId: string; error: string } | null>(null);
+  const repFiling = useRepFiling();
+  const [createUserOpen, setCreateUserOpen] = useState<{
+    name: string; account: string; phone: string; email: string; orgId: string; error: string;
+    roleId: string;
+    gender: '男' | '女'; photoFile: string; idNo: string;
+    education: string; major: string; school: string; eduProof: string;
+    pledgeDate: string; pledgeFile: string; employStart: string; employEnd: string;
+  } | null>(null);
   const [transferIn, setTransferIn] = useState<{ userId: string } | null>(null);
   const [moveUser, setMoveUser] = useState<{ userId: string; targetId: string; error: string } | null>(null);
   const [assign, setAssign] = useState<{ userId: string; roleId: string; from: string; to: string; reason: string; error: string } | null>(null);
@@ -319,7 +338,11 @@ export function UserOrgManage({ addToast, navFocus }: Props) {
     const defaultOrg = selectedOrg && (isDeptParentType(selectedOrg.type) || selectedOrg.type === 'provider' || selectedOrg.type === 'group')
       ? selectedOrg.id
       : 'org-pharma';
-    setCreateUserOpen({ name: '', account: '', phone: '', email: '', orgId: defaultOrg, error: '' });
+    setCreateUserOpen({
+      name: '', account: '', phone: '', email: '', orgId: defaultOrg, error: '', roleId: '',
+      gender: '男', photoFile: '', idNo: '', education: '本科', major: '', school: '', eduProof: '',
+      pledgeDate: '', pledgeFile: '', employStart: '', employEnd: '',
+    });
   }
 
   function submitCreateDept() {
@@ -386,6 +409,23 @@ export function UserOrgManage({ addToast, navFocus }: Props) {
     setMoveDept(null);
   }
 
+  const SPECIALIST_ROLE_ID = 'role-specialist';
+
+  function missingSpecialistFields(): string[] {
+    if (!createUserOpen || createUserOpen.roleId !== SPECIALIST_ROLE_ID) return [];
+    const f = createUserOpen;
+    const miss: string[] = [];
+    if (!f.photoFile) miss.push('照片');
+    if (!f.idNo) miss.push('证件号');
+    if (!EDU_OPTIONS.includes(f.education)) miss.push('学历须大专及以上');
+    if (!f.major) miss.push('专业');
+    if (!f.school) miss.push('毕业院校');
+    if (!f.eduProof) miss.push('学历证明');
+    if (!f.employStart || !f.employEnd) miss.push('合同起止日期');
+    if (!f.pledgeDate || !f.pledgeFile) miss.push('合规承诺');
+    return miss;
+  }
+
   function submitCreateUser() {
     if (!createUserOpen) return;
     const name = createUserOpen.name.trim();
@@ -399,15 +439,66 @@ export function UserOrgManage({ addToast, navFocus }: Props) {
     if (!/^1\d{10}$/.test(phone)) return fail('手机号格式不正确，应为 1 开头的 11 位数字');
     if (!email) return fail('请填写邮箱');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('邮箱格式不正确');
+    const isSpecialist = createUserOpen.roleId === SPECIALIST_ROLE_ID;
+    if (isSpecialist) {
+      const miss = missingSpecialistFields();
+      if (miss.length) return fail(`服务专员备案档案仍缺必填项：${miss.join('、')}`);
+      if (repFiling.reps.some(r => r.idNo === createUserOpen.idNo.trim())) return fail('证件号已存在于代表备案档案，须唯一');
+    }
     const result = createUser({ name, account, phone, email, orgId: createUserOpen.orgId });
     if (!result.ok) return fail(result.error || '新建用户失败');
-    if (result.user) {
-      setExpanded(prev => new Set([...prev, result.user!.orgId]));
-      setSelectedOrgId(result.user.orgId);
-      setSelectedUserId(result.user.id);
+    const user = result.user;
+    if (user) {
+      setExpanded(prev => new Set([...prev, user!.orgId]));
+      setSelectedOrgId(user.orgId);
+      setSelectedUserId(user.id);
       setTab('basic');
     }
-    addToast({ type: 'success', title: '已新建用户', description: `${name} · ${account}` });
+    if (createUserOpen.roleId && user) {
+      const grant = createAssignment({ userId: user.id, roleId: createUserOpen.roleId, effectiveFrom: todayISO() });
+      if (!grant.ok) {
+        addToast({ type: 'error', title: '角色分配失败', description: grant.error || '请稍后在用户详情中手动分配' });
+      }
+    }
+    if (isSpecialist && user) {
+      const emp = deriveEmployment(orgs, createUserOpen.orgId);
+      const rep: Representative = {
+        id: allocRepId(repFiling.reps),
+        name,
+        gender: createUserOpen.gender,
+        photoFile: createUserOpen.photoFile.trim(),
+        idNo: createUserOpen.idNo.trim(),
+        mobile: phone,
+        email,
+        employmentType: emp.employmentType,
+        mah: MAH_NAME,
+        mahId: MAH_ID,
+        provider: emp.providerName,
+        providerId: emp.providerId,
+        userId: user.id,
+        employStart: createUserOpen.employStart,
+        employEnd: createUserOpen.employEnd,
+        education: createUserOpen.education,
+        major: createUserOpen.major,
+        school: createUserOpen.school.trim(),
+        eduProof: createUserOpen.eduProof.trim(),
+        pledgeVersion: CURRENT_PLEDGE_TEMPLATE,
+        pledgeDate: createUserOpen.pledgeDate,
+        pledgeFile: createUserOpen.pledgeFile.trim(),
+        filingNo: '',
+        filingReceipt: '',
+        filingValidUntil: '',
+        status: '待审核',
+        operations: [{ at: nowText(), by: store.principal?.name ?? '系统', action: '提交审核', note: '创建服务专员用户时生成备案档案' }],
+      };
+      repFiling.addRep(rep);
+      addToast({ type: 'success', title: '已新建服务专员', description: `${name} · ${account} · 备案档案待合规审核（REP：${rep.id}）` });
+    } else if (createUserOpen.roleId) {
+      const roleName = roles.find(r => r.id === createUserOpen.roleId)?.name ?? '';
+      addToast({ type: 'success', title: '已新建用户并分配角色', description: `${name} · ${account} · ${roleName}` });
+    } else {
+      addToast({ type: 'success', title: '已新建用户', description: `${name} · ${account} · 未分配角色，可在详情中分配` });
+    }
     setCreateUserOpen(null);
   }
 
@@ -948,17 +1039,21 @@ export function UserOrgManage({ addToast, navFocus }: Props) {
           open
           title="新建用户"
           onClose={() => setCreateUserOpen(null)}
-          width={520}
+          width={680}
           footer={
             <>
               <Button variant="outline" onClick={() => setCreateUserOpen(null)}>取消</Button>
-              <Button variant="primary" onClick={submitCreateUser}>创建账号</Button>
+              <Button variant="primary" onClick={submitCreateUser}>
+                {createUserOpen.roleId === SPECIALIST_ROLE_ID ? '创建账号并生成备案档案' : '创建账号'}
+              </Button>
             </>
           }
         >
           <div style={{ display: 'grid', gap: 12 }}>
             <InfoBanner>
-              创建后账号为启用状态、无任何角色。分配角色请在该用户详情的「角色与访问范围」中进行。
+              {createUserOpen.roleId
+                ? '创建账号的同时分配所选角色；选择「服务专员」将一并生成医药代表备案档案（待合规审核），该角色仅限移动端 App 使用、不可登录 Web 后台。'
+                : '不选择角色时，创建后账号为启用状态、无任何角色，可稍后在该用户详情的「角色与访问范围」中分配。'}
             </InfoBanner>
             {createUserOpen.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{createUserOpen.error}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -1007,6 +1102,145 @@ export function UserOrgManage({ addToast, navFocus }: Props) {
                 ))}
               </select>
             </Field>
+            <Field label="分配角色" hint="选填；不同角色可能要求填写附加资料">
+              <select
+                value={createUserOpen.roleId}
+                onChange={e => setCreateUserOpen({ ...createUserOpen, roleId: e.target.value })}
+                style={inputStyle}
+              >
+                <option value="">不分配（创建后在用户详情中分配）</option>
+                {roles.filter(r => r.status === 'enabled').map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}（{r.kind === 'preset' ? '预置' : '定制'}{r.defaultScope === 'MOBILE' ? ' · 仅移动端' : ''}）
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {(() => {
+              const selectedRole = roles.find(r => r.id === createUserOpen.roleId);
+              if (selectedRole?.defaultScope === 'MOBILE') {
+                return (
+                  <div style={{ padding: '8px 10px', background: '#FEF3E2', borderRadius: 6, fontSize: 'var(--fs-12)', color: '#C77A16' }}>
+                    该角色仅限移动端 App 使用：账号创建后无法登录 Web 后台（登录将被拦截并提示改用药友料 App）。
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            {createUserOpen.roleId === SPECIALIST_ROLE_ID && (
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, display: 'grid', gap: 12 }}>
+                <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>备案档案（服务专员）</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <Field label="性别" required>
+                    <select
+                      value={createUserOpen.gender}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, gender: e.target.value as '男' | '女' })}
+                      style={inputStyle}
+                    >
+                      <option>男</option><option>女</option>
+                    </select>
+                  </Field>
+                  <Field label="照片" required>
+                    <input
+                      value={createUserOpen.photoFile}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, photoFile: e.target.value })}
+                      style={inputStyle}
+                      placeholder="照片文件名"
+                    />
+                  </Field>
+                  <Field label="证件号" required>
+                    <input
+                      value={createUserOpen.idNo}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, idNo: e.target.value })}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="雇佣类型">
+                    <input
+                      value={deriveEmployment(orgs, createUserOpen.orgId).employmentType}
+                      disabled
+                      style={{ ...inputStyle, color: '#667085', background: '#F9FAFB' }}
+                    />
+                  </Field>
+                  <Field label="所属服务商" hint="按所属组织自动推导">
+                    <input
+                      value={deriveEmployment(orgs, createUserOpen.orgId).providerName}
+                      disabled
+                      style={{ ...inputStyle, color: '#667085', background: '#F9FAFB' }}
+                    />
+                  </Field>
+                  <Field label="学历" required>
+                    <select
+                      value={createUserOpen.education}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, education: e.target.value })}
+                      style={inputStyle}
+                    >
+                      {EDU_OPTIONS.map(x => <option key={x}>{x}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="专业" required>
+                    <select
+                      value={createUserOpen.major}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, major: e.target.value })}
+                      style={inputStyle}
+                    >
+                      <option value="">请选择</option>
+                      {MED_MAJORS.map(m => <option key={m}>{m}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="毕业院校" required>
+                    <input
+                      value={createUserOpen.school}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, school: e.target.value })}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="学历证明" required>
+                    <input
+                      value={createUserOpen.eduProof}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, eduProof: e.target.value })}
+                      style={inputStyle}
+                      placeholder="附件文件名"
+                    />
+                  </Field>
+                  <Field label="合同开始" required>
+                    <input
+                      type="date"
+                      value={createUserOpen.employStart}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, employStart: e.target.value })}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="合同结束" required>
+                    <input
+                      type="date"
+                      value={createUserOpen.employEnd}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, employEnd: e.target.value })}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="承诺书版本">
+                    <input value={CURRENT_PLEDGE_TEMPLATE} disabled style={{ ...inputStyle, color: '#667085', background: '#F9FAFB' }} />
+                  </Field>
+                  <Field label="签署日期" required>
+                    <input
+                      type="date"
+                      value={createUserOpen.pledgeDate}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, pledgeDate: e.target.value })}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="承诺附件" required>
+                    <input
+                      value={createUserOpen.pledgeFile}
+                      onChange={e => setCreateUserOpen({ ...createUserOpen, pledgeFile: e.target.value })}
+                      style={inputStyle}
+                      placeholder="附件文件名"
+                    />
+                  </Field>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}
@@ -1310,7 +1544,8 @@ function UserDetailPanel({
 }) {
   const myAssignments: AssignmentWithRole[] = assignments
     .filter(a => a.userId === user.id)
-    .map(a => ({ ...a, roleName: roles.find(r => r.id === a.roleId)?.name ?? a.roleId }))
+    // 角色被删除后历史授权保留供审计，角色名展示为占位
+    .map(a => ({ ...a, roleName: roles.find(r => r.id === a.roleId)?.name ?? '（已删除角色）' }))
     .sort((x, y) => ASSIGNMENT_ORDER[x.status] - ASSIGNMENT_ORDER[y.status]);
   const activeCount = myAssignments.filter(a => a.status === 'active').length;
   const myAudits = auditEvents.filter(e => e.target.includes(user.name)).slice(0, 30);
