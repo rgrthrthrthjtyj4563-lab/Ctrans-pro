@@ -483,6 +483,8 @@ export interface Task {
   taskName: string
   varieties: string[]
   provider: string
+  /** 持有方药厂：服务专员登录后按所选服务药厂过滤任务与结算 */
+  holderPharma?: string
   /** 服务地区：多选省级行政区 */
   regions: string[]
   /** 推广时间（起止日期） */

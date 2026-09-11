@@ -33,8 +33,27 @@ export interface AuthPrincipal {
   scope: ScopeType
   scopeOrgId: string
   scopeOrgName: string
+  /**
+   * 本次进入的服务药厂（仅服务专员）：与所属企业并列的「当前业务数据范围」。
+   * 选择/切换药厂不换账号、不重新认证；未选择时为空，由登录流程的药厂选择步骤补齐。
+   */
+  servingPharmaId?: string
+  servingPharmaName?: string
   /** 旧三类页面视角的兼容派生值，仅供未迁移页面做渲染分支 */
   perspective: Role
+}
+
+/** 服务专员名下的一家电厂服务授权（登录后选择本次进入哪一家） */
+export interface ServingPharma {
+  id: string
+  name: string
+  /** active = 服务中；paused = 合作暂停（不可进入） */
+  status: "active" | "paused"
+  workGroup?: string
+  regions?: string
+  lastUsedAt?: string
+  pausedAt?: string
+  pausedReason?: string
 }
 
 export interface AuthSession {
@@ -44,6 +63,10 @@ export interface AuthSession {
   method: LoginMethod
   qrSource?: QrSource
   loginAt: string
+  /** 三步流第二步（身份确认）是否完成；新登录会话默认 false，确认页就地置 true */
+  identityConfirmed?: boolean
+  /** 待选服务药厂：仅服务专员未选择时由网关附带，选择后的换发会话不再携带 */
+  pendingPharmas?: ServingPharma[]
 }
 
 /** 登录被拒时的定位信息：field 指回具体输入框，供 aria-live 播报 */
@@ -121,5 +144,15 @@ export interface AuthGateway {
     state: QrLoginState
     result: AuthResult | null
   }>
+  /** 服务专员名下的服务药厂列表（切换场景使用；登录场景由会话 pendingPharmas 携带） */
+  listServingPharmas(userId: string): Promise<ServingPharma[]>
+  /** 免重新认证选择/切换服务药厂：换发新会话，session.id 变化使业务树重建、数据按所选药厂重置 */
+  chooseServingPharma(input: {
+    userId: string
+    pharmaId: string
+    /** 透传原登录方式，保持审计与会话口径连续 */
+    method?: LoginMethod
+    qrSource?: QrSource
+  }): Promise<AuthResult>
   logout(session: AuthSession): Promise<void>
 }

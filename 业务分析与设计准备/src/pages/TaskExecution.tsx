@@ -30,6 +30,7 @@ import {
   remainingOfTask,
   useTaskData,
 } from "../context/TaskDataContext"
+import { usePermission } from "../context/PermissionContext"
 import {
   formatCNYUpper,
   RECON_STATUS_OPTIONS,
@@ -183,6 +184,7 @@ export function TaskExecution({
   navigate,
 }: Props) {
   const ctx = useTaskData()
+  const { principal } = usePermission()
   const {
     tasks,
     varieties,
@@ -262,6 +264,12 @@ export function TaskExecution({
   const visible = useMemo(() => {
     const list = tasks.filter((t) => {
       if (isProvider && t.provider !== DEMO_PROVIDER) return false
+      // 服务专员按所选服务药厂过滤（数据范围=本次进入的药厂）
+      if (
+        principal.servingPharmaName &&
+        t.holderPharma !== principal.servingPharmaName
+      )
+        return false
       if (applied.taskStatus && t.taskStatus !== applied.taskStatus)
         return false
       if (applied.reconStatus && t.reconStatus !== applied.reconStatus)
@@ -278,7 +286,7 @@ export function TaskExecution({
       ...list.filter((t) => pendingReportCount(t) > 0),
       ...list.filter((t) => pendingReportCount(t) === 0),
     ]
-  }, [tasks, applied, isProvider])
+  }, [tasks, applied, isProvider, principal.servingPharmaName])
 
   const pageData = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 

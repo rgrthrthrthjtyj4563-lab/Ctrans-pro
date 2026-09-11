@@ -17,6 +17,7 @@ import {
   AUTH_PROFILES,
   DEMO_PASSWORD,
   QR_IDENTITIES,
+  SPECIALIST_SERVING_PHARMAS,
   enterpriseNameOfOrg,
 } from "./authProfiles"
 import type {
@@ -28,6 +29,7 @@ import type {
   QrIdentity,
   QrLoginState,
   QrSource,
+  ServingPharma,
 } from "./authTypes"
 
 const ALL_ROLES: SysRole[] = [...PRESET_ROLES, ...seedCustomRoles]
@@ -103,7 +105,7 @@ function decideAssignments(userId: string): AssignmentDecision {
 function resolvePrincipal(
   userId: string,
   preferredRoleId?: string,
-): { ok: true; principal: AuthPrincipal } | { ok: false; failure: LoginFailure } {
+): { ok: true; principal: AuthPrincipal; pendingPharmas?: ServingPharma[] } | { ok: false; failure: LoginFailure } {
   const user = PERM_USERS.find((u) => u.id === userId)
   if (!user) {
     return { ok: false, failure: { code: "user-not-found", field: "account", message: "账号不存在，请输入用户名或已绑定手机号" } }
@@ -114,13 +116,18 @@ function resolvePrincipal(
   const { active, blocker } = decideAssignments(user.id)
   if (blocker) return { ok: false, failure: blocker }
   if (active.length > 0 && active.every((a) => a.scope === "MOBILE")) {
-    return {
-      ok: false,
-      failure: {
-        code: "role-mobile-only",
-        field: "account",
-        message: `账号「${user.name}」的服务专员角色仅限移动端使用，请使用药友料 App 登录`,
-      },
+    // 多租户口径：纯移动端服务专员名下有生效中的服务药厂授权时放行，
+    // 进入工作台前由「选择服务药厂」步骤确定业务范围；无授权的维持仅限移动端拦截
+    const pharmas = SPECIALIST_SERVING_PHARMAS[user.id] ?? []
+    if (!pharmas.some((p) => p.status === "active")) {
+      return {
+        ok: false,
+        failure: {
+          code: "role-mobile-only",
+          field: "account",
+          message: `账号「${user.name}」的服务专员角色仅限移动端使用，请使用药友料 App 登录`,
+        },
+      }
     }
   }
 
@@ -149,6 +156,8 @@ function resolvePrincipal(
     return { ok: false, failure: { code: "no-active-assignment", message: "当前生效的角色不可用，请联系管理员" } }
   }
   const enterprise = enterpriseNameOfOrg(user.orgId)
+  // 名下配置了服务药厂授权的账号，登录会话附带待选列表（未配置的与普通账号一致直进）
+  const pendingPharmas = SPECIALIST_SERVING_PHARMAS[user.id]
   return {
     ok: true,
     principal: {
@@ -168,6 +177,7 @@ function resolvePrincipal(
       scopeOrgName: assignment.scopeOrgName,
       perspective: perspectiveRoleOf(role),
     },
+    ...(pendingPharmas && pendingPharmas.length > 0 ? { pendingPharmas } : {}),
   }
 }
 
@@ -212,13 +222,20 @@ export function drainLoginAuditEvents(): PermAuditEvent[] {
 
 // ─── 会话工厂 ────────────────────────────────────────────────────────────────
 
-function newSession(principal: AuthPrincipal, method: AuthSession["method"], qrSource?: QrSource): AuthSession {
+function newSession(
+  principal: AuthPrincipal,
+  method: AuthSession["method"],
+  qrSource?: QrSource,
+  opts?: { pendingPharmas?: ServingPharma[]; identityConfirmed?: boolean },
+): AuthSession {
   return {
     id: `sess-${Date.now()}-${nextId("n")}`,
     principal,
     method,
     qrSource,
     loginAt: nowStamp(),
+    ...(opts?.identityConfirmed !== undefined ? { identityConfirmed: opts.identityConfirmed } : {}),
+    ...(opts?.pendingPharmas ? { pendingPharmas: opts.pendingPharmas } : {}),
   }
 }
 
@@ -236,9 +253,10 @@ function succeedWith(
   method: AuthSession["method"],
   principal: AuthPrincipal,
   qrSource?: QrSource,
+  opts?: { pendingPharmas?: ServingPharma[] },
 ): AuthResult {
   pushLoginAudit(method, "成功", principal.account, { principal, qrSource })
-  return { ok: true, session: newSession(principal, method, qrSource) }
+  return { ok: true, session: newSession(principal, method, qrSource, opts) }
 }
 
 // ─── 短信验证码（模拟：验证码直接回显，不发真实短信） ────────────────────────
@@ -298,7 +316,9 @@ export const authGateway: AuthGateway = {
     }
     const resolved = resolvePrincipal(user.id)
     if (!resolved.ok) return failWith("password", user.account, resolved.failure)
-    return succeedWith("password", resolved.principal)
+    return succeedWith("password", resolved.principal, undefined, {
+      pendingPharmas: resolved.pendingPharmas,
+    })
   },
 
   async requestSms({ phone }) {
@@ -353,7 +373,9 @@ export const authGateway: AuthGateway = {
     }
     const resolved = resolvePrincipal(user.id)
     if (!resolved.ok) return failWith("sms", user.account, resolved.failure)
-    return succeedWith("sms", resolved.principal)
+    return succeedWith("sms", resolved.principal, undefined, {
+      pendingPharmas: resolved.pendingPharmas,
+    })
   },
 
   async createQr({ source }) {
@@ -434,13 +456,67 @@ export const authGateway: AuthGateway = {
       } else {
         const resolved = resolvePrincipal(identity.userId, identity.roleId)
         qr.result = resolved.ok
-          ? succeedWith("qr", resolved.principal, identity.source)
+          ? succeedWith("qr", resolved.principal, identity.source, {
+              pendingPharmas: resolved.pendingPharmas,
+            })
           : failWith("qr", identity.label, resolved.failure, identity.source)
       }
       qr.status = "confirmed"
       return { state: publicState(qr), result: qr.result }
     }
     return { state: publicState(qr), result: null }
+  },
+
+  async listServingPharmas(userId) {
+    await tick(60)
+    return (SPECIALIST_SERVING_PHARMAS[userId] ?? []).map((p) => ({ ...p }))
+  },
+
+  async chooseServingPharma({ userId, pharmaId, method, qrSource }) {
+    await tick()
+    const user = PERM_USERS.find((u) => u.id === userId)
+    if (!user) {
+      return { ok: false, failure: { code: "user-not-found", field: "account", message: "账号不存在" } }
+    }
+    const pharmas = SPECIALIST_SERVING_PHARMAS[userId] ?? []
+    const target = pharmas.find((p) => p.id === pharmaId)
+    if (!target) {
+      return { ok: false, failure: { code: "no-active-assignment", message: "该药厂不在当前账号的服务授权内" } }
+    }
+    if (target.status === "paused") {
+      return {
+        ok: false,
+        failure: { code: "no-active-assignment", message: `${target.name}的合作授权已暂停，请联系管理员` },
+      }
+    }
+    const resolved = resolvePrincipal(userId)
+    if (!resolved.ok) return { ok: false, failure: resolved.failure }
+    const principal: AuthPrincipal = {
+      ...resolved.principal,
+      servingPharmaId: target.id,
+      servingPharmaName: target.name,
+    }
+    const session = newSession(principal, method ?? "password", qrSource, {
+      identityConfirmed: true,
+    })
+    pendingLoginAudits.unshift({
+      id: nextId("PE"),
+      time: nowStamp(),
+      actor: principal.name,
+      actorRole: principal.roleName,
+      org: principal.orgName,
+      target: principal.account,
+      roleName: principal.roleName,
+      module: "登录认证",
+      action: "选择服务药厂",
+      resource: "auth.serving-pharma",
+      decision: "允许",
+      reason: `进入${target.name}业务范围（所属企业不变：${principal.enterpriseName}）`,
+      requestId: nextId("req"),
+      ip: "10.4.21.8",
+      result: "成功",
+    })
+    return { ok: true, session }
   },
 
   async logout(session) {

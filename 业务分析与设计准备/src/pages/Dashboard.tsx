@@ -2229,6 +2229,7 @@ function RepFilingAnalysisPanel() {
 
 
 function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
+  const { principal } = usePermission();
   const data = useMemo(() => getRoleDashboardData('服务提供商'), []);
   const layout = useDashboardLayout('provider', PROVIDER_SECTION_IDS, PROVIDER_DEFAULT_HIDDEN, PROVIDER_SIZE_SPECS);
   const [editing, setEditing] = useState(false);
@@ -2387,6 +2388,9 @@ function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
               <Tag label={data.role} color="brand" />
+              {principal.servingPharmaName && (
+                <Tag label={`当前服务药厂：${principal.servingPharmaName}`} color="info" />
+              )}
             </div>
             <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
             <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-14)', color: '#667085', lineHeight: 1.7 }}>{data.subtitle}</p>

@@ -5,6 +5,7 @@ import { StatusTag } from '../components/StatusTag';
 import { EmptyState } from '../components/EmptyState';
 import { Pagination } from '../components/Pagination';
 import { DEMO_PROVIDER, formatCNY, formatCoverage, useTaskData } from '../context/TaskDataContext';
+import { usePermission } from '../context/PermissionContext';
 import { providers } from '../data/mockData';
 import type { NavigateFn, Role, SettlementBill, Task } from '../types';
 import type { ToastMessage } from '../components/Toast';
@@ -31,6 +32,7 @@ interface BillRow {
 
 export function Settlement({ currentRole, navigate }: Props) {
   const { tasks } = useTaskData();
+  const { principal } = usePermission();
   const isProvider = currentRole === '服务提供商';
 
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -41,13 +43,15 @@ export function Settlement({ currentRole, navigate }: Props) {
     const rows: BillRow[] = [];
     tasks.forEach((task) => {
       if (isProvider && task.provider !== DEMO_PROVIDER) return;
+      // 服务专员按所选服务药厂过滤（数据范围=本次进入的药厂）
+      if (principal.servingPharmaName && task.holderPharma !== principal.servingPharmaName) return;
       task.settlements.forEach((bill) => {
         if (bill.voided) return;
         rows.push({ task, bill });
       });
     });
     return rows.sort((a, b) => (a.bill.madeAt < b.bill.madeAt ? 1 : -1));
-  }, [tasks, isProvider]);
+  }, [tasks, isProvider, principal.servingPharmaName]);
 
   const rows = useMemo(() => allBills.filter(({ task, bill }) => {
     if (applied.variety && !bill.lines.some((l) => l.variety === applied.variety) && !task.varieties.includes(applied.variety)) return false;
@@ -67,6 +71,7 @@ export function Settlement({ currentRole, navigate }: Props) {
     const map = new Map<string, { specialist: string; workGroup: string; provider: string; settled: number; toSettle: number; tasks: Set<string> }>();
     tasks.forEach((task) => {
       if (isProvider && task.provider !== DEMO_PROVIDER) return;
+      if (principal.servingPharmaName && task.holderPharma !== principal.servingPharmaName) return;
       task.workloadAssigns.forEach((a) => {
         const key = `${a.specialist}|${a.workGroup}`;
         const entry = map.get(key) ?? { specialist: a.specialist, workGroup: a.workGroup, provider: task.provider, settled: 0, toSettle: 0, tasks: new Set<string>() };
@@ -81,7 +86,7 @@ export function Settlement({ currentRole, navigate }: Props) {
       });
     });
     return [...map.values()].sort((a, b) => b.settled + b.toSettle - (a.settled + a.toSettle));
-  }, [tasks, isProvider]);
+  }, [tasks, isProvider, principal.servingPharmaName]);
 
   const monthOptions = useMemo(() => {
     const months = [...new Set(allBills.map((r) => r.bill.serviceMonth))].sort().reverse();

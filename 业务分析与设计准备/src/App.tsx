@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react"
+import { useState, useCallback, useEffect, useMemo, useRef, createContext, useContext, type ReactNode } from "react"
 import {
   ChevronDown,
   ChevronRight,
@@ -56,8 +56,10 @@ import { buildNavGroups, seedMenuItems, type NavItem } from "./data/menus"
 import { AuthProvider, useAuth } from "./auth/AuthProvider"
 import { LoginPage } from "./auth/LoginPage"
 import { authGateway } from "./auth/mockGateway"
-import { DEMO_ACCOUNT_HINTS, DEMO_PASSWORD } from "./auth/authProfiles"
-import type { AuthPrincipal } from "./auth/authTypes"
+import { DEMO_ACCOUNT_HINTS, DEMO_PASSWORD, PLATFORM_ROLE_IDS } from "./auth/authProfiles"
+import { IdentityConfirmGate } from "./auth/IdentityConfirmGate"
+import { PharmaGate } from "./auth/PharmaGate"
+import type { AuthPrincipal, ServingPharma } from "./auth/authTypes"
 import type { MenuItem, NavFocus, NavigateFn, PageId } from "./types"
 
 const pageLabels: Record<string, string> = {
@@ -496,9 +498,14 @@ function StubPage({
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 /**
- * 多方式登录改造：未认证只渲染登录页；认证成功后按会话挂载业务壳。
- * Workbench 以 session.id 为 key —— 登出或换账号时整棵业务树（含内存数据）重建。
+ * 登录三步流：认证（密码/短信/扫码）→ 身份确认 → 服务专员选择服务药厂 → 业务壳。
+ * Workbench 以 session.id 为 key —— 登出、换账号或切换服务药厂时整棵业务树
+ * （含内存数据）重建；身份确认只置会话标记，不换发会话。
  */
+
+/** 会话级 Toast：挂在 Workbench 外层，切换服务药厂重建业务树时提示不丢失 */
+const SessionToastContext = createContext<(msg: Omit<ToastMessage, "id">) => void>(() => {})
+
 export default function App() {
   return (
     <AuthProvider>
@@ -508,17 +515,63 @@ export default function App() {
 }
 
 function Root() {
-  const { session } = useAuth()
-  if (!session) return <LoginPage />
-  return <Workbench key={session.id} principal={session.principal} />
+  const { session, setSession, signOut } = useAuth()
+  const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const addToast = useCallback((msg: Omit<ToastMessage, "id">) => {
+    const id = `root-toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    setToasts((prev) => [...prev, { ...msg, id }])
+  }, [])
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+  }, [])
+
+  let content: ReactNode
+  if (!session) {
+    content = <LoginPage />
+  } else if (!session.identityConfirmed) {
+    content = (
+      <IdentityConfirmGate
+        session={session}
+        onConfirm={() => setSession({ ...session, identityConfirmed: true })}
+        onChangeAccount={() => void signOut()}
+      />
+    )
+  } else if (session.pendingPharmas && session.pendingPharmas.length > 0) {
+    content = (
+      <PharmaGate
+        principal={session.principal}
+        pharmas={session.pendingPharmas}
+        mode="first"
+        onEnter={async (pharmaId) => {
+          const result = await authGateway.chooseServingPharma({
+            userId: session.principal.userId,
+            pharmaId,
+            method: session.method,
+            qrSource: session.qrSource,
+          })
+          if (result.ok) {
+            setSession(result.session)
+            return true
+          }
+          addToast({ type: "error", title: "进入失败", description: result.failure.message })
+          return false
+        }}
+        onChangeAccount={() => void signOut()}
+      />
+    )
+  } else {
+    content = <Workbench key={session.id} principal={session.principal} />
+  }
+
+  return (
+    <SessionToastContext.Provider value={addToast}>
+      {content}
+      <ToastContainer messages={toasts} onDismiss={dismissToast} />
+    </SessionToastContext.Provider>
+  )
 }
 
-/** 平台侧角色走管理工作台；其余按旧三类视角落在药厂/服务商工作台 */
-const PLATFORM_ROLE_IDS = new Set([
-  "role-platform-ops",
-  "role-sys-admin",
-  "role-account-admin",
-])
+/** 平台侧角色走管理工作台；其余按旧三类视角落在药厂/服务商工作台（集合定义在 authProfiles） */
 
 function dashboardVariantOf(principal: AuthPrincipal): "pharma" | "provider" | "platform" {
   if (PLATFORM_ROLE_IDS.has(principal.roleId)) return "platform"
@@ -553,7 +606,7 @@ function AppShell() {
     principal,
     loginRole: currentRole,
   } = usePermission()
-  const { setSession, signOut } = useAuth()
+  const { session, setSession, signOut } = useAuth()
   const dashboardVariant = dashboardVariantOf(principal)
   const [currentPage, setCurrentPage] = useState<PageId>("dashboard")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -574,7 +627,8 @@ function AppShell() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(seedMenuItems().filter((m) => m.type === "group").map((m) => m.id)),
   )
-  const [toasts, setToasts] = useState<ToastMessage[]>([])
+  // Toast 走会话级容器（Root）：切换服务药厂重建业务树时提示不丢失
+  const addToast = useContext(SessionToastContext)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [navFocus, setNavFocus] = useState<NavFocus>({})
   const [mobileDemoOpen, setMobileDemoOpen] = useState(false)
@@ -585,12 +639,42 @@ function AppShell() {
   const [fullMobileDemoShown, setFullMobileDemoShown] = useState(false)
   const fullMobileDemoCloseTimer = useRef<number | null>(null)
 
-  const addToast = useCallback((msg: Omit<ToastMessage, "id">) => {
-    const id = `toast-${Date.now()}`
-    setToasts((prev) => [...prev, { ...msg, id }])
-  }, [])
-
+  // Toast 容器已上移到 Root（SessionToastContext），AppShell 不再自带
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
+  // 切换服务药厂（免重新认证）：浮层选药厂 → 网关换发会话 → 业务树重建、数据重置
+  const [pharmaSwitchOpen, setPharmaSwitchOpen] = useState(false)
+  const [switchPharmas, setSwitchPharmas] = useState<ServingPharma[] | null>(null)
+  const openPharmaSwitch = useCallback(async () => {
+    if (!principal.servingPharmaName) return
+    setShowUserMenu(false)
+    setSwitchPharmas(null)
+    setPharmaSwitchOpen(true)
+    setSwitchPharmas(await authGateway.listServingPharmas(principal.userId))
+  }, [principal.userId, principal.servingPharmaName])
+  const handleSwitchPharma = useCallback(
+    async (pharmaId: string) => {
+      if (!session) return false
+      const result = await authGateway.chooseServingPharma({
+        userId: session.principal.userId,
+        pharmaId,
+        method: session.method,
+        qrSource: session.qrSource,
+      })
+      if (result.ok) {
+        setPharmaSwitchOpen(false)
+        setSession(result.session)
+        addToast({
+          type: "success",
+          title: `已切换至${result.session.principal.servingPharmaName}`,
+          description: "所属企业与人员身份不变，业务数据已按所选药厂重置。",
+        })
+        return true
+      }
+      addToast({ type: "error", title: "切换失败", description: result.failure.message })
+      return false
+    },
+    [session, setSession, addToast],
+  )
   // 演示环境一键切换角色：复用密码登录网关换发新会话；
   // session.id 变化使 Workbench 整树重建，自动回到新角色工作台（数据重置为种子态）
   const switchAccount = useCallback(
@@ -614,10 +698,6 @@ function AppShell() {
     },
     [addToast, setSession],
   )
-
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
-  }, [])
 
   const navigate: NavigateFn = (page, focus) => {
     const controlled = RESOURCE_PAGES.some((p) => p.id === page)
@@ -1172,7 +1252,49 @@ function AppShell() {
                     >
                       数据范围：{principal.scopeOrgName}
                     </div>
+                    {principal.servingPharmaName && (
+                      <div
+                        style={{
+                          fontSize: "var(--fs-11)",
+                          color: "var(--color-sidebar-accent)",
+                          marginTop: 2,
+                        }}
+                      >
+                        当前服务药厂：{principal.servingPharmaName}
+                      </div>
+                    )}
                   </div>
+                  {principal.servingPharmaName && principal.roleName === "服务专员" && (
+                    <button
+                      type="button"
+                      onClick={() => void openPharmaSwitch()}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        width: "100%",
+                        padding: "7px 8px",
+                        fontSize: "var(--fs-13)",
+                        color: "var(--color-sidebar-text)",
+                        background: "none",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        gap: 8,
+                        marginBottom: 4,
+                      }}
+                      onMouseEnter={(e) => {
+                        ;(e.currentTarget as HTMLButtonElement).style.background =
+                          "rgba(255,255,255,0.04)"
+                      }}
+                      onMouseLeave={(e) => {
+                        ;(e.currentTarget as HTMLButtonElement).style.background =
+                          "none"
+                      }}
+                    >
+                      <Building2 size={13} /> 切换服务药厂 · {principal.servingPharmaName}
+                    </button>
+                  )}
                   <div
                     style={{
                       fontSize: "var(--fs-11)",
@@ -1614,6 +1736,25 @@ function AppShell() {
               >
                 {principal.roleName}
               </span>
+              {principal.servingPharmaName && (
+                <span
+                  title="当前服务药厂：本次业务数据范围，可在用户菜单切换"
+                  style={{
+                    fontSize: "var(--fs-11)",
+                    padding: "2px 6px",
+                    borderRadius: "9999px",
+                    background: "var(--color-info-bg)",
+                    color: "var(--color-info-fg)",
+                    fontWeight: 600,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Building2 size={11} /> 服务药厂 · {principal.servingPharmaName}
+                </span>
+              )}
             </div>
           </header>
         )}
@@ -1664,8 +1805,43 @@ function AppShell() {
         </div>
       )}
 
-      {/* Toast notifications */}
-      <ToastContainer messages={toasts} onDismiss={dismissToast} />
+      {/* 切换服务药厂浮层（免重新认证；确认后换发会话整树重建） */}
+      {pharmaSwitchOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1400,
+            background: "var(--color-canvas)",
+            overflow: "auto",
+          }}
+        >
+          {switchPharmas ? (
+            <PharmaGate
+              principal={principal}
+              pharmas={switchPharmas}
+              mode="switch"
+              onEnter={handleSwitchPharma}
+              onClose={() => setPharmaSwitchOpen(false)}
+            />
+          ) : (
+            <div
+              style={{
+                minHeight: "100vh",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--color-text-2)",
+                fontSize: "var(--fs-14)",
+              }}
+            >
+              正在加载服务药厂…
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Toast 容器在 Root 层（SessionToastContext） */}
 
       {/* Close user menu on outside click */}
       {showUserMenu && (
