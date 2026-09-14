@@ -2595,7 +2595,7 @@ export const seedTasks: Task[] = [
           itemName: "区域市场分析报告",
           category: "分析报告服务",
           serviceMonth: "2026-09",
-          version: 1,
+              version: 1,
         },
       ],
       settlements: [],
@@ -2603,6 +2603,16 @@ export const seedTasks: Task[] = [
     "PB-STD-2026",
   ),
 ]
+
+/**
+ * 多租户演示口径：为种子任务补持有方药厂标注。
+ * 服务专员登录后按所选服务药厂过滤任务与结算；服务商/药厂侧角色不受此字段影响。
+ * 默认百益制药（与组织树的药厂节点一致），两家任务划给华康药业用于切换药厂的数据对比。
+ */
+const HUAKANG_TASK_NOS = new Set(["TK-2026-0009", "TK-2026-0010"])
+seedTasks.forEach((t) => {
+  t.holderPharma = HUAKANG_TASK_NOS.has(t.taskNo) ? "华康药业" : "百益制药"
+})
 
 const tierLabels = ["KOL A类", "KOL B类", "普通医生", "潜力医生"]
 const tagPool = [

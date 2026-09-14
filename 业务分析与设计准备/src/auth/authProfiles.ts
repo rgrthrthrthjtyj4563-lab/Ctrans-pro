@@ -4,12 +4,19 @@
  * 角色事实源仍是 RoleAssignment），登录页也不得维护独立账号清单。
  */
 
-import type { QrIdentity } from "./authTypes"
+import type { QrIdentity, ServingPharma } from "./authTypes"
 import { PERM_USERS, PERM_ORGS } from "../data/permissions"
 import { enterpriseRootOf } from "../data/permissions"
 
 /** 演示环境统一固定密码（登录页明示，不作为真实安全能力） */
 export const DEMO_PASSWORD = "demo123"
+
+/** 平台侧角色（进入平台管理工作台，而非某企业工作空间）；App 壳与身份确认页共用 */
+export const PLATFORM_ROLE_IDS = new Set([
+  "role-platform-ops",
+  "role-sys-admin",
+  "role-account-admin",
+])
 
 export interface AuthProfile {
   userId: string
@@ -49,11 +56,48 @@ export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
   { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "平台运营", orgName: "百益健康科技", scene: "平台侧全量页面；企业微信扫码则以「系统管理员」身份进入" },
   { userId: "u-lihang", account: "lihang", name: "李航", roleName: "药厂销售管理员", orgName: "西北大区", scene: "药厂销售主线；微信开放平台扫码则以定制角色「药厂区域销售经理」进入" },
   { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "药厂合规管理员", orgName: "合规部", scene: "备案审核与服务商准入审核" },
-  { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", scene: "任务承接、绩效与准入资料；企业微信扫码可登录" },
+  { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", scene: "任务承接、绩效与准入资料；企业微信扫码可登录；双企业身份演示（东方恒业服务商管理员 / 百益制药药厂合规）" },
   { userId: "u-liuyang", account: "liuyang", name: "刘洋", roleName: "工作组长", orgName: "工作组一", scene: "工作组分派与初审" },
-  { userId: "u-yangming", account: "yangming", name: "杨明", roleName: "服务专员", orgName: "工作组三", scene: "仅移动端角色演示点：后台任意方式登录都会被拦截，提示改用药友料 App" },
+  { userId: "u-yangming", account: "yangming", name: "杨明", roleName: "服务专员", orgName: "工作组三", scene: "多药厂服务专员：后台登录后选择服务药厂进入对应业务范围（含一家合作暂停）" },
+  { userId: "u-huangfeng", account: "huangfeng", name: "黄峰", roleName: "服务专员", orgName: "工作组三", scene: "单药厂服务专员：后台登录后自动收敛为唯一服务药厂" },
   { userId: "u-zhengjie", account: "zhengjie", name: "郑洁", roleName: "账户管理员", orgName: "华东大区", scene: "用户建档、启停与账户解锁" },
 ]
+
+/**
+ * 服务专员名下的服务药厂授权（多租户演示口径）：
+ * 登录后由「选择服务药厂」步骤确定本次业务数据范围；列表为空或全部暂停的
+ * 纯移动端账号维持「仅限移动端」拦截。药厂名与组织树/种子任务的持有方口径一致。
+ */
+export const SPECIALIST_SERVING_PHARMAS: Record<string, ServingPharma[]> = {
+  "u-yangming": [
+    {
+      id: "pharma-baiyi",
+      name: "百益制药",
+      status: "active",
+      workGroup: "工作组三",
+      regions: "陕西省",
+      lastUsedAt: "2026-09-10 18:32",
+    },
+    {
+      id: "pharma-huakang",
+      name: "华康药业",
+      status: "active",
+      workGroup: "西北推广组",
+      regions: "陕西省、甘肃省",
+      lastUsedAt: "2026-09-08 17:20",
+    },
+    {
+      id: "pharma-kangning",
+      name: "康宁制药",
+      status: "paused",
+      pausedAt: "2026-08-31",
+      pausedReason: "合作授权已暂停",
+    },
+  ],
+  "u-huangfeng": [
+    { id: "pharma-baiyi", name: "百益制药", status: "active" },
+  ],
+}
 
 /**
  * 模拟的外部扫码身份池（真实产品分别来自企业微信通讯录与微信开放平台 unionid）。
@@ -75,6 +119,22 @@ export const QR_IDENTITIES: QrIdentity[] = [
 export function enterpriseNameOfOrg(orgId: string): { id: string; name: string } {
   const root = enterpriseRootOf(PERM_ORGS, orgId)
   return { id: root?.id ?? "org-platform", name: root?.name ?? "百益健康科技" }
+}
+
+const ENTERPRISE_TYPE_LABEL: Record<string, string> = {
+  platform: "平台",
+  pharma: "药厂",
+  provider: "服务提供商",
+}
+
+/** 企业根节点（含类型文案）：登录身份选择器展示「企业类型」用 */
+export function enterpriseOfOrg(orgId: string): { id: string; name: string; type: string } {
+  const root = enterpriseRootOf(PERM_ORGS, orgId)
+  return {
+    id: root?.id ?? "org-platform",
+    name: root?.name ?? "百益健康科技",
+    type: ENTERPRISE_TYPE_LABEL[root?.type ?? "platform"] ?? "平台",
+  }
 }
 
 export function findUserById(userId: string) {

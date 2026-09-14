@@ -1069,6 +1069,19 @@ export const seedAssignments: RoleAssignment[] = [
     status: "active",
   },
   {
+    // 多租户演示：陈伟同时持有百益制药的合规审核授权，登录时出现「选择所属企业」双身份
+    id: "g-05b",
+    userId: "u-chenwei",
+    roleId: "role-pharma-compliance",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
+    effectiveFrom: "2026-06-01",
+    grantedBy: "王敏",
+    grantedAt: "2026-06-01 09:30",
+    status: "active",
+  },
+  {
     id: "g-06",
     userId: "u-liuyang",
     roleId: "role-group-lead",
