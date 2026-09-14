@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -156,7 +156,10 @@ const INITIAL_REPORTS = buildReports();
 interface BizType {
   id: string;
   name: string;
-  freq: string;
+  /** 当前筛选条件下的数据量（选中后统计查询得到） */
+  count: number;
+  /** 数据量单位（场/次/组/份） */
+  unit: string;
   docs: string;
   /** 凭证生成金额（实收票据） */
   amount: number;
@@ -169,7 +172,8 @@ const BIZ_TYPES: BizType[] = [
   {
     id: 'seminar',
     name: '学术研讨会服务',
-    freq: '8 场',
+    count: 8,
+    unit: '场',
     docs: '8 份会议纪要·课酬回执',
     amount: 48000,
     declared: 49200,
@@ -178,7 +182,8 @@ const BIZ_TYPES: BizType[] = [
   {
     id: 'visit',
     name: '医生拜访服务',
-    freq: '12 次',
+    count: 12,
+    unit: '次',
     docs: '12 份临床打卡与沟通记录',
     amount: 36000,
     declared: 36900,
@@ -187,7 +192,8 @@ const BIZ_TYPES: BizType[] = [
   {
     id: 'dept',
     name: '科室推介会',
-    freq: '4 场',
+    count: 4,
+    unit: '场',
     docs: '4 份签到表及宣讲记录',
     amount: 24000,
     declared: 24600,
@@ -196,7 +202,8 @@ const BIZ_TYPES: BizType[] = [
   {
     id: 'digital',
     name: '数字营销传播服务',
-    freq: '2 组',
+    count: 2,
+    unit: '组',
     docs: '2 份传播数据截图',
     amount: 5600,
     declared: 5750,
@@ -205,7 +212,8 @@ const BIZ_TYPES: BizType[] = [
   {
     id: 'survey',
     name: '调研问卷服务',
-    freq: '60 份',
+    count: 60,
+    unit: '份',
     docs: '26 份问卷反馈及凭单',
     amount: 9000,
     declared: 9250,
@@ -214,13 +222,80 @@ const BIZ_TYPES: BizType[] = [
   {
     id: 'patient',
     name: '患者宣教活动',
-    freq: '3 场',
+    count: 3,
+    unit: '场',
     docs: '3 份宣教手册派发清单',
     amount: 6000,
     declared: 6300,
     note: '包含慢病患教会场地安排、宣教手册派发及患者参与清单。',
   },
 ];
+
+/* ─── 数字徽章：未统计 / 统计中（转圈） / 数字滚动出数 ──────────────────── */
+
+function TypeBadge({ phase, count, unit }: { phase: 'idle' | 'loading' | 'done'; count: number; unit: string }) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    if (phase !== 'done') {
+      setDisplay(0);
+      return;
+    }
+    let raf = 0;
+    const start = Date.now();
+    const dur = 320;
+    const frame = () => {
+      const t = Math.min((Date.now() - start) / dur, 1);
+      setDisplay(Math.round(count * (1 - Math.pow(1 - t, 3))));
+      if (t < 1) raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [phase, count]);
+
+  const base: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    padding: '2px 8px',
+    minHeight: 23,
+    minWidth: 64,
+    borderRadius: 4,
+    fontSize: 'var(--fs-12)',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+  };
+
+  if (phase === 'loading') {
+    return (
+      <span style={{ ...base, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)' }}>
+        <span
+          style={{
+            width: 11,
+            height: 11,
+            border: '2px solid rgba(23,107,91,.25)',
+            borderTopColor: 'var(--color-brand)',
+            borderRadius: '50%',
+            flexShrink: 0,
+            animation: 'bzSpin 0.8s linear infinite',
+          }}
+        />
+        统计中
+      </span>
+    );
+  }
+  if (phase !== 'done') {
+    return <span style={{ ...base, background: '#F3F4F6', color: '#9CA3AF' }}>未统计</span>;
+  }
+  return (
+    <span
+      className="bz-badge-in"
+      style={{ ...base, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}
+    >
+      {display} {unit}
+    </span>
+  );
+}
 
 const TEMPLATES = [
   {
@@ -354,8 +429,10 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
     exportScope: EXPORT_SCOPES[0],
     remember: '1',
   });
-  const [selectedTypes, setSelectedTypes] = useState<string[]>(BIZ_TYPES.map((t) => t.id));
-  const [calcLoading, setCalcLoading] = useState(false);
+  // 业务类型默认不选中；数字徽章是「选中后实时统计」的反馈（idle 未统计 / loading 统计中 / done 出数）
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [badgePhase, setBadgePhase] = useState<Record<string, 'idle' | 'loading' | 'done'>>({});
+  const badgeTimers = useRef<number[]>([]);
   const [template, setTemplate] = useState(1);
   const [reportName, setReportName] = useState('2026 年 09 月业务明细导出报告');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
@@ -380,6 +457,8 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
   const voucherTotal = selectedBiz.reduce((s, t) => s + t.amount, 0);
   const declaredTotal = selectedBiz.reduce((s, t) => s + t.declared, 0);
   const activeTemplate = TEMPLATES.find((t) => t.id === template) ?? TEMPLATES[0];
+  // 徽章统计中数量（汇总条 / 参数核对行联动）
+  const statLoading = selectedTypes.filter((id) => badgePhase[id] === 'loading').length;
 
   /* ── 列表 ── */
   const allRows = useMemo(
@@ -431,12 +510,31 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
     setStep(1);
   };
 
+  /** 模拟按当前筛选统计某类型数据量：先转圈「统计中」，错峰完成后出数（演示查询） */
+  const statType = (id: string, offsetMs: number) => {
+    setBadgePhase((p) => ({ ...p, [id]: 'loading' }));
+    badgeTimers.current.push(
+      window.setTimeout(() => {
+        setBadgePhase((p) => ({ ...p, [id]: 'done' }));
+      }, 450 + offsetMs),
+    );
+  };
+
   const runCalc = () => {
-    setCalcLoading(true);
-    window.setTimeout(() => {
-      setCalcLoading(false);
-      addToast({ type: 'success', title: '业务数据量与凭证已重新计算完成' });
-    }, 700);
+    // 重新统计：卡片保持可见，仅已选类型徽章错峰重查；未选类型不受影响
+    if (selectedTypes.length === 0) {
+      addToast({ type: 'info', title: '尚未选择业务类型', description: '勾选类型后才会统计对应数据量。' });
+      return;
+    }
+    selectedTypes.forEach((id, i) => {
+      const idx = BIZ_TYPES.findIndex((t) => t.id === id);
+      statType(id, i * 100 + Math.max(0, idx) * 40);
+    });
+    badgeTimers.current.push(
+      window.setTimeout(() => {
+        addToast({ type: 'success', title: '业务数据量已按当前筛选重新统计完成' });
+      }, 600 + selectedTypes.length * 90),
+    );
   };
 
   const setBill = (id: string, value: string) => {
@@ -445,14 +543,34 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
   };
 
   const toggleType = (id: string) => {
-    setSelectedTypes((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
-    );
+    if (selectedTypes.includes(id)) {
+      // 取消勾选：数字随选中态清除，回到「未统计」
+      setSelectedTypes(selectedTypes.filter((t) => t !== id));
+      setBadgePhase((p) => ({ ...p, [id]: 'idle' }));
+    } else {
+      setSelectedTypes([...selectedTypes, id]);
+      const idx = BIZ_TYPES.findIndex((t) => t.id === id);
+      statType(id, Math.max(0, idx) * 60);
+    }
   };
 
   const selectAllTypes = () => {
-    setSelectedTypes((prev) => (prev.length === BIZ_TYPES.length ? [] : BIZ_TYPES.map((t) => t.id)));
+    if (selectedTypes.length === BIZ_TYPES.length) {
+      setSelectedTypes([]);
+      setBadgePhase({});
+    } else {
+      setSelectedTypes(BIZ_TYPES.map((t) => t.id));
+      BIZ_TYPES.forEach((t, i) => statType(t.id, i * 120));
+    }
   };
+
+  // 卸载时清理模拟统计的定时器
+  useEffect(
+    () => () => {
+      badgeTimers.current.forEach((t) => window.clearTimeout(t));
+    },
+    [],
+  );
 
   const saveDraft = () => {
     const dz = `DZ-202609-${pad(900 + reports.length, 4)}`;
@@ -814,149 +932,140 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
                 记住选项
               </label>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
-                <ShieldCheck size={14} color="var(--color-brand)" />
-                参数实时核对完成
+                {statLoading > 0 ? (
+                  <>
+                    <span
+                      style={{
+                        width: 11,
+                        height: 11,
+                        border: '2px solid rgba(23,107,91,.25)',
+                        borderTopColor: 'var(--color-brand)',
+                        borderRadius: '50%',
+                        animation: 'bzSpin 0.8s linear infinite',
+                      }}
+                    />
+                    {statLoading} 项统计中…
+                  </>
+                ) : selectedTypes.length > 0 ? (
+                  <>
+                    <ShieldCheck size={14} color="var(--color-brand)" />
+                    参数实时核对完成
+                  </>
+                ) : (
+                  '待选择业务类型后统计'
+                )}
               </span>
             </div>
           </div>
         </div>
 
-        {calcLoading ? (
-          <div style={{ ...CARD, padding: '48px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span
-              style={{
-                width: 32,
-                height: 32,
-                border: '3px solid var(--color-border)',
-                borderTop: '3px solid var(--color-brand)',
-                borderRadius: '50%',
-                animation: 'spin 0.8s linear infinite',
-                marginBottom: 16,
-              }}
-            />
-            <div style={{ fontSize: 'var(--fs-15)', fontWeight: 600, marginBottom: 6 }}>
-              正在拉取与计算关联业务数据量及导出凭证…
+        <div style={{ ...CARD, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={CARD_TITLE}>
+                <ListChecks size={17} color="var(--color-brand)" />
+                选择需要纳入报告的业务类型
+              </div>
+              <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-13)', color: '#667085' }}>
+                勾选后系统按当前筛选条件实时统计数据量；数据量仅供参考，最终以导出报告为准。
+              </p>
             </div>
-            <p style={{ margin: 0, fontSize: 'var(--fs-13)', color: '#9CA3AF', marginBottom: 20 }}>
-              系统正比对「{billForm.provider}」在结算周期内的已考核明细与归档票据。
-            </p>
-            <div style={{ width: '100%', maxWidth: 480 }}>
-              {[100, 75, 50].map((w) => (
-                <div
-                  key={w}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={selectedTypes.length === BIZ_TYPES.length}
+                onChange={selectAllTypes}
+                style={{ accentColor: 'var(--color-brand)', width: 15, height: 15 }}
+              />
+              全选所有类型
+            </label>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+            {BIZ_TYPES.map((t) => {
+              const on = selectedTypes.includes(t.id);
+              return (
+                <label
+                  key={t.id}
                   style={{
-                    height: 12,
-                    width: `${w}%`,
-                    borderRadius: 4,
-                    marginBottom: 8,
-                    background: 'linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%)',
-                    backgroundSize: '400% 100%',
-                    animation: 'shimmer 1.5s ease infinite',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    padding: 14,
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    border: `1px solid ${on ? 'var(--color-brand)' : 'var(--color-border)'}`,
+                    background: on ? 'var(--color-brand-subtle)' : '#fff',
                   }}
-                />
-              ))}
-            </div>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }
-              @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }`}</style>
-          </div>
-        ) : (
-          <div style={{ ...CARD, padding: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-              <div>
-                <div style={CARD_TITLE}>
-                  <ListChecks size={17} color="var(--color-brand)" />
-                  选择需要纳入报告的业务类型
-                </div>
-                <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-13)', color: '#667085' }}>
-                  请勾选本次报告需要汇总统计的业务推广服务分类。
-                </p>
-              </div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                <input
-                  type="checkbox"
-                  checked={selectedTypes.length === BIZ_TYPES.length}
-                  onChange={selectAllTypes}
-                  style={{ accentColor: 'var(--color-brand)', width: 15, height: 15 }}
-                />
-                全选所有类型
-              </label>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-              {BIZ_TYPES.map((t) => {
-                const on = selectedTypes.includes(t.id);
-                return (
-                  <label
-                    key={t.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 10,
-                      padding: 14,
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      border: `1px solid ${on ? 'var(--color-brand)' : 'var(--color-border)'}`,
-                      background: on ? 'var(--color-brand-subtle)' : '#fff',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => toggleType(t.id)}
-                      style={{ accentColor: 'var(--color-brand)', width: 16, height: 16, marginTop: 2 }}
-                    />
-                    <span style={{ minWidth: 0 }}>
-                      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)' }}>{t.name}</span>
-                        <Tag label={t.freq} color={on ? 'brand' : 'default'} />
-                      </span>
-                      <span style={{ display: 'block', marginTop: 6, fontSize: 'var(--fs-12)', color: '#9CA3AF', lineHeight: 1.6 }}>
-                        {t.note}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                paddingTop: 12,
-                borderTop: '1px solid var(--color-border)',
-              }}
-            >
-              <span style={{ fontSize: 'var(--fs-13)' }}>
-                已选择{' '}
-                <strong style={{ color: 'var(--color-brand)', fontSize: 'var(--fs-16)' }}>{selectedTypes.length}</strong>{' '}
-                种业务类型
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {selectedTypes.length === 0 && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-12)', color: 'var(--color-danger-fg)' }}>
-                    <AlertTriangle size={13} />
-                    请至少勾选一种业务类型后继续
-                  </span>
-                )}
-                <Button variant="ghost" size="md" onClick={backToList}>
-                  取消
-                </Button>
-                <Button
-                  variant="primary"
-                  size="md"
-                  iconAfter={<ArrowRight size={14} />}
-                  disabled={selectedTypes.length === 0}
-                  onClick={() => setStep(2)}
                 >
-                  下一步：选择模板
-                </Button>
-              </div>
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggleType(t.id)}
+                    style={{ accentColor: 'var(--color-brand)', width: 16, height: 16, marginTop: 2 }}
+                  />
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 'var(--fs-14)', fontWeight: 600, color: 'var(--color-text-1)' }}>{t.name}</span>
+                      <TypeBadge phase={badgePhase[t.id] ?? 'idle'} count={t.count} unit={t.unit} />
+                    </span>
+                    <span style={{ display: 'block', marginTop: 6, fontSize: 'var(--fs-12)', color: '#9CA3AF', lineHeight: 1.6 }}>
+                      {t.note}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              paddingTop: 12,
+              borderTop: '1px solid var(--color-border)',
+            }}
+          >
+            <span style={{ fontSize: 'var(--fs-13)' }}>
+              已选择{' '}
+              <strong style={{ color: 'var(--color-brand)', fontSize: 'var(--fs-16)' }}>{selectedTypes.length}</strong>{' '}
+              种业务类型
+              {statLoading > 0 && (
+                <span style={{ marginLeft: 6, fontSize: 'var(--fs-12)', color: 'var(--color-warning-fg)' }}>
+                  （{statLoading} 种统计中…）
+                </span>
+              )}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {selectedTypes.length === 0 && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-12)', color: 'var(--color-danger-fg)' }}>
+                  <AlertTriangle size={13} />
+                  请至少勾选一种业务类型后继续
+                </span>
+              )}
+              <Button variant="ghost" size="md" onClick={backToList}>
+                取消
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                iconAfter={<ArrowRight size={14} />}
+                disabled={selectedTypes.length === 0}
+                onClick={() => setStep(2)}
+              >
+                下一步：选择模板
+              </Button>
             </div>
           </div>
-        )}
+          <style>{`@keyframes bzSpin { to { transform: rotate(360deg); } }
+            @keyframes bzBadgeIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+            .bz-badge-in { animation: bzBadgeIn 200ms ease; }
+            @media (prefers-reduced-motion: reduce) {
+              .bz-badge-in { animation: none; }
+            }`}</style>
+        </div>
       </div>
     );
   }
@@ -1748,7 +1857,7 @@ function ReportSheet({
             {biz.map((t) => (
               <tr key={t.id}>
                 <td style={{ padding: '6px 8px', fontSize: 'var(--fs-11)', borderBottom: '1px solid #F3F4F6' }}>{t.name}</td>
-                <td style={{ padding: '6px 8px', fontSize: 'var(--fs-11)', borderBottom: '1px solid #F3F4F6', fontFamily: 'var(--font-mono)' }}>{t.freq}</td>
+                <td style={{ padding: '6px 8px', fontSize: 'var(--fs-11)', borderBottom: '1px solid #F3F4F6', fontFamily: 'var(--font-mono)' }}>{t.count} {t.unit}</td>
                 <td style={{ padding: '6px 8px', fontSize: 'var(--fs-11)', borderBottom: '1px solid #F3F4F6', color: '#667085' }}>{t.docs}</td>
                 <td style={{ padding: '6px 8px', fontSize: 'var(--fs-11)', borderBottom: '1px solid #F3F4F6', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                   {formatCNY(t.amount)}

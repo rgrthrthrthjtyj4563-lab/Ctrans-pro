@@ -106,3 +106,24 @@ export const RECON_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '对账中', label: '对账中' },
   { value: '已结算', label: '已结算' },
 ];
+
+/** Tag 颜色取值，与 StatusTag.Tag 的 color prop 对齐 */
+export type StatusTagColor = 'default' | 'brand' | 'info' | 'success' | 'warning' | 'danger';
+
+/** 任务状态列展示口径（任务执行 / 工作台任务交付概览共用同一份） */
+export function taskStatusDisplay(
+  taskStatus: string,
+  reconStatus: string,
+): { label: string; color: StatusTagColor } {
+  if (taskStatus === '待确认') return { label: '待确认', color: 'warning' };
+  if (taskStatus === '已撤销') return { label: '已撤销', color: 'default' };
+  if (reconStatus === '已结算' || taskStatus === '已结算') return { label: '已通过', color: 'success' };
+  return { label: '执行中', color: 'brand' };
+}
+
+/** 对账状态列展示口径：未发起 →「—」；已结算 →「已对账」 */
+export function reconStatusDisplay(reconStatus: string): { label: string; color: StatusTagColor } {
+  if (reconStatus === '对账中') return { label: '对账中', color: 'warning' };
+  if (reconStatus === '已结算') return { label: '已对账', color: 'success' };
+  return { label: '—', color: 'default' };
+}

@@ -404,6 +404,22 @@ export const RESOURCE_PAGES: ResourcePage[] = [
       "按对账单与服务方生成业务明细导出报告：筛选统计口径、选择模板、单页预览并导出 PDF",
     actions: acts("biz-detail-export", ["view", "create", "export"]),
   },
+  {
+    id: "talk-script-variety",
+    module: "话术管理",
+    name: "品种话术维护",
+    description:
+      "按品种与拜访类别维护标准话术与客户反馈：查询、启停、科室规则、复制与导入导出；AI 生成入口跳转 baiyee-AI",
+    actions: acts("talk-script-variety", ["view", "create", "edit", "delete", "export"]),
+  },
+  {
+    id: "scenario-center",
+    module: "扩展能力",
+    name: "业务搭建中心",
+    description:
+      "低代码搭建自定义业务场景：表单字段、审批流程、权限与接口联动配置，发布成可用的业务模块（药厂管理员/合规/平台可用，服务商不可见）",
+    actions: acts("scenario-center", ["view", "create", "edit"]),
+  },
 ]
 
 export const SENSITIVE_FIELDS: SensitiveField[] = [
@@ -576,6 +592,8 @@ export const PRESET_ROLES: SysRole[] = [
       ["execution-chain", ["view", "edit"]],
       ["business-switch", ["view", "edit"]],
       ["biz-detail-export", ["view", "create", "export"]],
+      ["talk-script-variety", ["view", "create", "edit", "delete", "export"]],
+      ["scenario-center", ["view", "create", "edit"]],
       ["roles", ["view", "create", "edit", "delete"]], // 原型演示授权：真实后端仅平台运营/系统管理员
       ["menus", ["view", "create", "edit"]], // 原型演示授权：真实后端仅平台运营/系统管理员
       ["role-preview", ["view"]],
@@ -602,6 +620,7 @@ export const PRESET_ROLES: SysRole[] = [
       ["baiyee-ai", ["view", "submit"]],
       ["business-switch", ["view"]],
       ["biz-detail-export", ["view", "create", "export"]],
+      ["scenario-center", ["view", "create", "edit"]],
     ]),
     fieldPolicies: {
       ...ALL_VISIBLE,

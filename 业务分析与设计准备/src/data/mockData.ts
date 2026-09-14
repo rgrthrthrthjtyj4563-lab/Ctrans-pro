@@ -3164,6 +3164,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-07-01",
           endDate: "2026-09-30",
           status: "执行中",
+          reconStatus: "未发起",
           deliverables: [
             {
               id: "t1-d1",
@@ -3195,6 +3196,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-08-01",
           endDate: "2026-10-31",
           status: "执行中",
+          reconStatus: "对账中",
           deliverables: [
             {
               id: "t2-d1",
@@ -3226,6 +3228,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-06-01",
           endDate: "2026-08-31",
           status: "执行中",
+          reconStatus: "未发起",
           deliverables: [
             {
               id: "t3-d1",
@@ -3265,6 +3268,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-05-01",
           endDate: "2026-08-31",
           status: "执行中",
+          reconStatus: "对账中",
           deliverables: [
             {
               id: "t4-d1",
@@ -3296,6 +3300,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-08-10",
           endDate: "2026-09-20",
           status: "执行中",
+          reconStatus: "未发起",
           deliverables: [
             {
               id: "t5-d1",
@@ -3319,6 +3324,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-09-01",
           endDate: "2026-11-30",
           status: "待确认",
+          reconStatus: "未发起",
           deliverables: [],
           anomalies: [],
           nextDueLabel: "",
@@ -3333,6 +3339,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-05-01",
           endDate: "2026-07-31",
           status: "已结算",
+          reconStatus: "已结算",
           deliverables: [
             {
               id: "t7-d1",
@@ -3356,6 +3363,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           startDate: "2026-08-05",
           endDate: "2026-08-12",
           status: "已撤销",
+          reconStatus: "未发起",
           deliverables: [],
           anomalies: [],
           nextDueLabel: "",

@@ -41,6 +41,10 @@ import { RepAppointmentMobileDemo } from "./pages/RepAppointmentMobileDemo"
 import { FullMobileDemo } from "./pages/FullMobileDemo"
 import { PharmaConfigSwitch } from "./pages/PharmaConfigSwitch"
 import { BizDetailExport } from "./pages/BizDetailExport"
+import { TalkScriptVariety } from "./pages/TalkScriptVariety"
+import { ScenarioCenter } from "./pages/ScenarioCenter"
+import { TalkScriptProvider } from "./context/TalkScriptContext"
+import { AICreditProvider } from "./context/AICreditContext"
 import { BrandLogo } from "./components/Brand"
 import { DisplaySettingsMenu } from "./components/DisplaySettingsMenu"
 import { ToastContainer } from "./components/Toast"
@@ -89,7 +93,9 @@ const pageLabels: Record<string, string> = {
   "performance-specialist": "服务专员绩效",
   "performance-settings": "绩效设置",
   "biz-detail-export": "业务明细导出",
+  "talk-script-variety": "品种话术维护",
   "baiyee-ai": "baiyee-AI",
+  "scenario-center": "业务搭建中心",
 }
 
 const pageSections: Record<string, string> = {
@@ -120,6 +126,8 @@ const pageSections: Record<string, string> = {
   "audit-log": "系统管理",
   "execution-chain": "系统管理",
   "biz-detail-export": "统计管理",
+  "talk-script-variety": "话术管理",
+  "scenario-center": "扩展能力",
 }
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
@@ -532,7 +540,11 @@ function Workbench({ principal }: { principal: AuthPrincipal }) {
         <PermissionProvider principal={principal}>
           <VendorAccessProvider>
             <RepFilingProvider>
-              <AppShell />
+              <TalkScriptProvider>
+                <AICreditProvider>
+                  <AppShell />
+                </AICreditProvider>
+              </TalkScriptProvider>
             </RepFilingProvider>
           </VendorAccessProvider>
         </PermissionProvider>
@@ -756,6 +768,16 @@ function AppShell() {
         return (
           <BizDetailExport addToast={addToast} currentRole={currentRole} />
         )
+      case "talk-script-variety":
+        return (
+          <TalkScriptVariety
+            addToast={addToast}
+            currentRole={currentRole}
+            navigate={navigate}
+          />
+        )
+      case "scenario-center":
+        return <ScenarioCenter addToast={addToast} />
       case "baiyee-ai":
         return <BaiyeeAI navigate={navigate} />
       default:
@@ -1482,7 +1504,7 @@ function AppShell() {
                 type="button"
                 className="project-intro-entry"
                 onClick={() => window.open("/project-intro/index.html", "_blank", "noopener,noreferrer")}
-                title="打开药合作系统重构项目介绍"
+                title="打开药合作重构项目介绍"
               >
                 <Presentation size={15} strokeWidth={2.2} />
                 <span>项目介绍</span>

@@ -3,24 +3,24 @@ interface BrandMarkProps {
   title?: string;
 }
 
-/** 药合作系统徽标：品牌绿底 + 白色药十字 + 中心节点。 */
-export function BrandMark({ size = 32, title = '药合作系统' }: BrandMarkProps) {
+/** 药合作徽标：Baiyee 品牌图标（public/logo.png，天蓝渐变圆角方形）。 */
+export function BrandMark({ size = 32, title = '药合作' }: BrandMarkProps) {
   return (
-    <svg
+    <img
+      src="/logo.png"
+      alt={title}
       width={size}
       height={size}
-      viewBox="0 0 32 32"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      role="img"
-      aria-label={title}
-      style={{ display: 'block', flexShrink: 0, borderRadius: 8 }}
-    >
-      <rect width="32" height="32" rx="8" style={{ fill: 'var(--color-brand)' }} />
-      <rect x="6" y="13.5" width="20" height="5" rx="2.5" fill="#FFFFFF" />
-      <rect x="13.5" y="6" width="5" height="20" rx="2.5" fill="#FFFFFF" />
-      <circle cx="16" cy="16" r="2.2" style={{ fill: 'var(--color-brand)' }} />
-    </svg>
+      draggable={false}
+      style={{
+        display: 'block',
+        flexShrink: 0,
+        width: size,
+        height: size,
+        borderRadius: '22%',
+        boxShadow: '0 2px 10px rgba(26,43,66,0.18)',
+      }}
+    />
   );
 }
 
@@ -31,7 +31,7 @@ interface BrandLogoProps {
 
 export function BrandLogo({
   collapsed = false,
-  subtitle = 'AI 运营控制台 V3',
+  subtitle = '营销协同管理系统',
 }: BrandLogoProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -39,7 +39,7 @@ export function BrandLogo({
       {!collapsed && (
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 'var(--fs-13)', fontWeight: 700, color: '#F9FAFB', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-            药合作系统
+            药合作
           </div>
           <div style={{ fontSize: 'var(--fs-10)', color: 'var(--color-sidebar-accent)', letterSpacing: '0.05em', marginTop: 1 }}>
             {subtitle}

@@ -34,6 +34,8 @@ import {
   formatCNYUpper,
   RECON_STATUS_OPTIONS,
   TASK_STATUS_OPTIONS,
+  reconStatusDisplay,
+  taskStatusDisplay,
 } from "../constants"
 import {
   PRICE_BOOK_MISMATCH_MSG,
@@ -140,36 +142,8 @@ const MAIN_STATUS_COLOR: Record<string, "warning" | "brand" | "danger" | "succes
     已撤销: "default",
   }
 
-function taskStatusLabel(task: Task) {
-  if (task.taskStatus === "待确认") return "待确认"
-  if (task.taskStatus === "已撤销") return "已撤销"
-  if (task.reconStatus === "已结算" || task.taskStatus === "已结算")
-    return "已通过"
-  return "执行中"
-}
-
-function taskStatusColor(
-  task: Task,
-): "warning" | "brand" | "danger" | "success" | "default" {
-  if (task.taskStatus === "待确认") return "warning"
-  if (task.taskStatus === "已撤销") return "default"
-  if (task.reconStatus === "已结算" || task.taskStatus === "已结算")
-    return "success"
-  return "brand"
-}
-
-function reconStatusLabel(task: Task) {
-  if (task.reconStatus === "未发起") return "—"
-  return task.reconStatus === "已结算" ? "已对账" : "对账中"
-}
-
-function reconStatusColor(
-  task: Task,
-): "warning" | "brand" | "danger" | "success" | "default" {
-  if (task.reconStatus === "对账中") return "warning"
-  if (task.reconStatus === "已结算") return "success"
-  return "default"
-}
+// 任务状态 / 对账状态的列展示口径抽到 constants（taskStatusDisplay /
+// reconStatusDisplay），与工作台任务交付概览共用同一份实现。
 
 /** 待审核报告数：行内动态提示与页签角标共用同一口径 */
 function pendingReportCount(task: Task): number {
@@ -630,8 +604,8 @@ export function TaskExecution({
                           }}
                         >
                           <Tag
-                            label={taskStatusLabel(t)}
-                            color={taskStatusColor(t)}
+                            label={taskStatusDisplay(t.taskStatus, t.reconStatus).label}
+                            color={taskStatusDisplay(t.taskStatus, t.reconStatus).color}
                           />
                           {isSales && pendingReportCount(t) > 0 && (
                             <span
@@ -653,8 +627,8 @@ export function TaskExecution({
                       </td>
                       <td style={td}>
                         <Tag
-                          label={reconStatusLabel(t)}
-                          color={reconStatusColor(t)}
+                          label={reconStatusDisplay(t.reconStatus).label}
+                          color={reconStatusDisplay(t.reconStatus).color}
                         />
                       </td>
                       <td style={td}>{renderNextAction(t)}</td>
@@ -3547,11 +3521,17 @@ function TaskDetailV5({
                   />
                   <Info
                     label="任务状态"
-                    value={<DetailStatus label={taskStatusLabel(task)} />}
+                    value={
+                      <DetailStatus
+                        label={taskStatusDisplay(task.taskStatus, task.reconStatus).label}
+                      />
+                    }
                   />
                   <Info
                     label="对账状态"
-                    value={<DetailStatus label={reconStatusLabel(task)} />}
+                    value={
+                      <DetailStatus label={reconStatusDisplay(task.reconStatus).label} />
+                    }
                   />
                   <Info
                     label="预算金额"

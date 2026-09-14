@@ -589,7 +589,53 @@ export interface AuditLogEntry {
   result: "成功" | "失败"
 }
 
-export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "departments" | "audit-log" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export"
+export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "departments" | "audit-log" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center"
+
+// ===== 话术管理（品种话术维护 + baiyee-AI 生成场景） =====
+
+export type TalkScriptStatus = "启用" | "禁用" | "待启用"
+
+export interface TalkScript {
+  id: number
+  /** 商品名(规格)；默认话术固定为 "通用品种" */
+  variety: string
+  firstCat: string
+  /** 跟台服务无二级类别，固定为 "—" */
+  secondCat: string
+  content: string
+  feedback: string
+  isDefault: "是" | "否"
+  /** "待启用" 仅 AI 采纳入库使用，人工启用后进入正常两态流转 */
+  status: TalkScriptStatus
+  isCoop: "是" | "否"
+  deptRule: string
+  /** baiyee-AI 采纳入库标记 */
+  isAI?: boolean
+  /** AI 入库确认人留痕，如 "李航 · 2026-09-10 14:32" */
+  confirmBy?: string
+}
+
+export interface AIBilling {
+  time: string
+  type: "消耗" | "返还" | "充值" | "获赠"
+  scene: string
+  variety: string
+  change: number
+  balance: number
+  operator: string
+}
+
+/** 话术页 → baiyee-AI 的带参跳转任务（模块级暂存，消费即清） */
+export interface PendingScriptTask {
+  variety?: string
+  firstCat?: string
+  secondCat?: string
+  mode?: "single" | "package" | "checkup"
+  /** 余额不足入口：进入后直接打开账单面板 */
+  openBilling?: boolean
+  /** 「查看记录」入口：定位到会话历史 */
+  historyOnly?: boolean
+}
 
 export type MenuType = "group" | "page"
 
@@ -788,6 +834,8 @@ export interface WorkbenchTask {
   startDate: string
   endDate: string
   status: TaskStatus
+  /** 对账状态；列展示口径与任务执行页共用（constants.reconStatusDisplay） */
+  reconStatus: ReconStatus
   deliverables: WorkbenchDeliverable[]
   /** 当前有效异常类型标签；空 = 无异常 */
   anomalies: string[]

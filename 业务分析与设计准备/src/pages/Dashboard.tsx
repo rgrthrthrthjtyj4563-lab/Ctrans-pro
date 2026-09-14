@@ -32,6 +32,7 @@ import { Button } from '../components/Button';
 import { RiskTag, Tag } from '../components/StatusTag';
 import type { ToastMessage } from '../components/Toast';
 import { getRoleDashboardData, getPlatformWorkbenchData, repFilingAnalysis } from '../data/mockData';
+import { reconStatusDisplay, taskStatusDisplay } from '../constants';
 import { useDashboardLayout } from '../hooks/useDashboardLayout';
 import { usePermission } from '../context/PermissionContext';
 import { RESOURCE_PAGES } from '../data/permissions';
@@ -47,7 +48,6 @@ import type {
   PageId,
   Role,
   SalesWorkbenchData,
-  WorkbenchDeliverable,
   WorkbenchPeriod,
   WorkbenchTask,
   WorkbenchTodo,
@@ -513,14 +513,6 @@ const PERIOD_RANGES: Record<WorkbenchPeriod, { start: string; end: string; label
   本月: { start: '2026-08-01', end: '2026-08-31', label: '08-01 ~ 08-31' },
   本季度: { start: '2026-07-01', end: '2026-09-30', label: '07-01 ~ 09-30' },
 };
-const TODAY = '2026-08-27';
-
-const taskStatusColor: Record<string, 'brand' | 'info' | 'success' | 'default'> = {
-  执行中: 'brand',
-  待确认: 'info',
-  已结算: 'success',
-  已撤销: 'default',
-};
 
 function WorkbenchFilterDropdown({
   label,
@@ -735,13 +727,6 @@ function WorkbenchTodoPanel({
   );
 }
 
-function deliverableStatusLabel(deliverable: WorkbenchDeliverable): { text: string; color: string } {
-  const done = deliverable.accepted >= deliverable.target;
-  if (done) return { text: `${deliverable.name} ${deliverable.accepted}/${deliverable.target}${deliverable.unit}`, color: '#248A5A' };
-  if (deliverable.dueDate < TODAY) return { text: `${deliverable.name} ${deliverable.accepted}/${deliverable.target}${deliverable.unit}（逾期）`, color: '#C73A3A' };
-  return { text: `${deliverable.name} ${deliverable.accepted}/${deliverable.target}${deliverable.unit}`, color: '#344054' };
-}
-
 function WorkbenchTaskOverviewPanel({
   tasks,
   aggMode,
@@ -766,7 +751,7 @@ function WorkbenchTaskOverviewPanel({
   navigate: (page: PageId) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const taskCols = 'minmax(0, 1.8fr) minmax(0, 1.15fr) minmax(0, 1.05fr) minmax(0, 1.35fr) minmax(0, 1.25fr) 92px';
+  const taskCols = 'minmax(0, 1.9fr) minmax(0, 1.2fr) minmax(0, 1.15fr) 108px 100px 92px';
   const aggCols = 'minmax(0, 1.6fr) 120px 120px 130px 140px';
   const modes: { key: 'task' | 'region' | 'variety' | 'provider'; label: string }[] = [
     { key: 'task', label: '任务明细' },
@@ -828,8 +813,8 @@ function WorkbenchTaskOverviewPanel({
                 <span>任务 / 编号</span>
                 <span>品种 / 区域</span>
                 <span>服务提供方</span>
-                <span>交付情况（已验收/约定）</span>
-                <span>异常与下一期限</span>
+                <span>任务状态</span>
+                <span>对账状态</span>
                 <span>操作</span>
               </div>
               {tasks.length === 0 ? (
@@ -844,9 +829,10 @@ function WorkbenchTaskOverviewPanel({
               ) : (
                 <div style={{ paddingTop: 8 }}>
                   {displayed.map(task => {
-                    const firstDeliverable = task.deliverables[0];
                     const varietyExtra = task.varieties.length - 1;
                     const regionExtra = task.regions.length - 1;
+                    const taskStatus = taskStatusDisplay(task.status, task.reconStatus);
+                    const reconStatus = reconStatusDisplay(task.reconStatus);
                     return (
                       <div
                         key={task.id}
@@ -890,35 +876,12 @@ function WorkbenchTaskOverviewPanel({
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 'var(--fs-12)', color: '#344054', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.provider}</div>
-                          <div style={{ marginTop: 4 }}>
-                            <Tag label={task.status} color={taskStatusColor[task.status] ?? 'default'} />
-                          </div>
                         </div>
-                        <div style={{ fontSize: 'var(--fs-12)', lineHeight: 1.7, minWidth: 0 }}>
-                          {task.status === '待确认' ? (
-                            <span style={{ color: '#98A2B3' }}>—（待服务商确认）</span>
-                          ) : firstDeliverable ? (
-                            <>
-              <div style={{ color: deliverableStatusLabel(firstDeliverable).color }}>
-                {deliverableStatusLabel(firstDeliverable).text}
-              </div>
-              {task.deliverables.length > 1 && <div style={{ color: '#98A2B3' }}>查看交付明细（共 {task.deliverables.length} 项）</div>}
-            </>
-          ) : (
-            <span style={{ color: '#98A2B3' }}>—</span>
-          )}
+                        <div style={{ minWidth: 0 }}>
+                          <Tag label={taskStatus.label} color={taskStatus.color} />
                         </div>
-                        <div style={{ fontSize: 'var(--fs-12)', lineHeight: 1.7, minWidth: 0 }}>
-                          {task.anomalies.length > 0 ? (
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 2 }}>
-                              {task.anomalies.map(anomaly => (
-                                <Tag key={anomaly} label={anomaly} color="warning" />
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{ color: '#98A2B3', marginBottom: 2 }}>暂无异常</div>
-                          )}
-                          {task.nextDueLabel ? <div style={{ color: '#667085' }}>{task.nextDueLabel}</div> : <Tag label="未设置阶段计划" color="info" />}
+                        <div style={{ minWidth: 0 }}>
+                          <Tag label={reconStatus.label} color={reconStatus.color} />
                         </div>
                         <div>
                           <Button size="sm" variant="outline" onClick={() => navigate('task-dispatch')}>

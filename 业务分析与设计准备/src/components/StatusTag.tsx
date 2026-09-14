@@ -91,6 +91,9 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '低风险': { label: '低风险', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
   '中风险': { label: '中风险', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '高风险': { label: '高风险', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
+  // 品种话术状态（话术管理板块）
+  '禁用': { label: '禁用', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
+  '待启用': { label: '待启用', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
 };
 
 const riskConfig: Record<RiskLevel, { label: string; fg: string; bg: string; dot: string }> = {

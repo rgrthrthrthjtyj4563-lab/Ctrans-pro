@@ -14,6 +14,8 @@ import {
   Shield,
   Folder,
   BarChart3,
+  MessageSquare,
+  Blocks,
   type LucideIcon,
 } from 'lucide-react';
 import type { MenuItem } from '../types';
@@ -34,6 +36,8 @@ export const MENU_ICONS: Record<string, LucideIcon> = {
   shield: Shield,
   folder: Folder,
   'bar-chart-3': BarChart3,
+  'message-square': MessageSquare,
+  blocks: Blocks,
 };
 
 const STAMP = '2026-09-04 10:40';
@@ -339,6 +343,46 @@ const SEED_MENU_ITEMS: MenuItem[] = [
     type: 'page',
     parentId: 'group-stats',
     pageId: 'biz-detail-export',
+    sort: 1,
+    hideForRoles: ['服务提供商'],
+  }),
+  /** 2026-09-10 话术管理板块：药厂销售专属（AI 生成与积分在 baiyee-AI，两药厂角色可用） */
+  item({
+    id: 'group-talk-script',
+    name: '话术管理',
+    type: 'group',
+    parentId: null,
+    section: '',
+    iconKey: 'message-square',
+    sort: 13,
+    hideForRoles: ['服务提供商', '药厂合规部门'],
+  }),
+  item({
+    id: 'menu-talk-script-variety',
+    name: '品种话术维护',
+    type: 'page',
+    parentId: 'group-talk-script',
+    pageId: 'talk-script-variety',
+    sort: 1,
+    hideForRoles: ['服务提供商', '药厂合规部门'],
+  }),
+  /** 2026-09-11 扩展能力板块：低代码业务搭建中心（药厂两侧 + 平台可见，服务商不参与搭建） */
+  item({
+    id: 'group-ext',
+    name: '扩展能力',
+    type: 'group',
+    parentId: null,
+    section: '',
+    iconKey: 'blocks',
+    sort: 14,
+    hideForRoles: ['服务提供商'],
+  }),
+  item({
+    id: 'menu-scenario-center',
+    name: '业务搭建中心',
+    type: 'page',
+    parentId: 'group-ext',
+    pageId: 'scenario-center',
     sort: 1,
     hideForRoles: ['服务提供商'],
   }),

@@ -315,3 +315,54 @@ body {
   background: #2563EB;
   animation: project-intro-entry-pulse 2.8s ease-out infinite;
 }
+
+/* ─── 话术管理：品种话术维护页动态入口卡 ────────────────────────────
+   克制的品牌绿系动效：✦ 徽章呼吸脉冲 + 斜向扫光 + 轮播文案淡入 */
+@keyframes talk-script-entry-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.85; }
+}
+@keyframes talk-script-entry-sheen {
+  0%, 60% { left: -35%; }
+  82%, 100% { left: 120%; }
+}
+@keyframes talk-script-fade-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.talk-script-entry-card {
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+.talk-script-entry-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(23, 107, 91, 0.12);
+}
+.talk-script-entry-card::before {
+  content: "";
+  position: absolute;
+  top: -60%;
+  left: -35%;
+  width: 22%;
+  height: 220%;
+  background: rgba(255, 255, 255, 0.55);
+  transform: rotate(22deg);
+  pointer-events: none;
+  animation: talk-script-entry-sheen 4.8s ease-in-out infinite;
+}
+.talk-script-entry-badge {
+  animation: talk-script-entry-pulse 1.6s ease-in-out infinite;
+}
+.talk-script-cycle-text {
+  animation: talk-script-fade-in 300ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .talk-script-entry-card,
+  .talk-script-entry-card::before,
+  .talk-script-entry-badge,
+  .talk-script-cycle-text {
+    animation: none !important;
+  }
+}
