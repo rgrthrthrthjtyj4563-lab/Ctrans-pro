@@ -1,0 +1,192 @@
+/**
+ * 登录三步流共享视觉外壳（2026-09-14 新设计稿语言）。
+ * 作用域：.login-shell 根类（登录页 / 身份确认 / 选药厂门页共用）；
+ * 变量以 lg- 前缀收在根类内，不污染全局 token——登录链路先于主题选择，固定品牌视觉。
+ */
+.login-shell {
+    --lg-bg: #F4F7FB;
+    --lg-text-1: #1A2B42;
+    --lg-text-2: rgba(26,43,66,0.52);
+    --lg-text-3: rgba(26,43,66,0.38);
+    --lg-text-4: rgba(26,43,66,0.28);
+    --lg-brand: #19C59A;
+    --lg-brand-dim: #0D9B7A;
+    --lg-input-border: rgba(195,212,232,0.8);
+
+    position: relative;
+    min-height: 100vh;
+    background: var(--lg-bg);
+    color: var(--lg-text-1);
+    overflow-x: hidden;
+  }
+  .login-deco { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .lg-blob { position: absolute; border-radius: 50%; will-change: transform; }
+  .lg-blob-a {
+    width: 900px; height: 720px; bottom: -18%; left: -10%;
+    background: radial-gradient(ellipse at center, rgba(185,214,255,0.72) 0%, rgba(185,214,255,0.18) 55%, transparent 75%);
+    filter: blur(110px); animation: lgBlobA 22s ease-in-out infinite alternate;
+  }
+  .lg-blob-b {
+    width: 1100px; height: 640px; bottom: -14%; left: 12%;
+    background: radial-gradient(ellipse at center, rgba(186,234,226,0.62) 0%, rgba(186,234,226,0.14) 55%, transparent 75%);
+    filter: blur(130px); animation: lgBlobB 18s ease-in-out infinite alternate;
+  }
+  .lg-blob-c {
+    width: 680px; height: 600px; top: -12%; right: -6%;
+    background: radial-gradient(ellipse at center, rgba(210,222,255,0.58) 0%, rgba(210,222,255,0.12) 55%, transparent 75%);
+    filter: blur(100px); animation: lgBlobC 25s ease-in-out infinite alternate;
+  }
+  .lg-blob-d {
+    width: 640px; height: 820px; top: 8%; left: -8%;
+    background: radial-gradient(ellipse at center, rgba(200,220,248,0.48) 0%, rgba(200,220,248,0.1) 55%, transparent 75%);
+    filter: blur(120px); animation: lgBlobD 20s ease-in-out infinite alternate;
+  }
+  @keyframes lgBlobA { from { transform: translate(0,0) scale(1); } to { transform: translate(55px,-45px) scale(1.05); } }
+  @keyframes lgBlobB { from { transform: translate(0,0) scale(1.02); } to { transform: translate(-45px,-50px) scale(1); } }
+  @keyframes lgBlobC { from { transform: translate(0,0) scale(1); } to { transform: translate(-40px,48px) scale(1.04); } }
+  @keyframes lgBlobD { from { transform: translate(0,0) scale(1.03); } to { transform: translate(32px,-42px) scale(1); } }
+  .lg-noise { position: absolute; inset: 0; opacity: 0.025; filter: url(#lg-grain); background: #7A8FA8; }
+  .lg-vignette { position: absolute; inset: 0; background: linear-gradient(to left, rgba(244,247,251,0.55) 0%, transparent 55%); }
+
+  .login-layout { position: relative; z-index: 1; display: flex; align-items: stretch; min-height: 100vh; }
+  .login-brand { display: none; }
+  .login-main { width: 100%; display: flex; align-items: center; justify-content: center; padding: 24px 20px 48px; min-width: 0; }
+  .login-mobile-brand { display: flex; align-items: center; gap: 10px; padding: 16px 4px 0; }
+  .login-card-wrap { width: 100%; max-width: 420px; margin: 0 auto; }
+  @media (min-width: 900px) {
+    .login-brand {
+      flex: 1; display: flex; flex-direction: column; justify-content: space-between;
+      padding: clamp(32px, 5vw, 64px); min-width: 0;
+    }
+    .login-main { width: clamp(380px, 32vw, 480px); flex-shrink: 0; padding: 24px clamp(24px, 4vw, 56px) 24px 24px; }
+    .login-mobile-brand { display: none; }
+    .login-card-wrap { max-width: none; }
+  }
+
+  .lg-field {
+    width: 100%; height: 50px; padding: 0 14px;
+    background: rgba(255,255,255,0.95);
+    border: 1px solid var(--lg-input-border);
+    border-radius: 10px;
+    color: var(--lg-text-1); font-size: 14px; font-family: inherit;
+    outline: none; transition: border-color 200ms ease, box-shadow 200ms ease;
+  }
+  .lg-field::placeholder { color: rgba(26,43,66,0.3); }
+  .lg-field:focus { border-color: var(--lg-brand); box-shadow: 0 0 0 3px rgba(25,197,154,0.12), 0 1px 3px rgba(0,0,0,0.06); }
+  .lg-field[aria-invalid="true"] { border-color: #DC2626; }
+  .lg-field[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px rgba(220,38,38,0.1); }
+  .lg-label { display: block; font-size: 12px; font-weight: 500; color: rgba(26,43,66,0.5); margin-bottom: 7px; letter-spacing: 0.02em; }
+  .lg-error-pill {
+    padding: 10px 13px; background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 9px; color: #C83232; font-size: 13px;
+    display: flex; align-items: center; gap: 8px; line-height: 1.5;
+  }
+  .lg-error-pill svg { flex-shrink: 0; }
+
+  .lg-tab {
+    flex: 1; background: none; border: none; padding: 0 0 12px; cursor: pointer;
+    font-size: 13px; font-family: inherit; letter-spacing: 0.01em;
+    color: rgba(26,43,66,0.42); position: relative; transition: color 200ms ease;
+  }
+  .lg-tab[aria-selected="true"] { color: var(--lg-brand); font-weight: 500; }
+  .lg-tab::after {
+    content: ""; position: absolute; bottom: -1px; left: 20%; right: 20%;
+    height: 2px; border-radius: 2px; background: var(--lg-brand);
+    box-shadow: 0 0 6px rgba(25,197,154,0.45);
+    transform: scaleX(0); transform-origin: center; transition: transform 200ms ease;
+  }
+  .lg-tab[aria-selected="true"]::after { transform: scaleX(1); }
+
+  .lg-panel { animation: lgPanelIn 210ms ease; }
+  @keyframes lgPanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .lg-submit {
+    width: 100%; height: 50px; border-radius: 11px; border: none; cursor: pointer;
+    color: #FFFFFF; font-size: 15px; font-weight: 500; letter-spacing: 0.01em; font-family: inherit;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    background: linear-gradient(135deg, #0E8F76 0%, #13A98D 50%, #19C59A 100%);
+    transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+  }
+  .lg-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(25,197,154,0.3), 0 4px 10px rgba(25,197,154,0.18); filter: brightness(1.05); }
+  .lg-submit:active:not(:disabled) { transform: scale(0.985) translateY(0); box-shadow: none; }
+  .lg-submit:disabled { cursor: not-allowed; opacity: 0.75; }
+
+  .lg-btn-solid {
+    height: 34px; padding: 0 14px; border-radius: 9px; border: none; cursor: pointer;
+    color: #FFFFFF; font-size: 13px; font-weight: 500; font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: linear-gradient(135deg, #0E8F76 0%, #13A98D 50%, #19C59A 100%);
+    transition: filter 150ms ease, opacity 150ms ease;
+  }
+  .lg-btn-solid:hover:not(:disabled) { filter: brightness(1.05); }
+  .lg-btn-solid:disabled { cursor: not-allowed; opacity: 0.55; }
+  .lg-btn-soft {
+    height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    border: 1px solid rgba(25,197,154,0.3); background: rgba(25,197,154,0.06);
+    color: var(--lg-brand-dim); font-size: 13px; font-weight: 500; font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    transition: background 150ms ease, opacity 150ms ease;
+  }
+  .lg-btn-soft:hover:not(:disabled) { background: rgba(25,197,154,0.12); }
+  .lg-btn-soft:disabled { cursor: not-allowed; opacity: 0.55; }
+
+  .lg-seg {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px;
+    background: rgba(26,43,66,0.04); border-radius: 10px;
+  }
+  .lg-seg-btn {
+    height: 32px; font-size: 13px; font-family: inherit; cursor: pointer;
+    border: none; border-radius: 8px; background: transparent;
+    color: rgba(26,43,66,0.45); font-weight: 500; transition: all 150ms ease;
+  }
+  .lg-seg-btn[aria-pressed="true"] { background: #FFFFFF; color: var(--lg-brand-dim); box-shadow: 0 1px 3px rgba(26,43,66,0.1); }
+
+  .lg-qr-card {
+    position: relative; background: #FFFFFF; border-radius: 14px; padding: 12px;
+    overflow: hidden; box-shadow: 0 2px 16px rgba(26,43,66,0.08);
+    animation: lgQrPulse 3s ease-in-out infinite;
+  }
+  .lg-scanline {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(25,197,154,0.85), transparent);
+    animation: lgScan 2.5s ease-in-out infinite;
+  }
+  .lg-qr-corner { position: absolute; width: 20px; height: 20px; border-color: var(--lg-brand); border-style: solid; }
+  @keyframes lgQrPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(25,197,154,0); } 50% { box-shadow: 0 0 0 8px rgba(25,197,154,0.07); } }
+  @keyframes lgScan { 0% { top: 8%; opacity: 0.8; } 50% { opacity: 0.4; } 100% { top: 88%; opacity: 0.8; } }
+
+  .lg-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--lg-brand); animation: lgBreathe 2.4s ease-in-out infinite; flex-shrink: 0;
+  }
+  @keyframes lgBreathe { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.65); } }
+
+  @keyframes lgFadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes lgFadeInBlur { from { opacity: 0; filter: blur(5px); transform: translateY(8px); } to { opacity: 1; filter: blur(0); transform: translateY(0); } }
+  .lg-anim-0 { animation: lgFadeInUp 0.55s 0.06s both cubic-bezier(0.16,1,0.3,1); }
+  .lg-anim-1 { animation: lgFadeInUp 0.6s 0.14s both cubic-bezier(0.16,1,0.3,1); }
+  .lg-anim-2 { animation: lgFadeInUp 0.6s 0.22s both cubic-bezier(0.16,1,0.3,1); }
+  .lg-anim-3 { animation: lgFadeInUp 0.6s 0.3s both cubic-bezier(0.16,1,0.3,1); }
+  .lg-anim-4 { animation: lgFadeInUp 0.55s 0.38s both cubic-bezier(0.16,1,0.3,1); }
+  .lg-anim-card { animation: lgFadeInBlur 0.7s 0.2s both cubic-bezier(0.16,1,0.3,1); }
+
+  .lg-demo-row {
+    width: 100%; background: none; cursor: pointer; padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    border: none; border-bottom: 1px solid rgba(200,215,235,0.3);
+    font-family: inherit; text-align: left; transition: background 150ms ease;
+  }
+  .lg-demo-row:last-child { border-bottom: none; }
+  .lg-demo-row:hover { background: rgba(25,197,154,0.05); }
+  .lg-copy-btn {
+    background: none; border: none; cursor: pointer; color: rgba(26,43,66,0.3);
+    padding: 2px; display: flex; transition: color 150ms ease;
+  }
+  .lg-copy-btn:hover { color: var(--lg-brand); }
+
+  .login-shell :focus-visible { outline: 2px solid rgba(25,197,154,0.65); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lg-blob, .lg-scanline, .lg-qr-card, .lg-dot,
+    .lg-anim-0, .lg-anim-1, .lg-anim-2, .lg-anim-3, .lg-anim-4, .lg-anim-card, .lg-panel { animation: none !important; }
+  }

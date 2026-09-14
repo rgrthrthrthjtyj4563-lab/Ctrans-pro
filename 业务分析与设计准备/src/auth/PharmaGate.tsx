@@ -9,6 +9,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Ban, Building2, Check, Clock, Info, MapPin, Users, X } from "lucide-react";
 import { BrandMark } from "../components/Brand";
+import { LoginBackdrop } from "./LoginBackdrop";
+import "./loginShell.css";
 import { Modal } from "../components/Modal";
 import type { AuthPrincipal, ServingPharma } from "./authTypes";
 import "./authGates.css";
@@ -70,14 +72,15 @@ export function PharmaGate({
   };
 
   return (
-    <div className="pharma-gate">
+    <div className="pharma-gate login-shell">
+      <LoginBackdrop />
       <div className="auth-gate-stage">
         {mode === "first" ? (
           <div className="auth-gate-brand">
-            <BrandMark size={34} title="药合作系统" />
+            <BrandMark size={36} title="药合作" />
             <div>
-              <div className="auth-gate-brand-name">药合作系统</div>
-              <div className="auth-gate-brand-sub">选择服务药厂</div>
+              <div className="auth-gate-brand-name">药合作</div>
+              <div className="auth-gate-brand-sub">营销协同管理系统</div>
             </div>
           </div>
         ) : (

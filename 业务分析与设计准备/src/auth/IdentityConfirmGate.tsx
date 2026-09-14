@@ -8,6 +8,8 @@
 import { useState } from "react";
 import { Check, Info, Smartphone } from "lucide-react";
 import { BrandMark } from "../components/Brand";
+import { LoginBackdrop } from "./LoginBackdrop";
+import "./loginShell.css";
 import type { AuthSession, LoginIdentityOption } from "./authTypes";
 import "./authGates.css";
 
@@ -75,13 +77,14 @@ export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: Ide
   };
 
   return (
-    <div className="identity-gate">
+    <div className="identity-gate login-shell">
+      <LoginBackdrop />
       <div className="auth-gate-stage">
         <div className="auth-gate-brand">
-          <BrandMark size={34} title="药合作系统" />
+          <BrandMark size={36} title="药合作" />
           <div>
-            <div className="auth-gate-brand-name">药合作系统</div>
-            <div className="auth-gate-brand-sub">登录身份确认</div>
+            <div className="auth-gate-brand-name">药合作</div>
+            <div className="auth-gate-brand-sub">营销协同管理系统</div>
           </div>
         </div>
 
