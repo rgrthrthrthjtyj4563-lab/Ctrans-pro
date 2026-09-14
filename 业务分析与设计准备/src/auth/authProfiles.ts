@@ -56,7 +56,7 @@ export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
   { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "平台运营", orgName: "百益健康科技", scene: "平台侧全量页面；企业微信扫码则以「系统管理员」身份进入" },
   { userId: "u-lihang", account: "lihang", name: "李航", roleName: "药厂销售管理员", orgName: "西北大区", scene: "药厂销售主线；微信开放平台扫码则以定制角色「药厂区域销售经理」进入" },
   { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "药厂合规管理员", orgName: "合规部", scene: "备案审核与服务商准入审核" },
-  { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", scene: "任务承接、绩效与准入资料；企业微信扫码可登录" },
+  { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", scene: "任务承接、绩效与准入资料；企业微信扫码可登录；双企业身份演示（东方恒业服务商管理员 / 百益制药药厂合规）" },
   { userId: "u-liuyang", account: "liuyang", name: "刘洋", roleName: "工作组长", orgName: "工作组一", scene: "工作组分派与初审" },
   { userId: "u-yangming", account: "yangming", name: "杨明", roleName: "服务专员", orgName: "工作组三", scene: "多药厂服务专员：后台登录后选择服务药厂进入对应业务范围（含一家合作暂停）" },
   { userId: "u-huangfeng", account: "huangfeng", name: "黄峰", roleName: "服务专员", orgName: "工作组三", scene: "单药厂服务专员：后台登录后自动收敛为唯一服务药厂" },
@@ -119,6 +119,22 @@ export const QR_IDENTITIES: QrIdentity[] = [
 export function enterpriseNameOfOrg(orgId: string): { id: string; name: string } {
   const root = enterpriseRootOf(PERM_ORGS, orgId)
   return { id: root?.id ?? "org-platform", name: root?.name ?? "百益健康科技" }
+}
+
+const ENTERPRISE_TYPE_LABEL: Record<string, string> = {
+  platform: "平台",
+  pharma: "药厂",
+  provider: "服务提供商",
+}
+
+/** 企业根节点（含类型文案）：登录身份选择器展示「企业类型」用 */
+export function enterpriseOfOrg(orgId: string): { id: string; name: string; type: string } {
+  const root = enterpriseRootOf(PERM_ORGS, orgId)
+  return {
+    id: root?.id ?? "org-platform",
+    name: root?.name ?? "百益健康科技",
+    type: ENTERPRISE_TYPE_LABEL[root?.type ?? "platform"] ?? "平台",
+  }
 }
 
 export function findUserById(userId: string) {

@@ -56,6 +56,20 @@ export interface ServingPharma {
   pausedReason?: string
 }
 
+/** 手机号/账号验证后解析出的一个可登录企业身份（生效授权 → 企业根 + 角色） */
+export interface LoginIdentityOption {
+  assignmentId: string
+  enterpriseId: string
+  enterpriseName: string
+  /** 企业根节点类型文案：平台 / 药厂 / 服务提供商 */
+  enterpriseType: string
+  roleId: string
+  roleName: string
+  scope: ScopeType
+  scopeOrgId: string
+  scopeOrgName: string
+}
+
 export interface AuthSession {
   /** 每次登录唯一；用于在 React 树上强制重建会话 */
   id: string
@@ -63,8 +77,10 @@ export interface AuthSession {
   method: LoginMethod
   qrSource?: QrSource
   loginAt: string
-  /** 三步流第二步（身份确认）是否完成；新登录会话默认 false，确认页就地置 true */
+  /** 三步流第二步（选择所属企业）是否完成；新登录会话默认 false */
   identityConfirmed?: boolean
+  /** 该账号名下可登录的企业身份列表（≥1 时展示选择器；principal 为默认选中项） */
+  identityOptions?: LoginIdentityOption[]
   /** 待选服务药厂：仅服务专员未选择时由网关附带，选择后的换发会话不再携带 */
   pendingPharmas?: ServingPharma[]
 }
@@ -146,6 +162,14 @@ export interface AuthGateway {
   }>
   /** 服务专员名下的服务药厂列表（切换场景使用；登录场景由会话 pendingPharmas 携带） */
   listServingPharmas(userId: string): Promise<ServingPharma[]>
+  /** 三步流第二步：从已解析的企业身份中选定本次登录身份（手机号验证之后，免重新认证） */
+  chooseLoginIdentity(input: {
+    userId: string
+    assignmentId: string
+    /** 透传原登录方式，保持审计与会话口径连续 */
+    method?: LoginMethod
+    qrSource?: QrSource
+  }): Promise<AuthResult>
   /** 免重新认证选择/切换服务药厂：换发新会话，session.id 变化使业务树重建、数据按所选药厂重置 */
   chooseServingPharma(input: {
     userId: string

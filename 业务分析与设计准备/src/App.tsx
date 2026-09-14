@@ -532,11 +532,28 @@ function Root() {
     content = (
       <IdentityConfirmGate
         session={session}
-        onConfirm={() => setSession({ ...session, identityConfirmed: true })}
+        onConfirm={async (assignmentId) => {
+          const result = await authGateway.chooseLoginIdentity({
+            userId: session.principal.userId,
+            assignmentId,
+            method: session.method,
+            qrSource: session.qrSource,
+          })
+          if (result.ok) {
+            setSession(result.session)
+            return true
+          }
+          addToast({ type: "error", title: "身份确认失败", description: result.failure.message })
+          return false
+        }}
         onChangeAccount={() => void signOut()}
       />
     )
-  } else if (session.pendingPharmas && session.pendingPharmas.length > 0) {
+  } else if (
+    session.pendingPharmas &&
+    session.pendingPharmas.length > 0 &&
+    session.principal.roleName === "服务专员"
+  ) {
     content = (
       <PharmaGate
         principal={session.principal}
