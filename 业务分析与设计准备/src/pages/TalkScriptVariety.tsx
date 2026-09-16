@@ -23,7 +23,7 @@ import { MIN_COST, setPendingScriptTask, useAICredit } from '../context/AICredit
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
   navigate: NavigateFn;
 }
 

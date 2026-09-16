@@ -3,8 +3,10 @@
  * 批次 = 服务商 × 品种 × 考核月 × 链型；阶段二/直达按专员一对一在服务专员绩效维度操作
  */
 import { useMemo, useState } from "react"
-import { Download } from "lucide-react"
+import { Download, ShieldOff } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
+import { EmptyState } from "../components/EmptyState"
+import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
 import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
 import { StatusTag, Tag } from "../components/StatusTag"
@@ -21,6 +23,7 @@ import {
   patchBatch,
   patchRecord,
   recordsOfBatch,
+  usePerfSettings,
   usePerfSync,
   useRule,
 } from "../data/performanceData"
@@ -81,6 +84,7 @@ function now() {
 export function PerformanceTeamQuality({ addToast }: Props) {
   usePerfSync()
   const rule = useRule()
+  const settings = usePerfSettings()
   const batches = getBatches()
 
   const [identity, setIdentity] = useState<Identity>("服务商")
@@ -96,8 +100,19 @@ export function PerformanceTeamQuality({ addToast }: Props) {
   const [revokeBlock, setRevokeBlock] = useState<PerfBatch | null>(null)
   const [revokeDirectFor, setRevokeDirectFor] = useState<SpecialistRecord | null>(null)
 
+  // 统一过滤口径（P0-C）：当前服务商 + 当前服务药厂 + 已授权品种；范围失效默认拒绝
+  const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 会话口径过滤后的基础集合（统计卡/筛选下拉/列表同源）
+  const sessionFiltered = useMemo(() => {
+    return batches.filter((b) =>
+      (!isProviderSession || matchesProviderRow({ provider: b.provider, holderPharma: b.holderPharma, variety: b.variety })) &&
+      (!isPharmaSession || matchesPharmaRow(b)),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batches, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow])
+
   const rows = useMemo(() => {
-    return batches.filter((b) => {
+    return sessionFiltered.filter((b) => {
       if (applied.query && !b.batchNo.includes(applied.query)) return false
       if (applied.provider && b.provider !== applied.provider) return false
       if (applied.variety && b.variety !== applied.variety) return false
@@ -107,18 +122,18 @@ export function PerformanceTeamQuality({ addToast }: Props) {
       if (applied.month && b.month !== applied.month) return false
       return true
     })
-  }, [batches, applied])
+  }, [sessionFiltered, applied])
 
   const paged = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const stats = useMemo(() => {
-    const pending = batches.filter((b) => b.status === "未打绩效").length
-    const active = batches.filter((b) => b.status === "已生效").length
-    const revoked = batches.filter((b) => b.status === "已撤销").length
-    return { pending, active, revoked, total: batches.length }
-  }, [batches])
+    const pending = sessionFiltered.filter((b) => b.status === "未打绩效").length
+    const active = sessionFiltered.filter((b) => b.status === "已生效").length
+    const revoked = sessionFiltered.filter((b) => b.status === "已撤销").length
+    return { pending, active, revoked, total: sessionFiltered.length }
+  }, [sessionFiltered])
 
-  const provider = batches[0]?.provider ?? "程秋明发企"
-  const groupOptions = Array.from(new Set(batches.map((b) => b.group).filter(Boolean))) as string[]
+  const provider = sessionFiltered[0]?.provider ?? "服务商"
+  const groupOptions = Array.from(new Set(sessionFiltered.map((b) => b.group).filter(Boolean))) as string[]
 
   function submitStage1(actual: number) {
     if (!stage1For) return
@@ -157,14 +172,18 @@ export function PerformanceTeamQuality({ addToast }: Props) {
     setRevokeBlock(null)
   }
 
+  const providerOptions = Array.from(new Set(sessionFiltered.map((b) => b.provider)))
+  const varietyOptions = Array.from(new Set(sessionFiltered.map((b) => b.variety)))
+  const monthOptions = Array.from(new Set(sessionFiltered.map((b) => b.month))).sort().reverse()
+  const opt = (vals: string[]) => [{ value: "", label: "全部" }, ...vals.map((v) => ({ value: v, label: v }))]
   const filterFields = [
     { id: "query", label: "绩效批次号", type: "text" as const, placeholder: "请输入批次号" },
-    { id: "provider", label: "服务提供方", type: "select" as const, options: [{ value: "", label: "全部" }, { value: provider, label: provider }] },
-    { id: "variety", label: "品种", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "优甲乐 100片装", label: "优甲乐 100片装" }, { value: "百赛松 30mg", label: "百赛松 30mg" }] },
-    { id: "group", label: "被评价方（工作组）", type: "select" as const, options: [{ value: "", label: "全部" }, ...groupOptions.map((g) => ({ value: g, label: g }))] },
+    { id: "provider", label: "服务提供方", type: "select" as const, options: opt(providerOptions) },
+    { id: "variety", label: "品种", type: "select" as const, options: opt(varietyOptions) },
+    { id: "group", label: "被评价方（工作组）", type: "select" as const, options: opt(groupOptions) },
     { id: "chain", label: "流程类型", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "四级链", label: "四级链" }, { value: "三级直达", label: "三级直达" }] },
     { id: "status", label: "状态", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "未打绩效", label: "未打绩效" }, { value: "已生效", label: "已生效" }, { value: "已撤销", label: "已撤销" }] },
-    { id: "month", label: "考核月份", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "2026-08", label: "2026-08" }, { value: "2026-07", label: "2026-07" }] },
+    { id: "month", label: "考核月份", type: "select" as const, options: opt(monthOptions) },
   ]
 
   return (
@@ -180,6 +199,10 @@ export function PerformanceTeamQuality({ addToast }: Props) {
       />
 
       <div style={{ padding: "16px 24px" }}>
+        {denied ? (
+          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+        ) : (
+        <>
         {/* 演示身份条（原型演示控件，非登录角色） */}
         <div
           style={{
@@ -373,6 +396,8 @@ export function PerformanceTeamQuality({ addToast }: Props) {
         <p style={{ fontSize: 12.5, color: "#667085" }}>
           同一月里若同时有四级链和三级直达任务，会分成两个批次、分开打绩效，互不影响。已撤销的批次可重新打绩效。
         </p>
+        </>
+        )}
       </div>
 
       <Stage1FormModal open={!!stage1For} batch={stage1For} onClose={() => setStage1For(null)} onSubmit={submitStage1} />

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { DEMO_VENDOR_ID } from '../data/complianceData';
+import { allTenants, ensureRelationshipFromAccess } from '../data/cooperationModel';
 import type { VendorAccessAttachments, VendorAccessHistory, VendorAccessRecord } from '../types';
 import { usePermission } from './PermissionContext';
 
@@ -82,20 +83,21 @@ const SEED_RECORDS: VendorAccessRecord[] = [
     ],
   },
   {
+    // 远山康达：尚无合作关系 → 药厂审核通过即创建合作关系（准入→合作联动演示）
     id: 'VA-002',
     vendorId: 'VND-002',
-    vendorName: '东方恒业推广有限公司',
-    creditCode: '91440101MA02EFGH34',
-    legalRep: '刘国栋',
-    address: '广州市天河区体育西路 55 号',
-    contactName: '刘国栋',
+    vendorName: '远山康达推广有限公司',
+    creditCode: '91330105MA05QRST9X',
+    legalRep: '远山',
+    address: '杭州市拱墅区祥园路 30 号',
+    contactName: '冯远山',
     contactMobile: '13900002222',
-    businessLicenseFile: '东方恒业-营业执照.pdf',
-    attachments: { contract: '东方恒业-准入服务合同.pdf', qualification: '东方恒业-会议服务资质.pdf' },
+    businessLicenseFile: '远山康达-营业执照.pdf',
+    attachments: { contract: '远山康达-准入服务合同.pdf', qualification: '远山康达-会议服务资质.pdf' },
     status: '待提交',
-    submittedAt: '2026-09-03 15:20',
+    submittedAt: '2026-09-13 15:20',
     history: [
-      { id: 'VH-002', action: '提交', operator: '刘国栋', role: '服务提供商', time: '2026-09-03 15:20' },
+      { id: 'VH-002', action: '提交', operator: '冯远山', role: '服务提供商', time: '2026-09-13 15:20' },
     ],
   },
   {
@@ -119,7 +121,7 @@ const SEED_RECORDS: VendorAccessRecord[] = [
         id: 'VH-004',
         action: '驳回',
         operator: '周敏',
-        role: '药厂合规部门',
+        role: '企业管理员 · 合规部',
         time: '2026-09-01 09:30',
         comment: '营业执照文件模糊无法核验，请重新上传清晰扫描件后再次提交。',
       },
@@ -142,7 +144,7 @@ const SEED_RECORDS: VendorAccessRecord[] = [
     reviewedAt: '2026-08-29 14:10',
     reviewedBy: '周敏',
     history: [
-      { id: 'VH-006', action: '通过', operator: '周敏', role: '药厂合规部门', time: '2026-08-29 14:10' },
+      { id: 'VH-006', action: '通过', operator: '周敏', role: '企业管理员 · 合规部', time: '2026-08-29 14:10' },
       { id: 'VH-005', action: '提交', operator: '郑伟', role: '服务提供商', time: '2026-08-28 10:00' },
     ],
   },
@@ -170,8 +172,12 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
     [records],
   );
 
-  // 操作人取已认证主体；历史条目的角色标签用登录视角（业务链语义）
+  // 操作人取已认证主体；历史条目的角色标签按准入双角色口径映射（服务商侧 / 药厂合规侧）
   const operator = { name: principal.name };
+  const principalRoleLabel: VendorAccessHistory['role'] =
+    principal.realm === 'TENANT' && principal.tenantKind === 'pharma' && principal.activeRoleName.includes('合规')
+      ? '企业管理员 · 合规部'
+      : '服务提供商';
   const isVendorSide = can('vendor-access', 'submit');
   const isReviewer = can('vendor-access', 'approve');
 
@@ -194,13 +200,13 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
         id: nextHistoryId(),
         action,
         operator: operator.name,
-        role: principal.roleName,
+        role: principalRoleLabel,
         time: stamp(),
         comment,
       },
       ...record.history,
     ],
-    [nextHistoryId, operator.name, principal.roleName],
+    [nextHistoryId, operator.name, principalRoleLabel],
   );
 
   /** 同一统一社会信用代码只允许一条有效主体档案 */
@@ -236,14 +242,14 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
           creditCode,
           status: '草稿',
           history: [
-            { id: nextHistoryId(), action: '保存草稿', operator: operator.name, role: principal.roleName, time: now },
+            { id: nextHistoryId(), action: '保存草稿', operator: operator.name, role: principalRoleLabel, time: now },
           ],
         };
         setRecords((prev) => [created, ...prev]);
       }
       return { ok: true };
     },
-    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principal.roleName, pushHistory],
+    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principalRoleLabel, pushHistory],
   );
 
   const submit = useCallback(
@@ -286,14 +292,14 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
           status: '待提交',
           submittedAt: now,
           history: [
-            { id: nextHistoryId(), action: '提交', operator: operator.name, role: principal.roleName, time: now },
+            { id: nextHistoryId(), action: '提交', operator: operator.name, role: principalRoleLabel, time: now },
           ],
         };
         setRecords((prev) => [created, ...prev]);
       }
       return { ok: true };
     },
-    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principal.roleName, pushHistory],
+    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principalRoleLabel, pushHistory],
   );
 
   const approve = useCallback(
@@ -302,6 +308,23 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
       const target = records.find((r) => r.id === recordId);
       if (!target) return { ok: false, error: '记录不存在' };
       if (target.status !== '待提交') return { ok: false, error: '仅待提交状态可审核' };
+      // 准入→合作联动（2026-09-15 拍板）：审核通过必须创建或激活对应合作关系，
+      // 仅修改申请状态不算完成；联动失败则本次审核不生效。
+      const pharmaTenantId =
+        principal.realm === 'TENANT' && principal.tenantKind === 'pharma' ? principal.tenantId : '';
+      if (!pharmaTenantId) return { ok: false, error: '仅药厂侧可执行准入审核（合作关系挂在审核药厂名下）' };
+      const providerTenant = allTenants().find(
+        (t) => t.kind === 'provider' && t.name === target.vendorName,
+      );
+      if (!providerTenant) {
+        return { ok: false, error: `未找到「${target.vendorName}」的服务商租户登记，无法创建合作关系（本地模拟数据缺失）` };
+      }
+      const coop = ensureRelationshipFromAccess({
+        pharmaTenantId,
+        providerTenantId: providerTenant.id,
+        actor: operator.name,
+      });
+      if (!coop.ok) return { ok: false, error: coop.error ?? '创建合作关系失败，审核未生效' };
       const now = stamp();
       setRecords((prev) =>
         prev.map((r) =>
@@ -312,14 +335,20 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
                 reviewedAt: now,
                 reviewedBy: operator.name,
                 rejectionReason: undefined,
-                history: pushHistory(r, '通过'),
+                history: pushHistory(
+                  r,
+                  '通过',
+                  coop.created
+                    ? '准入通过：已创建并生效与药厂的合作关系（本地模拟数据）'
+                    : '准入通过：合作关系已生效（本地模拟数据）',
+                ),
               }
             : r,
         ),
       );
       return { ok: true };
     },
-    [isReviewer, operator.name, pushHistory, records],
+    [isReviewer, operator.name, principal, pushHistory, records],
   );
 
   const reject = useCallback(

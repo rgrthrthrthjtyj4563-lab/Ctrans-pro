@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { Link2, Copy, Unlink, RefreshCw, Download, Upload, Repeat2, Building2, Table2 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { usePermission } from '../context/PermissionContext';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -11,7 +12,7 @@ import type { ToastMessage } from '../components/Toast';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
 }
 
 // ===== 视觉 =====
@@ -213,7 +214,9 @@ type PriceArea = 'basic' | 'meeting' | 'report' | 'region';
 type Filter = 'all' | 'unconfigured' | 'configured';
 
 export function PriceTableConfig({ addToast, currentRole }: Props) {
-  const canEdit = currentRole === '药厂销售部门';
+  // 按角色页面权限判定（不再用旧角色名称字符串）
+  const { can } = usePermission();
+  const canEdit = can('price-config', 'edit');
 
   // 绑定模型
   const [pharmaDefault, setPharmaDefault] = useState(TEMPLATES[0]);

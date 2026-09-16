@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Building2, Briefcase, Users, User, Info } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
+import { usePermission } from "../context/PermissionContext"
 import { ConfirmDialog } from "../components/ConfirmDialog"
 import { Tag } from "../components/StatusTag"
 import { EmptyState } from "../components/EmptyState"
@@ -11,7 +12,7 @@ import type { ToastMessage } from "../components/Toast"
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, "id">) => void
-  currentRole: Role
+  currentRole?: Role
 }
 
 const NODE_ICONS: Record<string, React.ReactNode> = {
@@ -31,7 +32,7 @@ const JUMP_X2 = 3 * (196 + 84) + 98 // 服务专员卡片中心 x
 const JUMP_MID = (JUMP_X1 + JUMP_X2) / 2
 
 /** 职责对比表：当前生效列用主色浅底标记，颜色不做唯一载体（附「当前生效」文字标签） */
-const COMPARE_ROWS: { aspect: string four: string three: string }[] = [
+const COMPARE_ROWS: { aspect: string; four: string; three: string }[] = [
   {
     aspect: "任务拆解方",
     four: "服务提供商拆解到工作组",
@@ -58,7 +59,9 @@ export function ExecutionChainConfig({ addToast, currentRole }: Props) {
   const { chain, updateChain } = useTaskData()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const fourLevel = chainLevelOf(chain) === "四级链"
-  const canEdit = currentRole === "药厂销售部门"
+  // 按角色页面权限判定（不再用旧角色名称字符串）
+  const { can: canPerm } = usePermission()
+  const canEdit = canPerm("execution-chain", "edit")
   const latest = chain.changeRecords[0]
 
   function applyWorkgroup(enabled: boolean) {
@@ -423,7 +426,7 @@ export function ExecutionChainConfig({ addToast, currentRole }: Props) {
                 }}
               >
                 <Info size={14} />{" "}
-                工作组环节已停用：由服务提供商直接分配工作量给服务专员
+                工作组环节已停用：由服务提供商直接分配工作量给服务专员；该链路不经过工作组，不适用工作组组长承接规则
               </span>
             )}
           </div>
@@ -435,7 +438,7 @@ export function ExecutionChainConfig({ addToast, currentRole }: Props) {
                 color: "#98A2B3",
               }}
             >
-              当前角色仅可查看，链路调整由药厂销售管理员操作。
+              当前角色仅可查看，链路调整由拥有执行链路配置编辑权限的企业管理员操作。
             </div>
           )}
         </div>

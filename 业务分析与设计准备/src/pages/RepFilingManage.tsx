@@ -28,7 +28,7 @@ import { Field, inputStyle, nowText, today } from './complianceUi';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
 }
 
 const PAGE_SIZE = 10;

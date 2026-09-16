@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Eye, Edit2, Trash2, Download, CheckCircle, XCircle, AlertCircle, Info, MapPin } from 'lucide-react';
+import { Eye, Edit2, Trash2, Download, CheckCircle, XCircle, AlertCircle, Info, MapPin, ShieldOff } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { StatusTag } from '../components/StatusTag';
@@ -10,6 +10,9 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Timeline } from '../components/Timeline';
 import { EmptyState } from '../components/EmptyState';
 import { visitRecords, providers, workGroups, visitCategories } from '../data/mockData';
+import { usePermission } from '../context/PermissionContext';
+import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { InfoBanner } from './permUi';
 import type { VisitRecord, AuditStatus, Role } from '../types';
 import type { ToastMessage } from '../components/Toast';
 
@@ -21,13 +24,13 @@ const DRAWER_TABS: DrawerTab[] = ['记录详情', '操作历史', '拜访位置'
 
 interface VisitManagementProps {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
 }
 
 const mockTimeline = [
   { id: 'e1', type: '创建' as const, operator: '张伟', role: '服务专员', time: '2026-08-18 09:12', detail: '服务专员新建拜访记录' },
   { id: 'e2', type: '提交' as const, operator: '张伟', role: '服务专员', time: '2026-08-18 17:30', detail: '提交审核' },
-  { id: 'e3', type: '审核驳回' as const, operator: '李强', role: '平台运营', time: '2026-08-19 10:05', comment: '拜访内容描述不详细，请补充学术交流细节。' },
+  { id: 'e3', type: '审核驳回' as const, operator: '李强', role: '服务商管理员', time: '2026-08-19 10:05', comment: '拜访内容描述不详细，请补充学术交流细节。' },
   { id: 'e4', type: '修改' as const, operator: '张伟', role: '服务专员', time: '2026-08-19 14:22', detail: '修改拜访内容描述' },
   { id: 'e5', type: '提交' as const, operator: '张伟', role: '服务专员', time: '2026-08-19 14:25', detail: '重新提交审核' },
 ];
@@ -137,8 +140,17 @@ function VisitLocationMap({ record }: { record: VisitRecord }) {
   );
 }
 
-export function VisitManagement({ addToast, currentRole }: VisitManagementProps) {
-  const isProvider = currentRole === '服务提供商';
+export function VisitManagement({ addToast }: VisitManagementProps) {
+  const { principal, can } = usePermission();
+  // 审核能力按角色页面权限判定（服务商侧审核；不再用旧角色名称字符串）
+  const isProvider = can('hospital-visits', 'approve');
+  // 统一过滤口径（P0-C）：当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；
+  // 范围失效默认拒绝；备案类警告只拦学术拜访动作，不拦登录与查看（§8.2）
+  const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 判别别名（TS narrowing）：服务商会话的备案警告读取
+  const isProviderTenant = principal.realm === 'TENANT' && principal.tenantKind === 'provider';
+  const filingBlocked = isProviderTenant ? Boolean(principal.pharmaWarning) : false;
+  const isAcademicVisit = (r: VisitRecord) => r.visitCategory.includes('学术');
   const [activeTab, setActiveTab] = useState<TabId>('医院拜访');
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -150,14 +162,24 @@ export function VisitManagement({ addToast, currentRole }: VisitManagementProps)
   const [showAuditPanel, setShowAuditPanel] = useState(false);
   const [auditComment, setAuditComment] = useState('');
 
+  // 会话口径过滤后的基础集合（tab 计数与列表同源，不再用未过滤总数）
+  const sessionFiltered = useMemo(() => {
+    if (denied) return [] as VisitRecord[];
+    return visitRecords.filter((r) =>
+      (!isProviderSession || matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })) &&
+      (!isPharmaSession || matchesPharmaRow(r)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+
   const tabCounts: Record<TabId, number> = {
-    '医院拜访': visitRecords.length,
-    '商业拜访': Math.floor(visitRecords.length * 0.6),
-    '药房拜访': Math.floor(visitRecords.length * 0.4),
+    '医院拜访': sessionFiltered.length,
+    '商业拜访': Math.floor(sessionFiltered.length * 0.6),
+    '药房拜访': Math.floor(sessionFiltered.length * 0.4),
   };
 
   const filtered = useMemo(() => {
-    return visitRecords.filter(r => {
+    return sessionFiltered.filter(r => {
       if (filters.provider && !r.provider.includes(filters.provider)) return false;
       if (filters.workGroup && r.workGroup !== filters.workGroup) return false;
       if (filters.category && r.visitCategory !== filters.category) return false;
@@ -171,7 +193,7 @@ export function VisitManagement({ addToast, currentRole }: VisitManagementProps)
       if (filters.auditStatus && r.auditStatus !== filters.auditStatus) return false;
       return true;
     });
-  }, [filters]);
+  }, [sessionFiltered, filters]);
 
   const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -309,6 +331,18 @@ export function VisitManagement({ addToast, currentRole }: VisitManagementProps)
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        {denied ? (
+          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+        ) : (
+        <>
+        {filingBlocked && (
+          <div style={{ marginBottom: 12 }}>
+            <InfoBanner tone="warning">
+              当前服务药厂的备案存在异常（待审/退回/过期/暂停）：可进入药厂并查看数据，
+              但<b>学术拜访类业务动作被阻断</b>（不可发起、提交或审核学术拜访）。下一步：请在「服务人员备案」补正材料或等待审核通过。
+            </InfoBanner>
+          </div>
+        )}
         <FilterBar
           fields={filterFields}
           values={filters}
@@ -464,14 +498,21 @@ export function VisitManagement({ addToast, currentRole }: VisitManagementProps)
                         {isProvider && record.auditStatus === '待审核' && (
                           <IconButton
                             icon={<CheckCircle size={13} />}
-                            title="审核通过"
+                            title={filingBlocked && isAcademicVisit(record) ? '备案异常：学术拜访类动作已阻断' : '审核通过'}
                             aria-label="审核通过"
                             size="sm"
-                            onClick={() => addToast({
-                              type: 'success',
-                              title: '审核通过',
-                              description: `${record.id} 已通过审核，操作已写入操作日志`,
-                            })}
+                            disabled={filingBlocked && isAcademicVisit(record)}
+                            onClick={() => {
+                              if (filingBlocked && isAcademicVisit(record)) {
+                                addToast({ type: 'warning', title: '学术拜访已阻断', description: '当前备案异常（可进入药厂但不可发起/审核学术拜访），请先在「服务人员备案」完成补正。' });
+                                return;
+                              }
+                              addToast({
+                                type: 'success',
+                                title: '审核通过',
+                                description: `${record.id} 已通过审核，操作已写入操作日志`,
+                              });
+                            }}
                           />
                         )}
                         {isProvider && (
@@ -512,6 +553,8 @@ export function VisitManagement({ addToast, currentRole }: VisitManagementProps)
             )}
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* Detail Drawer */}
@@ -531,7 +574,13 @@ export function VisitManagement({ addToast, currentRole }: VisitManagementProps)
                     variant="primary"
                     size="md"
                     icon={<CheckCircle size={14} />}
+                    disabled={filingBlocked && isAcademicVisit(drawerRecord)}
+                    title={filingBlocked && isAcademicVisit(drawerRecord) ? '备案异常：学术拜访类动作已阻断' : undefined}
                     onClick={() => {
+                      if (filingBlocked && isAcademicVisit(drawerRecord)) {
+                        addToast({ type: 'warning', title: '学术拜访已阻断', description: '当前备案异常（可进入药厂但不可发起/审核学术拜访），请先在「服务人员备案」完成补正。' });
+                        return;
+                      }
                       addToast({ type: 'success', title: '审核通过', description: '操作已写入操作日志' });
                       closeDrawer();
                     }}

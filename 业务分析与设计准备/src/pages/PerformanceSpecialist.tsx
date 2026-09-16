@@ -3,7 +3,10 @@
  * 一专员一条记录；行内查看=单专员分项明细；未打绩效可进一对一表单
  */
 import { useMemo, useState } from "react"
+import { ShieldOff } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
+import { EmptyState } from "../components/EmptyState"
+import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
 import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
 import { StatusTag, Tag } from "../components/StatusTag"
@@ -81,8 +84,19 @@ export function PerformanceSpecialist({ addToast }: Props) {
   const [statementFor, setStatementFor] = useState<SpecialistRecord | null>(null)
   const [revokeFor, setRevokeFor] = useState<SpecialistRecord | null>(null)
 
+  // 统一过滤口径（P0-C）：当前服务商 + 当前服务药厂 + 已授权品种；范围失效默认拒绝
+  const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 会话口径过滤后的基础集合（统计卡/筛选下拉/列表同源）
+  const sessionFiltered = useMemo(() => {
+    return records.filter((r) =>
+      (!isProviderSession || matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })) &&
+      (!isPharmaSession || matchesPharmaRow(r)),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow])
+
   const rows = useMemo(() => {
-    return records.filter((r) => {
+    return sessionFiltered.filter((r) => {
       if (applied.provider && r.provider !== applied.provider) return false
       if (applied.group && (r.group ?? "直达") !== applied.group) return false
       if (applied.specialist && r.specialist !== applied.specialist) return false
@@ -92,15 +106,15 @@ export function PerformanceSpecialist({ addToast }: Props) {
       if (applied.month && r.month !== applied.month) return false
       return true
     })
-  }, [records, applied])
+  }, [sessionFiltered, applied])
 
   const paged = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const stats = useMemo(() => {
-    const pending = records.filter((r) => r.status === "未打绩效").length
-    const active = records.filter((r) => r.status === "已生效").length
-    const sum = records.reduce((s, r) => s + (r.actualAmount ?? 0), 0)
-    return { pending, active, sum, count: records.length }
-  }, [records])
+    const pending = sessionFiltered.filter((r) => r.status === "未打绩效").length
+    const active = sessionFiltered.filter((r) => r.status === "已生效").length
+    const sum = sessionFiltered.reduce((s, r) => s + (r.actualAmount ?? 0), 0)
+    return { pending, active, sum, count: sessionFiltered.length }
+  }, [sessionFiltered])
 
   function submit(actual: number, evaluation: SpecialistRecord["evaluation"]) {
     if (!formFor) return
@@ -124,15 +138,22 @@ export function PerformanceSpecialist({ addToast }: Props) {
     setDetailFor(null)
   }
 
-  const specialists = Array.from(new Set(records.map((r) => r.specialist)))
+  const specialists = Array.from(new Set(sessionFiltered.map((r) => r.specialist)))
+  const providerOptions = Array.from(new Set(sessionFiltered.map((r) => r.provider)))
+  const groupOptions = Array.from(new Set(sessionFiltered.map((r) => r.group).filter((g): g is string => Boolean(g))))
+  const varietyOptions = Array.from(new Set(sessionFiltered.map((r) => r.variety)))
+  const monthOptions = Array.from(new Set(sessionFiltered.map((r) => r.month))).sort().reverse()
+  const chainOptions = Array.from(new Set(sessionFiltered.map((r) => r.chain)))
+  const statusOptions = Array.from(new Set(sessionFiltered.map((r) => r.status)))
+  const opt = (vals: string[]) => [{ value: "", label: "全部" }, ...vals.map((v) => ({ value: v, label: v }))]
   const filterFields = [
-    { id: "provider", label: "服务提供商", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "程秋明发企", label: "程秋明发企" }] },
-    { id: "group", label: "工作组", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "程秋明团队", label: "程秋明团队" }, { value: "程秋明二团队", label: "程秋明二团队" }] },
-    { id: "specialist", label: "服务专员", type: "select" as const, options: [{ value: "", label: "全部" }, ...specialists.map((s) => ({ value: s, label: s }))] },
-    { id: "variety", label: "品种", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "优甲乐 100片装", label: "优甲乐 100片装" }] },
-    { id: "chain", label: "流程类型", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "四级链", label: "四级链" }, { value: "三级直达", label: "三级直达" }] },
-    { id: "status", label: "状态", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "未打绩效", label: "未打绩效" }, { value: "已生效", label: "已生效" }, { value: "已撤销", label: "已撤销" }] },
-    { id: "month", label: "考核月份", type: "select" as const, options: [{ value: "", label: "全部" }, { value: "2026-08", label: "2026-08" }, { value: "2026-07", label: "2026-07" }] },
+    { id: "provider", label: "服务提供商", type: "select" as const, options: opt(providerOptions) },
+    { id: "group", label: "工作组", type: "select" as const, options: opt(groupOptions) },
+    { id: "specialist", label: "服务专员", type: "select" as const, options: opt(specialists) },
+    { id: "variety", label: "品种", type: "select" as const, options: opt(varietyOptions) },
+    { id: "chain", label: "流程类型", type: "select" as const, options: opt(chainOptions) },
+    { id: "status", label: "状态", type: "select" as const, options: opt(statusOptions) },
+    { id: "month", label: "考核月份", type: "select" as const, options: opt(monthOptions) },
   ]
 
   return (
@@ -143,6 +164,10 @@ export function PerformanceSpecialist({ addToast }: Props) {
       />
 
       <div style={{ padding: "16px 24px" }}>
+      {denied ? (
+        <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+      ) : (
+        <>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
           {[
             { k: "待处理", v: String(stats.pending), sub: "未打绩效" },
@@ -262,6 +287,8 @@ export function PerformanceSpecialist({ addToast }: Props) {
         <p style={{ fontSize: 12.5, color: "#667085" }}>
           本页聚焦绩效金额本身；支付域（实名/银行卡/渠道/合同/支付状态等）不在本模块呈现。四级链的专员绩效由工作组一对一打出，与工作组自身被评金额互不约束。
         </p>
+        </>
+      )}
       </div>
 
       <SpecialistFormModal

@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "../components/Button";
+import { usePermission } from "../context/PermissionContext";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PageHeader } from "../components/PageHeader";
 import { Tag } from "../components/StatusTag";
@@ -25,7 +26,7 @@ type Mode = "strict" | "standard" | "free";
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, "id">) => void;
-  currentRole: Role;
+  currentRole?: Role;
 }
 
 const MODE: Record<Mode, { label: string; description: string; icon: typeof ShieldCheck; lines: string[]; risk?: boolean }> = {
@@ -96,11 +97,13 @@ export function PharmaConfigSwitch({ addToast, currentRole }: Props) {
   const [photo, setPhoto] = useState(true);
   const [mapDrag, setMapDrag] = useState(false);
   const [track, setTrack] = useState(true);
-  const readOnly = currentRole === "药厂合规部门";
+  // 按角色页面权限判定（无编辑权限即只读；不再用旧角色名称字符串）
+  const { can } = usePermission();
+  const readOnly = !can("business-switch", "edit");
   const changed = mode !== savedMode;
   const setGroup = (key: string) => setOpen((current) => ({ ...current, [key]: !current[key] }));
 
-  const preview = useMemo(() => ({
+  const preview = useMemo<{ duration: string; map: string; evidence: string; track: string; active: string[] }>(() => ({
     strict: { duration: "≥ 20 分钟", map: "不允许", evidence: "拍照、定位、客户反馈", track: "严格校验", active: ["定位/地图", "现场记录", "提交校验"] },
     standard: { duration: "≥ 15 分钟", map: "有限允许", evidence: "拍照、定位", track: "标准校验", active: ["现场记录"] },
     free: { duration: "由规则设定", map: "允许调整", evidence: "定位记录", track: "提示复核", active: [] },
@@ -152,7 +155,7 @@ export function PharmaConfigSwitch({ addToast, currentRole }: Props) {
         {changed && <section style={{ padding: 14, background: "#FEF3E2", border: "1px solid #FDE68A", borderRadius: 8, display: "flex", gap: 9 }}><AlertTriangle size={16} color="#C77A16" style={{ flex: "none", marginTop: 2 }} /><div><strong style={{ color: "#C77A16", fontSize: "var(--fs-13)" }}>变更影响说明</strong><div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, marginTop: 8, fontSize: "var(--fs-12)", color: "#92400E" }}><span>影响药厂：测试药厂企业</span><span>生效：保存后对新建业务生效</span><span>历史记录：保留原规则快照</span></div></div></section>}
       </div>
     </main>
-    <footer style={{ height: 58, flex: "none", borderTop: "1px solid var(--color-border)", background: "#fff", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 -2px 8px rgba(0,0,0,.04)" }}><span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "var(--fs-13)", color: changed ? "#C77A16" : "#667085" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: changed ? "#C77A16" : "#248A5A" }} />{changed ? "当前有未保存变更" : "配置已保存，无待变更项"}</span>{readOnly ? <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF" }}>当前角色仅可查看，配置调整由药厂销售管理员操作。</span> : <div style={{ display: "flex", gap: 8 }}><Button variant="outline" size="md" disabled={!changed} onClick={restore}>恢复上次保存</Button><Button variant="primary" size="md" icon={<Save size={14} />} disabled={!changed} onClick={save}>保存配置</Button></div>}</footer>
+    <footer style={{ height: 58, flex: "none", borderTop: "1px solid var(--color-border)", background: "#fff", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 -2px 8px rgba(0,0,0,.04)" }}><span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "var(--fs-13)", color: changed ? "#C77A16" : "#667085" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: changed ? "#C77A16" : "#248A5A" }} />{changed ? "当前有未保存变更" : "配置已保存，无待变更项"}</span>{readOnly ? <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF" }}>当前角色仅可查看，配置调整由拥有药厂配置开关编辑权限的企业管理员操作。</span> : <div style={{ display: "flex", gap: 8 }}><Button variant="outline" size="md" disabled={!changed} onClick={restore}>恢复上次保存</Button><Button variant="primary" size="md" icon={<Save size={14} />} disabled={!changed} onClick={save}>保存配置</Button></div>}</footer>
     <ConfirmDialog open={confirmOpen} title="确认保存配置" description={`将业务合规模式由“${MODE[savedMode].label}”调整为“${MODE[mode].label}”。`} impact={mode === "free" ? "自由模式会放宽关键校验规则，所有变更将写入操作日志。" : "新规则将影响后续新建业务，历史记录保留原规则快照。"} variant="warning" confirmLabel="确认保存" onConfirm={confirmSave} onCancel={() => setConfirmOpen(false)} />
     {historyOpen && <><div onClick={() => setHistoryOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", zIndex: 90 }} /><aside role="dialog" aria-label="变更记录" style={{ position: "fixed", right: 0, top: 0, bottom: 0, zIndex: 91, width: 480, background: "#fff", boxShadow: "-4px 0 24px rgba(0,0,0,.12)", display: "flex", flexDirection: "column" }}><div style={{ padding: 20, borderBottom: "1px solid var(--color-border)", display: "flex" }}><div><div style={sectionTitle}>变更记录</div><p style={hint}>按时间倒序排列，含关键字段前后值</p></div><button onClick={() => setHistoryOpen(false)} aria-label="关闭变更记录" style={{ marginLeft: "auto", border: 0, background: "none", color: "#9CA3AF", cursor: "pointer" }}><X size={18} /></button></div><div style={{ padding: 20, overflow: "auto" }}>{[["2026-09-08 10:30", "李航", "常规合规", "严格合规", "最短拜访时长：10 分钟 → 20 分钟", "季度合规审查后按要求升级"], ["2026-08-15 14:22", "张峰", "自由模式", "常规合规", "轨迹校验：停用 → 启用", "合规部审批通过"]].map(([time, user, before, after, field, note]) => <div key={time} style={{ borderLeft: "1px solid var(--color-border)", padding: "0 0 20px 18px", position: "relative" }}><span style={{ position: "absolute", left: -5, top: 2, width: 9, height: 9, borderRadius: "50%", background: "var(--color-brand)" }} /><div style={{ ...box, padding: 14 }}><div style={{ display: "flex", justifyContent: "space-between" }}><strong style={{ fontSize: "var(--fs-13)" }}>{user}</strong><span style={{ fontFamily: "var(--font-mono)", color: "#9CA3AF", fontSize: "var(--fs-12)" }}>{time}</span></div><div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}><Tag label={before} /><ChevronRight size={14} color="#9CA3AF" /><Tag label={after} color="brand" /></div><p style={{ ...hint, color: "#374151" }}>{field}</p><p style={hint}>备注：{note}</p><p style={hint}>影响范围：测试药厂企业 · 全部品种</p></div></div>)}</div></aside></>}
   </div>;

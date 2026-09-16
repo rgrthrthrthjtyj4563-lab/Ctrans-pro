@@ -6,6 +6,7 @@ import { Pagination } from '../components/Pagination';
 import { EmptyState } from '../components/EmptyState';
 import { auditLogs } from '../data/mockData';
 import { usePermission } from '../context/PermissionContext';
+import { orgDescendantIds } from '../data/permissions';
 import type { AuditLogEntry } from '../types';
 
 const PAGE_SIZE = 20;
@@ -41,29 +42,52 @@ const BUSINESS_ACTION_COLOR: Record<string, string> = {
 };
 
 export function AuditLog() {
-  const { auditEvents } = usePermission();
+  const { auditEvents, principal, orgs, realm, isPlatform } = usePermission();
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Record<string, string>>({});
 
-  // 权限域审计（用户与组织 / 角色管理 / 角色预览）与业务审计统一呈现
-  const permRows: AuditLogEntry[] = useMemo(() => auditEvents.map(e => ({
-    id: e.id,
-    time: e.time,
-    operator: e.actor,
-    role: e.actorRole,
-    module: e.module,
-    action: e.action,
-    target: e.target,
-    beforeState: e.beforeSummary,
-    afterState: e.afterSummary,
-    ip: e.ip,
-    result: e.result,
-  })), [auditEvents]);
+  // 审计可见范围按权限域收敛（P1）：
+  // - 平台审计日志：平台自身操作 + 跨租户监管记录（全部可见）；
+  // - 企业审计日志：仅当前 tenantId 的记录（按事件归属组织过滤），
+  //   其他租户与平台内部日志一律不可见。
+  const tenantOrgNames = useMemo(() => {
+    if (isPlatform || principal.realm !== 'TENANT') return null;
+    const rootId = principal.tenantId;
+    const ids = new Set(orgDescendantIds(orgs, rootId));
+    return new Set(orgs.filter(o => ids.has(o.id)).map(o => o.name));
+  }, [isPlatform, orgs, principal]);
+
+  const permRows: AuditLogEntry[] = useMemo(() => auditEvents
+    .filter(e => {
+      if (!tenantOrgNames) return true;
+      return tenantOrgNames.has(e.org);
+    })
+    .map(e => ({
+      id: e.id,
+      time: e.time,
+      operator: e.actor,
+      role: e.actorRole,
+      module: e.module,
+      action: e.action,
+      target: e.target,
+      beforeState: e.beforeSummary,
+      afterState: e.afterSummary,
+      reasonCode: e.reason,
+      ip: e.ip,
+      result: e.result,
+    })), [auditEvents, tenantOrgNames]);
+
+  // 业务静态演示日志为药厂租户口径：仅药厂租户的企业审计展示，服务商侧不混入
+  const businessRows = useMemo(
+    () => (!isPlatform && principal.realm === 'TENANT' && principal.tenantKind === 'pharma' ? auditLogs : []),
+    [isPlatform, principal],
+  );
 
   const all = useMemo(
-    () => [...permRows, ...auditLogs].sort((a, b) => (a.time < b.time ? 1 : -1)),
-    [permRows],
+    () => [...permRows, ...businessRows].sort((a, b) => (a.time < b.time ? 1 : -1)),
+    [permRows, businessRows],
   );
+  void realm;
 
   const filtered = useMemo(() => {
     return all.filter(log => {
@@ -163,6 +187,7 @@ export function AuditLog() {
                   {th('功能模块', 120)}
                   {th('操作类型', 90)}
                   {th('操作对象')}
+                  {th('原因码', 150)}
                   {th('操作前状态', 90)}
                   {th('操作后状态', 90)}
                   {th('IP 地址', 120)}
@@ -172,7 +197,7 @@ export function AuditLog() {
               <tbody>
                 {pageData.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: 0 }}>
+                    <td colSpan={10} style={{ padding: 0 }}>
                       <EmptyState title="没有符合条件的操作日志" description="调整筛选条件后重试" />
                     </td>
                   </tr>
@@ -206,6 +231,25 @@ export function AuditLog() {
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.target}>
                         {log.target}
                       </span>
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      {log.reasonCode ? (
+                        <span
+                          title={log.reasonCode}
+                          style={{
+                            fontSize: 'var(--fs-11)',
+                            fontWeight: 600,
+                            color: log.result === '成功' ? '#0D9B7A' : '#C73A3A',
+                            fontFamily: "'JetBrains Mono', monospace",
+                            background: log.result === '成功' ? 'rgba(25,197,154,0.08)' : 'rgba(199,58,58,0.07)',
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {log.reasonCode}
+                        </span>
+                      ) : <span style={{ color: '#D1D5DB' }}>—</span>}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       {log.beforeState ? (

@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ShieldOff } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { Modal } from '../components/Modal';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
+import { usePermission } from '../context/PermissionContext';
+import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { relationshipsOfPharma, tenantNameOf } from '../data/cooperationModel';
 import {
   formatCNY,
   MONTHS_1_12,
@@ -24,7 +27,7 @@ import { TaskDetailModal, type DetailTab } from './TaskExecution';
 import type { BudgetPlan, NavFocus, NavigateFn, Role, SettlementBill, SettlementLine, Task, VarietyProviderAuth } from '../types';
 
 interface Props {
-  currentRole: Role;
+  currentRole?: Role;
   navigate: NavigateFn;
   focus?: NavFocus;
 }
@@ -118,6 +121,10 @@ function StatCard({ label, value, tone, hint }: { label: string; value: string; 
 
 export function BudgetAnalysis({ navigate, focus }: Props) {
   const { tasks, budgetPlans, varieties, auths } = useTaskData();
+  const { principal } = usePermission();
+  // 统一会话口径（P0-E）：服务商 = 当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；
+  // 药厂 = 本厂任务与本厂有生效合作的服务商；范围失效默认拒绝
+  const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
 
   // 绑定模式：从预算计划行进入，整页口径锁定为该预算行（服务商 × 品种集合 × 地区集合 × 年度）
   const boundCtx = focus?.budgetAnalysis ?? null;
@@ -125,6 +132,44 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
     () => (boundCtx ? budgetPlans.find((p) => p.id === boundCtx.budgetPlanId) ?? null : null),
     [boundCtx, budgetPlans],
   );
+
+  // 会话口径的任务判定（与任务执行页同源：服务商四要素 / 药厂本厂）
+  const taskInSessionScope = (t: Task) =>
+    isProviderSession
+      ? matchesProviderRow({ provider: t.provider, holderPharma: t.holderPharma, varieties: t.varieties, regions: t.regions })
+      : isPharmaSession
+        ? matchesPharmaRow(t)
+        : true;
+  // 会话口径的预算行判定：服务商=本企业+当前药厂范围；药厂=本厂有生效合作的服务商
+  const planInSessionScope = (p: BudgetPlan) =>
+    isProviderSession
+      ? Boolean(scope) && matchesProviderRow({ provider: p.provider, holderPharma: scope!.pharmaName, varieties: p.varieties, regions: p.regions })
+      : isPharmaSession
+        ? relationshipsOfPharma(principal.realm === 'TENANT' ? principal.tenantId : '')
+            .filter((r) => r.status === 'active')
+            .some((r) => tenantNameOf(r.providerTenantId) === p.provider)
+        : true;
+  // 会话口径的筛选项：服务提供商下拉只出现会话内可选值
+  const sessionProviders = useMemo(() => {
+    if (isProviderSession && principal.realm === 'TENANT') return [principal.tenantName];
+    if (isPharmaSession && principal.realm === 'TENANT') {
+      return relationshipsOfPharma(principal.tenantId)
+        .filter((r) => r.status === 'active')
+        .map((r) => tenantNameOf(r.providerTenantId));
+    }
+    return providers;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProviderSession, isPharmaSession, principal, matchesProviderRow]);
+  const sessionVarieties = useMemo(() => {
+    if (isProviderSession && scope) {
+      return varieties.filter((v) => v.holder === scope.pharmaName && scope.varietyNames.some((n) => v.genericName === n || v.tradeName === n || v.tradeName.startsWith(n)));
+    }
+    if (isPharmaSession && principal.realm === 'TENANT') {
+      return varieties.filter((v) => v.holder === principal.tenantName);
+    }
+    return varieties;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [varieties, isProviderSession, isPharmaSession, principal, scope]);
 
   const initialFilters: Record<string, string> = boundPlan
     ? { month: String(CURRENT_MONTH) }
@@ -140,15 +185,17 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
   const monthFilter = applied.month ? Number(applied.month) : 0;
 
   const plans = useMemo(() => {
-    if (boundPlan) return [boundPlan];
+    if (boundPlan) return planInSessionScope(boundPlan) ? [boundPlan] : [];
     return budgetPlans.filter((p) => {
+      if (!planInSessionScope(p)) return false;
       if (p.year !== year) return false;
       if (applied.provider && p.provider !== applied.provider) return false;
       if (applied.variety && !p.varieties.includes(applied.variety)) return false;
       if (applied.region && !p.regions.includes(applied.region) && !p.regions.includes(REGION_NATIONWIDE)) return false;
       return true;
     });
-  }, [boundPlan, budgetPlans, applied, year]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boundPlan, budgetPlans, applied, year, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, scope]);
 
   const lineMatchesFilter = (provider: string, variety: string, region: string) => {
     if (applied.provider && provider !== applied.provider) return false;
@@ -161,6 +208,8 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
     const rows: ActualEntry[] = [];
     tasks.forEach((task) => {
       if (task.taskStatus === '已撤销') return;
+      // 会话口径过滤（与任务执行页同源）
+      if (!taskInSessionScope(task)) return;
       task.settlements.forEach((bill) => {
         if (!bill.confirmed || bill.voided) return;
         if (!boundPlan && Number(bill.serviceMonth.slice(0, 4)) !== year) return;
@@ -184,7 +233,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
       });
     });
     return rows;
-  }, [tasks, boundPlan, applied, year]);
+  }, [tasks, boundPlan, applied, year, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
 
   const budgetOf = (m: number) => plans.reduce((s, p) => s + (p.months[m - 1] ?? 0), 0);
   const actualOf = (m: number) => actualEntries.filter((e) => e.month === m).reduce((s, e) => s + e.amount, 0);
@@ -314,6 +363,14 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
         }
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        {denied || (boundPlan && plans.length === 0) ? (
+          <EmptyState
+            icon={ShieldOff}
+            title={denied ? NO_BIZ_SCOPE_TITLE : '该预算行不在当前会话范围内'}
+            description={denied ? noBizScopeDescription(scope?.pharmaName) : '当前会话的业务范围不覆盖该预算行，无法查看其执行分析。'}
+          />
+        ) : (
+        <>
         {boundPlan && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
@@ -331,8 +388,8 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
           ] : [
             { id: 'year', label: '年度', type: 'select', options: [{ value: '2026', label: '2026' }, { value: '2027', label: '2027' }] },
             { id: 'month', label: '月份', type: 'select', options: [{ value: '', label: '全部月份' }, ...MONTH_OPTIONS] },
-            { id: 'provider', label: '服务提供商', type: 'select', options: providers.map((p) => ({ value: p, label: p })) },
-            { id: 'variety', label: '品种', type: 'select', options: varieties.map((v) => ({ value: v.tradeName, label: v.tradeName })) },
+            { id: 'provider', label: '服务提供商', type: 'select', options: sessionProviders.map((p) => ({ value: p, label: p })) },
+            { id: 'variety', label: '品种', type: 'select', options: sessionVarieties.map((v) => ({ value: v.tradeName, label: v.tradeName })) },
             { id: 'region', label: '区域', type: 'select', options: [{ value: '', label: '全部区域' }, ...REGION_OPTIONS] },
           ]}
           values={filters}
@@ -441,6 +498,8 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
         <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', lineHeight: 1.8, marginBottom: 20 }}>
           口径说明：明细粒度 = 服务商 × 品种 × 地区（默认当前月）。月度预算按预算行覆盖的授权「品种×地区」组合整除均摊（余数补到前几个组合，合计 = 服务商当月预算），是展示层分摊值、不是落库数据。已结算实际按确认结算单零分摊归集。差异 = 月度预算 − 已结算实际；预算为 0 显示「无预算」。点击「已结算实际金额」打开结算单列表，点结算单号看整单明细，点关联任务在本页查看任务详情。
         </div>
+        </>
+        )}
       </div>
 
       <Modal
@@ -557,6 +616,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
         onTab={setTaskTab}
         onClose={() => setTaskDetail(null)}
         isSales={false}
+        isProvider={false}
         onReview={() => {}}
         onConfirmBill={() => {}}
       />

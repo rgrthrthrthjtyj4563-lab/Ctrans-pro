@@ -29,8 +29,8 @@ export const BIZ_YEAR = 2026;
 export const SERVICE_TYPES = ['学术推广', '会议组织', '问卷调研', '分析报告'] as const;
 
 export const ACTORS = {
-  sales: { id: 'U-SALES-01', name: '李强', role: '药厂销售部门' },
-  compliance: { id: 'U-COMP-01', name: '周敏', role: '药厂合规部门' },
+  sales: { id: 'U-SALES-01', name: '李强', role: '企业管理员 · 销售部' },
+  compliance: { id: 'U-COMP-01', name: '周敏', role: '企业管理员 · 合规部' },
   vendor: { id: 'U-VND-01', name: '钱薇', role: '服务提供商' },
 } as const;
 

@@ -2351,8 +2351,8 @@ function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
               <Tag label={data.role} color="brand" />
-              {principal.servingPharmaName && (
-                <Tag label={`当前服务药厂：${principal.servingPharmaName}`} color="info" />
+              {principal.realm === 'TENANT' && principal.currentPharmaName && (
+                <Tag label={`当前服务药厂：${principal.currentPharmaName}`} color="info" />
               )}
             </div>
             <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
@@ -2396,10 +2396,12 @@ function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
   );
 }
 
-// ─── 平台管理角色工作台（平台运营/系统管理员/账户管理员） ────────────────────
+// ─── 平台工作台（平台唯一预置角色：平台系统管理员） ────────────────────────
 function PlatformWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
   const { principal, can } = usePermission();
-  const data = useMemo(() => getPlatformWorkbenchData(principal.roleId, principal.roleName), [principal.roleId, principal.roleName]);
+  const platformRoleId = principal.realm === 'PLATFORM' ? principal.platformRoleId : '';
+  const platformRoleName = principal.realm === 'PLATFORM' ? principal.platformRoleName : '';
+  const data = useMemo(() => getPlatformWorkbenchData(platformRoleId, platformRoleName), [platformRoleId, platformRoleName]);
   const layout = useDashboardLayout('platform', PLATFORM_SECTION_IDS, PLATFORM_DEFAULT_HIDDEN, PLATFORM_SIZE_SPECS);
   const [editing, setEditing] = useState(false);
   const exitEdit = useCallback(() => setEditing(false), []);
@@ -2548,7 +2550,7 @@ function PlatformWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
               <Tag label={data.roleLabel} color="brand" />
               <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>
-                {principal.orgName} · 数据范围：{principal.scopeOrgName}
+                药合作平台 · 职责范围：{principal.realm === 'PLATFORM' ? principal.dutyScope : ''}
               </span>
             </div>
             <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>

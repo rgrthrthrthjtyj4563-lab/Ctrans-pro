@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react';
+import { ShieldOff } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
 import { StatusTag } from '../components/StatusTag';
 import { EmptyState } from '../components/EmptyState';
 import { Pagination } from '../components/Pagination';
-import { DEMO_PROVIDER, formatCNY, formatCoverage, useTaskData } from '../context/TaskDataContext';
-import { usePermission } from '../context/PermissionContext';
+import { formatCNY, formatCoverage, useTaskData } from '../context/TaskDataContext';
+import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
 import { providers } from '../data/mockData';
 import type { NavigateFn, Role, SettlementBill, Task } from '../types';
 import type { ToastMessage } from '../components/Toast';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
   navigate: NavigateFn;
 }
 
@@ -30,28 +31,36 @@ interface BillRow {
   bill: SettlementBill;
 }
 
-export function Settlement({ currentRole, navigate }: Props) {
+export function Settlement({ navigate }: Props) {
   const { tasks } = useTaskData();
-  const { principal } = usePermission();
-  const isProvider = currentRole === '服务提供商';
+  // 统一过滤口径：当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；范围失效默认拒绝
+  const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
 
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [applied, setApplied] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
 
+  // 任务级四要素判定（结算单/专员统计同源使用）
+  const taskVisible = (task: Task) =>
+    isProviderSession
+      ? matchesProviderRow({ provider: task.provider, holderPharma: task.holderPharma, varieties: task.varieties, regions: task.regions })
+      : isPharmaSession
+        ? matchesPharmaRow(task)
+        : true;
+
   const allBills = useMemo<BillRow[]>(() => {
     const rows: BillRow[] = [];
+    if (denied) return rows;
     tasks.forEach((task) => {
-      if (isProvider && task.provider !== DEMO_PROVIDER) return;
-      // 服务专员按所选服务药厂过滤（数据范围=本次进入的药厂）
-      if (principal.servingPharmaName && task.holderPharma !== principal.servingPharmaName) return;
+      if (!taskVisible(task)) return;
       task.settlements.forEach((bill) => {
         if (bill.voided) return;
         rows.push({ task, bill });
       });
     });
     return rows.sort((a, b) => (a.bill.madeAt < b.bill.madeAt ? 1 : -1));
-  }, [tasks, isProvider, principal.servingPharmaName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
 
   const rows = useMemo(() => allBills.filter(({ task, bill }) => {
     if (applied.variety && !bill.lines.some((l) => l.variety === applied.variety) && !task.varieties.includes(applied.variety)) return false;
@@ -66,27 +75,29 @@ export function Settlement({ currentRole, navigate }: Props) {
   const confirmedTotal = rows.filter((r) => r.bill.confirmed).reduce((s, r) => s + r.bill.finalAmount, 0);
   const pendingTotal = rows.filter((r) => !r.bill.confirmed).reduce((s, r) => s + r.bill.finalAmount, 0);
 
-  // 服务专员维度统计：由任务执行明细（工作量分配 × 结算单）汇总生成
+  // 服务专员维度统计：由任务执行明细（工作量分配 × 结算单）汇总生成（同一过滤口径）
   const specialistStats = useMemo(() => {
     const map = new Map<string, { specialist: string; workGroup: string; provider: string; settled: number; toSettle: number; tasks: Set<string> }>();
-    tasks.forEach((task) => {
-      if (isProvider && task.provider !== DEMO_PROVIDER) return;
-      if (principal.servingPharmaName && task.holderPharma !== principal.servingPharmaName) return;
-      task.workloadAssigns.forEach((a) => {
-        const key = `${a.specialist}|${a.workGroup}`;
-        const entry = map.get(key) ?? { specialist: a.specialist, workGroup: a.workGroup, provider: task.provider, settled: 0, toSettle: 0, tasks: new Set<string>() };
-        entry.tasks.add(task.taskNo);
-        if (a.settledBillNo) {
-          const bill = task.settlements.find((b) => b.billNo === a.settledBillNo);
-          if (bill?.confirmed) entry.settled += a.amount;
-        } else if (a.progress === '已完成') {
-          entry.toSettle += a.amount;
-        }
-        map.set(key, entry);
+    if (!denied) {
+      tasks.forEach((task) => {
+        if (!taskVisible(task)) return;
+        task.workloadAssigns.forEach((a) => {
+          const key = `${a.specialist}|${a.workGroup}`;
+          const entry = map.get(key) ?? { specialist: a.specialist, workGroup: a.workGroup ?? '—', provider: task.provider, settled: 0, toSettle: 0, tasks: new Set<string>() };
+          entry.tasks.add(task.taskNo);
+          if (a.settledBillNo) {
+            const bill = task.settlements.find((b) => b.billNo === a.settledBillNo);
+            if (bill?.confirmed) entry.settled += a.amount;
+          } else if (a.progress === '已完成') {
+            entry.toSettle += a.amount;
+          }
+          map.set(key, entry);
+        });
       });
-    });
+    }
     return [...map.values()].sort((a, b) => b.settled + b.toSettle - (a.settled + a.toSettle));
-  }, [tasks, isProvider, principal.servingPharmaName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
 
   const monthOptions = useMemo(() => {
     const months = [...new Set(allBills.map((r) => r.bill.serviceMonth))].sort().reverse();
@@ -104,6 +115,11 @@ export function Settlement({ currentRole, navigate }: Props) {
         title="结算明细"
         description="结算数据以任务中已确认的结算单为唯一来源，本页只做统计与下钻；发起、确认、完结等操作请到「任务执行」。"
       />
+      {denied ? (
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+        </div>
+      ) : (
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
           <div style={{ flex: 1, background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: '14px 20px', minWidth: 180 }}>
@@ -199,6 +215,7 @@ export function Settlement({ currentRole, navigate }: Props) {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

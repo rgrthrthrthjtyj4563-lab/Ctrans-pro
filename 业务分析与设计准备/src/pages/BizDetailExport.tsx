@@ -14,9 +14,11 @@ import {
   Receipt,
   RefreshCw,
   ShieldCheck,
+  ShieldOff,
   SlidersHorizontal,
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { usePermission } from '../context/PermissionContext';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
 import { Button, IconButton } from '../components/Button';
@@ -26,30 +28,29 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { Tag } from '../components/StatusTag';
 import { formatCNY } from '../constants';
-import type { Role } from '../types';
+import { useTaskData } from '../context/TaskDataContext';
+import { varietyInScope } from '../data/cooperationModel';
+import { demoBizPairs, visitRecords } from '../data/mockData';
+import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import type { Role, Task } from '../types';
 import type { ToastMessage } from '../components/Toast';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
 }
 
-/* ─── 页面内 mock：报告台账、业务类型、模板与口径选项 ──────────────────────── */
+/* ─── 页面内 mock：报告台账（从真实「服务商×药厂×品种」演示矩阵派生） ──────── */
 
 const PAGE_SIZE = 10;
-
-const PROVIDERS = [
-  '东方恒业推广有限公司',
-  '康泰医药服务有限公司',
-  '博润医学咨询有限责任公司',
-];
-const VARIETIES = ['示例品种 A', '贝立妥注射液', '复方维胺酯缓释片'];
 
 interface ExportReport {
   no: string;
   name: string;
   dz: string;
   provider: string;
+  /** 业务归属药厂（持有人）：列表/筛选随会话过滤 */
+  holderPharma: string;
   variety: string;
   /** 业务记录数（笔） */
   records: number;
@@ -59,72 +60,34 @@ interface ExportReport {
   voucherAmount: number;
 }
 
-const SEED_REPORTS: ExportReport[] = [
-  {
-    no: 'BG-202609-0882',
-    name: '2026年09月业务明细导出报告',
-    dz: 'DZ-202609-0031',
-    provider: PROVIDERS[0],
-    variety: VARIETIES[0],
-    records: 24,
-    createdAt: '2026-09-09 16:45',
-    status: '已归档',
-    declaredAmount: 132000,
-    voucherAmount: 128600,
-  },
-  {
-    no: 'BG-202608-0771',
-    name: '2026年08月全品种业务明细导出报告',
-    dz: 'DZ-202608-0119',
-    provider: PROVIDERS[1],
-    variety: VARIETIES[1],
-    records: 156,
-    createdAt: '2026-08-31 18:20',
-    status: '已归档',
-    declaredAmount: 486000,
-    voucherAmount: 471500,
-  },
-  {
-    no: 'BG-202609-0805',
-    name: '2026年Q3复方维胺酯缓释片明细导出报告',
-    dz: 'DZ-202609-0012',
-    provider: PROVIDERS[0],
-    variety: VARIETIES[2],
-    records: 42,
-    createdAt: '2026-09-07 11:32',
-    status: '已归档',
-    declaredAmount: 205000,
-    voucherAmount: 205000,
-  },
-  {
-    no: 'BG-202609-0866',
-    name: '2026年09月上半月学术研讨明细导出报告',
-    dz: 'DZ-202609-0028',
-    provider: PROVIDERS[2],
-    variety: VARIETIES[0],
-    records: 18,
-    createdAt: '2026-09-09 15:10',
-    status: '已归档',
-    declaredAmount: 96000,
-    voucherAmount: 92400,
-  },
-  {
-    no: 'BG-202609-0879',
-    name: '2026年09月临时合规自查（草稿）',
-    dz: 'DZ-202609-0044',
-    provider: PROVIDERS[0],
-    variety: VARIETIES[0],
-    records: 9,
-    createdAt: '2026-09-09 10:14',
-    status: '草稿',
-    declaredAmount: 32000,
-    voucherAmount: 0,
-  },
+const SEED_PAIRS = [
+  { pair: 0, month: '09', label: '2026年09月业务明细导出报告', records: 24, declared: 132000, voucher: 128600, status: '已归档' as const, dz: 'DZ-202609-0031' },
+  { pair: 1, month: '08', label: '2026年08月全品种业务明细导出报告', records: 156, declared: 486000, voucher: 471500, status: '已归档' as const, dz: 'DZ-202608-0119' },
+  { pair: 3, month: '09', label: '2026年Q3华康品种明细导出报告', records: 42, declared: 205000, voucher: 205000, status: '已归档' as const, dz: 'DZ-202609-0012' },
+  { pair: 4, month: '09', label: '2026年09月上半月学术研讨明细导出报告', records: 18, declared: 96000, voucher: 92400, status: '已归档' as const, dz: 'DZ-202609-0028' },
+  { pair: 6, month: '09', label: '2026年09月临时合规自查（草稿）', records: 9, declared: 32000, voucher: 0, status: '草稿' as const, dz: 'DZ-202609-0044' },
 ];
+
+const SEED_REPORTS: ExportReport[] = SEED_PAIRS.map((s, i) => {
+  const biz = demoBizPairs[s.pair % demoBizPairs.length];
+  return {
+    no: `BG-2026${s.month}-${String(880 + i * 3).padStart(4, '0')}`,
+    name: s.label,
+    dz: s.dz,
+    provider: biz.provider,
+    holderPharma: biz.holderPharma,
+    variety: biz.variety,
+    records: s.records,
+    createdAt: `2026-${s.month}-0${Math.min(9, 2 + i)} ${String(9 + i).padStart(2, '0')}:${String(10 + i * 7).padStart(2, '0')}`,
+    status: s.status,
+    declaredAmount: s.declared,
+    voucherAmount: s.voucher,
+  };
+});
 
 const pad = (n: number, len = 2) => String(n).padStart(len, '0');
 
-/** 补齐到 28 条以撑满 3 页分页（演示数据，时间整体早于种子行以保持种子行在列表顶部） */
+/** 补齐到 28 条以撑满 3 页分页（演示数据按真实组合矩阵轮转，时间早于种子行） */
 function buildReports(): ExportReport[] {
   const rows = [...SEED_REPORTS];
   const base = new Date('2026-09-08T09:00:00').getTime();
@@ -132,15 +95,15 @@ function buildReports(): ExportReport[] {
   for (let i = rows.length; i < 28; i += 1) {
     const at = new Date(base - i * 1.5 * DAY);
     const month = at.getMonth() + 1;
-    const provider = PROVIDERS[i % PROVIDERS.length];
-    const variety = VARIETIES[i % VARIETIES.length];
+    const biz = demoBizPairs[i % demoBizPairs.length];
     const seq = 900 - i * 7;
     rows.push({
       no: `BG-2026${pad(month)}-${pad(seq, 4)}`,
       name: `2026年${pad(month)}月第${i - 4}批业务明细导出报告`,
       dz: `DZ-2026${pad(month)}-${pad(seq - 400, 4)}`,
-      provider,
-      variety,
+      provider: biz.provider,
+      holderPharma: biz.holderPharma,
+      variety: biz.variety,
       records: 12 + ((i * 7) % 90),
       createdAt: `${at.getFullYear()}-${pad(month)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`,
       status: '已归档',
@@ -168,68 +131,89 @@ interface BizType {
   note: string;
 }
 
-const BIZ_TYPES: BizType[] = [
-  {
-    id: 'seminar',
-    name: '学术研讨会服务',
-    count: 8,
-    unit: '场',
-    docs: '8 份会议纪要·课酬回执',
-    amount: 48000,
-    declared: 49200,
-    note: '包含科室研讨会、城市学术论坛、讲座与专家课酬结算凭证。',
-  },
-  {
-    id: 'visit',
-    name: '医生拜访服务',
-    count: 12,
-    unit: '次',
-    docs: '12 份临床打卡与沟通记录',
-    amount: 36000,
-    declared: 36900,
-    note: '包含日常临床拜访打卡记录、学术反馈记录与沟通回执单。',
-  },
-  {
-    id: 'dept',
-    name: '科室推介会',
-    count: 4,
-    unit: '场',
-    docs: '4 份签到表及宣讲记录',
-    amount: 24000,
-    declared: 24600,
-    note: '包含院内科室产品推介、药品宣贯、会议签到及会议纪要。',
-  },
-  {
-    id: 'digital',
-    name: '数字营销传播服务',
-    count: 2,
-    unit: '组',
-    docs: '2 份传播数据截图',
-    amount: 5600,
-    declared: 5750,
-    note: '包含线上学术专题传播、指南图文阅读及数字内容分发统计。',
-  },
-  {
-    id: 'survey',
-    name: '调研问卷服务',
-    count: 60,
-    unit: '份',
-    docs: '26 份问卷反馈及凭单',
-    amount: 9000,
-    declared: 9250,
-    note: '包含临床用药满意度问卷、专家处方习惯调研真实样本汇总。',
-  },
-  {
-    id: 'patient',
-    name: '患者宣教活动',
-    count: 3,
-    unit: '场',
-    docs: '3 份宣教手册派发清单',
-    amount: 6000,
-    declared: 6300,
-    note: '包含慢病患教会场地安排、宣教手册派发及患者参与清单。',
-  },
-];
+/**
+ * 六类业务类型卡片：数量与金额从当前会话的真实明细（拜访记录 + 任务服务项目）
+ * 派生，随「服务商 × 当前药厂 × 品种」筛选联动；申报金额按凭证金额上浮约 2%
+ * 演示「申报 vs 凭证」差异口径。
+ */
+function buildBizTypes(src: {
+  academicVisits: number;
+  academicAmount: number;
+  dailyVisits: number;
+  dailyAmount: number;
+  surveyVisits: number;
+  surveyAmount: number;
+  deptMeetings: number;
+  deptAmount: number;
+  academicPromo: number;
+  promoAmount: number;
+  reportItems: number;
+  reportAmount: number;
+}): BizType[] {
+  const declaredOf = (amount: number) => Math.round((amount * 1.021) / 10) * 10;
+  return [
+    {
+      id: 'seminar',
+      name: '学术拜访服务',
+      count: src.academicVisits,
+      unit: '次',
+      docs: `${src.academicVisits} 份学术拜访打卡与沟通记录`,
+      amount: src.academicAmount,
+      declared: declaredOf(src.academicAmount),
+      note: '包含学术拜访打卡记录、学术反馈记录与沟通回执单（源自拜访明细）。',
+    },
+    {
+      id: 'visit',
+      name: '日常拜访服务',
+      count: src.dailyVisits,
+      unit: '次',
+      docs: `${src.dailyVisits} 份临床打卡与巡访记录`,
+      amount: src.dailyAmount,
+      declared: declaredOf(src.dailyAmount),
+      note: '包含日常临床拜访与跟踪巡访的打卡记录（源自拜访明细）。',
+    },
+    {
+      id: 'dept',
+      name: '科室会议服务',
+      count: src.deptMeetings,
+      unit: '场',
+      docs: `${src.deptMeetings} 份签到表及会议纪要`,
+      amount: src.deptAmount,
+      declared: declaredOf(src.deptAmount),
+      note: '包含院内科室会议的签到、纪要与结算凭证（源自任务服务项目）。',
+    },
+    {
+      id: 'promo',
+      name: '学术推广服务',
+      count: src.academicPromo,
+      unit: '次',
+      docs: `${src.academicPromo} 份推广执行与回执记录`,
+      amount: src.promoAmount,
+      declared: declaredOf(src.promoAmount),
+      note: '包含学术推广执行的证据材料（源自任务服务项目）。',
+    },
+    {
+      id: 'survey',
+      name: '调研问访服务',
+      count: src.surveyVisits,
+      unit: '份',
+      docs: `${src.surveyVisits} 份问卷反馈及凭单`,
+      amount: src.surveyAmount,
+      declared: declaredOf(src.surveyAmount),
+      note: '包含信息收集与调研类问访的真实样本汇总（源自拜访明细）。',
+    },
+    {
+      id: 'report',
+      name: '研究报告服务',
+      count: src.reportItems,
+      unit: '份',
+      docs: `${src.reportItems} 份研究报告交付物`,
+      amount: src.reportAmount,
+      declared: declaredOf(src.reportAmount),
+      note: '包含临床应用/联合用药等研究报告交付物（源自任务服务项目）。',
+    },
+  ];
+}
 
 /* ─── 数字徽章：未统计 / 统计中（转圈） / 数字滚动出数 ──────────────────── */
 
@@ -324,24 +308,22 @@ const TEMPLATES = [
   },
 ];
 
-const WORK_GROUPS = ['华东医学事务一组', '华南临床推广二组', '全部工作组'];
+const WORK_GROUPS = ['全部工作组', '工作组一', '工作组二', '工作组三', '工作组四', '工作组五'];
 const SPECIALISTS = ['全部专员（含专职/兼职）', '李明（华东大区主管）', '张华（学术专员）'];
 const PERF_STATUS = ['已考核', '全部', '待考核'];
 const EXPORT_SCOPES = ['导出全部内容', '仅导出汇总', '仅导出凭证明细清单'];
 
-/** 当前对账单（步骤一顶部信息确认） */
-const CURRENT_BILL = {
-  dz: 'DZ-202609-0031',
-  provider: PROVIDERS[0],
-  variety: VARIETIES[0],
-  period: '2026-09-01 至 2026-09-09',
-  declaredAmount: 132000,
-  voucherAmount: 128600,
-  records: 24,
-  sessions: '8 场',
-};
-
-const REPORT_NO = 'BG-202609-0882';
+/** 当前对账单（步骤一顶部信息确认）：由会话范围内第一张已确认结算单派生（组件内 memo） */
+interface CurrentBill {
+  dz: string;
+  provider: string;
+  holderPharma: string;
+  variety: string;
+  period: string;
+  declaredAmount: number;
+  voucherAmount: number;
+  records: number;
+}
 
 const TH: React.CSSProperties = {
   padding: '10px 12px',
@@ -408,7 +390,12 @@ function timeStamp(): string {
 
 /* ─── 页面 ───────────────────────────────────────────────────────────────── */
 
-export function BizDetailExport({ addToast, currentRole }: Props) {
+export function BizDetailExport({ addToast }: Props) {
+  const { principal } = usePermission();
+  const { tasks } = useTaskData();
+  // 统一会话口径（P0-E）：服务商 = 当前服务商 + 当前服务药厂 + 已授权品种；药厂 = 本厂数据；
+  // 范围失效默认拒绝——列表/详情/草稿/统计/筛选/导出结果全部使用同一过滤结果
+  const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
   const [reports, setReports] = useState<ExportReport[]>(INITIAL_REPORTS);
   const [view, setView] = useState<'list' | 'flow'>('list');
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -418,10 +405,72 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
   const [applied, setApplied] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
 
+  // 会话口径的任务/拜访判定（与任务执行页同源）
+  const taskInSessionScope = (t: Task) =>
+    isProviderSession
+      ? matchesProviderRow({ provider: t.provider, holderPharma: t.holderPharma, varieties: t.varieties, regions: t.regions })
+      : isPharmaSession
+        ? matchesPharmaRow(t)
+        : true;
+  const visitInSessionScope = (v: (typeof visitRecords)[number]) =>
+    isProviderSession
+      ? matchesProviderRow({ provider: v.provider, holderPharma: v.holderPharma, variety: v.variety })
+      : isPharmaSession
+        ? matchesPharmaRow(v)
+        : true;
+
+  // 会话范围内的报告台账（列表 / 详情 / 草稿同源）
+  const sessionReports = useMemo(
+    () =>
+      reports.filter((r) =>
+        isProviderSession
+          ? matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })
+          : isPharmaSession
+            ? matchesPharmaRow(r)
+            : true,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reports, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow],
+  );
+
+  // 当前对账单：会话范围内第一张已确认且未作废的结算单（无则取第一张任意结算单）
+  const currentBill = useMemo<CurrentBill | null>(() => {
+    const bills: { dz: string; provider: string; holderPharma: string; variety: string; period: string; declaredAmount: number; voucherAmount: number; records: number }[] = [];
+    tasks.forEach((t) => {
+      if (!taskInSessionScope(t)) return;
+      t.settlements.forEach((b) => {
+        if (b.voided) return;
+        bills.push({
+          dz: b.billNo,
+          provider: t.provider,
+          holderPharma: t.holderPharma ?? '',
+          variety: b.lines[0]?.variety ?? t.varieties[0] ?? '',
+          period: `${t.startDate} 至 ${t.endDate}`,
+          declaredAmount: b.finalAmount,
+          voucherAmount: b.lines.reduce((s, l) => s + l.actualAmount, 0),
+          records: b.lines.length,
+        });
+      });
+    });
+    bills.sort((a, b) => (a.dz < b.dz ? 1 : -1));
+    return bills.find((b) => b.declaredAmount > 0) ?? bills[0] ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+
+  // 判别别名（TS narrowing）：本企业名
+  const tenantNameOfPrincipal = principal.realm === 'TENANT' ? principal.tenantName : '';
+  const fallbackPair = demoBizPairs.find((p) =>
+    isProviderSession
+      ? p.provider === tenantNameOfPrincipal && (!scope || p.holderPharma === scope.pharmaName)
+      : isPharmaSession && principal.realm === 'TENANT'
+        ? p.holderPharma === tenantNameOfPrincipal
+        : true,
+  ) ?? demoBizPairs[0];
+
   // 三步向导状态
   const [billForm, setBillForm] = useState<Record<string, string>>({
-    provider: CURRENT_BILL.provider,
-    variety: CURRENT_BILL.variety,
+    provider: fallbackPair.provider,
+    variety: fallbackPair.variety,
     workGroup: WORK_GROUPS[0],
     specialist: SPECIALISTS[0],
     perfStatus: PERF_STATUS[0],
@@ -445,27 +494,97 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
   const [drawerCode, setDrawerCode] = useState<string | null>(null);
   const [deleteDraft, setDeleteDraft] = useState<ExportReport | null>(null);
 
-  const roleIntro =
-    currentRole === '药厂合规部门'
-      ? '按对账单与服务方生成业务明细导出报告，用于合规留痕与审计调阅；导出口径以已归档明细为准。'
+  // 文案按当前身份域取值（不再用旧角色名称字符串）；服务商侧按当前服务药厂过滤口径提示
+  const isProviderSide = principal.realm === 'TENANT' && principal.tenantKind === 'provider';
+  const roleIntro = isProviderSide
+    ? `按对账单与服务方生成业务明细导出报告：数据已按当前会话服务药厂（${principal.currentPharmaName ?? '未选择'}）与已授权品种过滤。`
+    : principal.realm === 'TENANT' && principal.tenantKind === 'pharma'
+      ? `按对账单与服务方生成业务明细导出报告：数据已按本厂（${principal.tenantName}）业务范围过滤。`
       : '按对账单与服务方生成业务明细导出报告：筛选统计口径、选择模板、单页预览并导出 A4 报告。';
 
+  // 业务类型卡片：数量与金额从会话内真实明细（拜访 + 任务服务项目）按向导所选口径统计
+  const bizTypes = useMemo<BizType[]>(() => {
+    const varietyScope = billForm.variety ? [billForm.variety] : [];
+    const visitHit = visitRecords.filter(
+      (v) =>
+        visitInSessionScope(v) &&
+        (!billForm.provider || v.provider === billForm.provider) &&
+        (!varietyScope.length || varietyInScope(v.variety, varietyScope)),
+    );
+    const itemHit = tasks
+      .filter(
+        (t) =>
+          taskInSessionScope(t) &&
+          (!billForm.provider || t.provider === billForm.provider) &&
+          (!varietyScope.length || t.varieties.some((v) => varietyInScope(v, varietyScope))),
+      )
+      .flatMap((t) => t.serviceItems.filter((it) => !varietyScope.length || varietyInScope(it.variety, varietyScope)));
+    const byCategory = (cats: string[]) => visitHit.filter((v) => cats.includes(v.visitCategory));
+    const byItemName = (name: string) => itemHit.filter((it) => it.name === name);
+    const reportItems = itemHit.filter((it) => it.category === '分析报告服务');
+    const sumVisit = (rows: typeof visitHit) => rows.reduce((s, v) => s + v.amount, 0);
+    const sumItem = (rows: typeof itemHit) => rows.reduce((s, it) => s + it.amount, 0);
+    return buildBizTypes({
+      academicVisits: byCategory(['学术拜访']).length,
+      academicAmount: sumVisit(byCategory(['学术拜访'])),
+      dailyVisits: byCategory(['日常拜访', '跟踪巡访服务']).length,
+      dailyAmount: sumVisit(byCategory(['日常拜访', '跟踪巡访服务'])),
+      surveyVisits: byCategory(['信息收集和调研']).length,
+      surveyAmount: sumVisit(byCategory(['信息收集和调研'])),
+      deptMeetings: byItemName('科室会议').reduce((s, it) => s + it.qty, 0),
+      deptAmount: sumItem(byItemName('科室会议')),
+      academicPromo: byItemName('学术推广').reduce((s, it) => s + it.qty, 0),
+      promoAmount: sumItem(byItemName('学术推广')),
+      reportItems: reportItems.reduce((s, it) => s + it.qty, 0),
+      reportAmount: sumItem(reportItems),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billForm.provider, billForm.variety, tasks, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+
   const selectedBiz = useMemo(
-    () => BIZ_TYPES.filter((t) => selectedTypes.includes(t.id)),
-    [selectedTypes],
+    () => bizTypes.filter((t) => selectedTypes.includes(t.id)),
+    [bizTypes, selectedTypes],
   );
   const voucherTotal = selectedBiz.reduce((s, t) => s + t.amount, 0);
   const declaredTotal = selectedBiz.reduce((s, t) => s + t.declared, 0);
   const activeTemplate = TEMPLATES.find((t) => t.id === template) ?? TEMPLATES[0];
   // 徽章统计中数量（汇总条 / 参数核对行联动）
   const statLoading = selectedTypes.filter((id) => badgePhase[id] === 'loading').length;
+  // 本会话导出报告编号（成功弹层 / A4 预览同源）
+  const reportNo = currentBill ? `BG-${currentBill.dz.replace(/^DZ-/, '').slice(0, 6)}-${String(1000 + reports.length).slice(1)}` : `BG-202609-${pad(1000 + reports.length, 4)}`;
 
   /* ── 列表 ── */
   const allRows = useMemo(
     () =>
-      reports.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    [reports],
+      sessionReports.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    [sessionReports],
   );
+  // 筛选下拉随会话过滤结果刷新（切换药厂后选项同步变化）
+  const listProviderOptions = useMemo(
+    () => [...new Set(sessionReports.map((r) => r.provider))],
+    [sessionReports],
+  );
+  const listVarietyOptions = useMemo(
+    () => [...new Set(sessionReports.map((r) => r.variety))],
+    [sessionReports],
+  );
+  // 向导口径下拉：服务商=本企业；药厂=本厂有合作的服务商×其授权品种
+  const flowProviderOptions = useMemo(() => {
+    if (isProviderSession) return [tenantNameOfPrincipal].filter(Boolean);
+    if (isPharmaSession) return [...new Set(demoBizPairs.filter((p) => p.holderPharma === tenantNameOfPrincipal).map((p) => p.provider))];
+    return [...new Set(demoBizPairs.map((p) => p.provider))];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProviderSession, isPharmaSession, tenantNameOfPrincipal, scope]);
+  const flowVarietyOptions = useMemo(() => {
+    const pool = demoBizPairs.filter((p) => !billForm.provider || p.provider === billForm.provider);
+    const scoped = isProviderSession
+      ? pool.filter((p) => !scope || p.holderPharma === scope.pharmaName)
+      : isPharmaSession
+        ? pool.filter((p) => p.holderPharma === tenantNameOfPrincipal)
+        : pool;
+    return [...new Set(scoped.map((p) => p.variety))];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billForm.provider, isProviderSession, isPharmaSession, tenantNameOfPrincipal, scope]);
 
   const rows = useMemo(
     () =>
@@ -527,7 +646,7 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
       return;
     }
     selectedTypes.forEach((id, i) => {
-      const idx = BIZ_TYPES.findIndex((t) => t.id === id);
+      const idx = bizTypes.findIndex((t) => t.id === id);
       statType(id, i * 100 + Math.max(0, idx) * 40);
     });
     badgeTimers.current.push(
@@ -549,18 +668,18 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
       setBadgePhase((p) => ({ ...p, [id]: 'idle' }));
     } else {
       setSelectedTypes([...selectedTypes, id]);
-      const idx = BIZ_TYPES.findIndex((t) => t.id === id);
+      const idx = bizTypes.findIndex((t) => t.id === id);
       statType(id, Math.max(0, idx) * 60);
     }
   };
 
   const selectAllTypes = () => {
-    if (selectedTypes.length === BIZ_TYPES.length) {
+    if (selectedTypes.length === bizTypes.length) {
       setSelectedTypes([]);
       setBadgePhase({});
     } else {
-      setSelectedTypes(BIZ_TYPES.map((t) => t.id));
-      BIZ_TYPES.forEach((t, i) => statType(t.id, i * 120));
+      setSelectedTypes(bizTypes.map((t) => t.id));
+      bizTypes.forEach((t, i) => statType(t.id, i * 120));
     }
   };
 
@@ -580,8 +699,9 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
         name: reportName,
         dz,
         provider: billForm.provider,
+        holderPharma: currentBill?.holderPharma ?? (isPharmaSession ? tenantNameOfPrincipal : scope?.pharmaName ?? fallbackPair.holderPharma),
         variety: billForm.variety,
-        records: CURRENT_BILL.records,
+        records: currentBill?.records ?? 0,
         createdAt: timeStamp().slice(0, 16),
         status: '草稿',
         declaredAmount: declaredTotal,
@@ -639,13 +759,13 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
                 id: 'provider',
                 label: '服务提供方',
                 type: 'select',
-                options: PROVIDERS.map((p) => ({ value: p, label: p })),
+                options: listProviderOptions.map((p) => ({ value: p, label: p })),
               },
               {
                 id: 'variety',
                 label: '品种',
                 type: 'select',
-                options: VARIETIES.map((v) => ({ value: v, label: v })),
+                options: listVarietyOptions.map((v) => ({ value: v, label: v })),
               },
               { id: 'dateFrom', label: '创建时间（起）', type: 'date' },
               { id: 'dateTo', label: '创建时间（止）', type: 'date' },
@@ -883,8 +1003,8 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16, rowGap: 12 }}>
             {[
-              { id: 'provider', label: '服务提供方', options: PROVIDERS, required: true },
-              { id: 'variety', label: '品种', options: VARIETIES, required: true },
+              { id: 'provider', label: '服务提供方', options: flowProviderOptions, required: true },
+              { id: 'variety', label: '品种', options: flowVarietyOptions, required: true },
               { id: 'workGroup', label: '工作组', options: WORK_GROUPS },
               { id: 'specialist', label: '服务专员', options: SPECIALISTS },
               { id: 'perfStatus', label: '绩效状态', options: PERF_STATUS },
@@ -973,7 +1093,7 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <input
                 type="checkbox"
-                checked={selectedTypes.length === BIZ_TYPES.length}
+                checked={selectedTypes.length === bizTypes.length}
                 onChange={selectAllTypes}
                 style={{ accentColor: 'var(--color-brand)', width: 15, height: 15 }}
               />
@@ -982,7 +1102,7 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-            {BIZ_TYPES.map((t) => {
+            {bizTypes.map((t) => {
               const on = selectedTypes.includes(t.id);
               return (
                 <label
@@ -1299,6 +1419,8 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
                 biz={selectedBiz}
                 voucherTotal={voucherTotal}
                 declaredTotal={declaredTotal}
+                bill={currentBill}
+                reportNo={reportNo}
               />
             </div>
           </div>
@@ -1418,7 +1540,13 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {view === 'list' ? renderList() : renderFlow()}
+      {denied ? (
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+        </div>
+      ) : (
+        view === 'list' ? renderList() : renderFlow()
+      )}
 
       {/* 导出成功弹窗 */}
       <Modal
@@ -1444,7 +1572,7 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
               onClick={() => {
                 setSuccessOpen(false);
                 backToList();
-                setDrawerCode(CURRENT_BILL.dz);
+                if (currentBill) setDrawerCode(currentBill.dz);
               }}
             >
               查看报告
@@ -1488,7 +1616,7 @@ export function BizDetailExport({ addToast, currentRole }: Props) {
             },
             { label: '页面规格：', value: `A4 单页（${orientation === 'portrait' ? '纵向' : '横向'}）` },
             { label: '生成时间：', value: timeStamp(), mono: true },
-            { label: '报告编号：', value: REPORT_NO, mono: true, strong: true },
+            { label: '报告编号：', value: reportNo, mono: true, strong: true },
           ].map((r) => (
             <div
               key={r.label}
@@ -1739,6 +1867,8 @@ function ReportSheet({
   biz,
   voucherTotal,
   declaredTotal,
+  bill,
+  reportNo,
 }: {
   reportName: string;
   orientation: 'portrait' | 'landscape';
@@ -1747,6 +1877,9 @@ function ReportSheet({
   biz: BizType[];
   voucherTotal: number;
   declaredTotal: number;
+  /** 当前对账单（会话范围派生） */
+  bill: CurrentBill | null;
+  reportNo: string;
 }) {
   const maxWidth = orientation === 'portrait' ? 620 : 830;
   const cellLabel: React.CSSProperties = { display: 'block', fontSize: 'var(--fs-10)', color: '#9CA3AF' };
@@ -1780,7 +1913,7 @@ function ReportSheet({
         <div style={{ textAlign: 'right' }}>
           <span style={{ display: 'block', fontSize: 'var(--fs-10)', color: '#9CA3AF' }}>报告编号</span>
           <span style={{ display: 'block', fontSize: 'var(--fs-12)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-1)' }}>
-            {REPORT_NO}
+            {reportNo}
           </span>
         </div>
       </div>
@@ -1789,19 +1922,19 @@ function ReportSheet({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, background: '#F8FAFB', border: '1px solid var(--color-border)', borderRadius: 4, padding: 12 }}>
         <div>
           <span style={cellLabel}>对账单编号</span>
-          <span style={{ ...cellValue, fontFamily: 'var(--font-mono)' }}>{CURRENT_BILL.dz}</span>
+          <span style={{ ...cellValue, fontFamily: 'var(--font-mono)' }}>{bill?.dz ?? '—'}</span>
         </div>
         <div>
           <span style={cellLabel}>服务提供方</span>
-          <span style={cellValue}>{CURRENT_BILL.provider}</span>
+          <span style={cellValue}>{bill?.provider ?? '—'}</span>
         </div>
         <div>
           <span style={cellLabel}>推广品种</span>
-          <span style={cellValue}>{CURRENT_BILL.variety}</span>
+          <span style={cellValue}>{bill?.variety ?? '—'}</span>
         </div>
         <div>
           <span style={cellLabel}>结算周期</span>
-          <span style={{ ...cellValue, fontFamily: 'var(--font-mono)' }}>{CURRENT_BILL.period}</span>
+          <span style={{ ...cellValue, fontFamily: 'var(--font-mono)' }}>{bill?.period ?? '—'}</span>
         </div>
       </div>
 
@@ -1813,7 +1946,7 @@ function ReportSheet({
             <span style={{ display: 'block', fontSize: 'var(--fs-16)', fontWeight: 700, fontFamily: 'var(--font-mono)', marginTop: 4 }}>
               {formatCNY(declaredTotal)}
             </span>
-            <span style={{ fontSize: 'var(--fs-10)', color: '#9CA3AF' }}>共 {CURRENT_BILL.records} 笔业务明细</span>
+            <span style={{ fontSize: 'var(--fs-10)', color: '#9CA3AF' }}>共 {bill?.records ?? 0} 笔业务明细</span>
           </div>
           <div style={{ background: 'var(--color-brand-subtle)', borderRadius: 4, padding: 12 }}>
             <span style={{ ...cellLabel, color: 'var(--color-brand)', fontWeight: 600 }}>凭证生成金额</span>

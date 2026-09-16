@@ -127,6 +127,8 @@ export interface VisitRecord {
   /** 服务专员用户名，如 zhangwei */
   specialistAccount: string
   provider: string
+  /** 拜访业务归属药厂（持有人）名称；会话按当前服务药厂过滤 */
+  holderPharma: string
   workGroup: string
   hospital: string
   hospitalGrade: HospitalGrade
@@ -187,13 +189,22 @@ export type ServiceCategory = "市场推广服务" | "分析报告服务" | "问
 
 export interface Variety {
   id: string
+  /** 通用名 */
   genericName: string
+  /** 商品名 */
   tradeName: string
+  /** 批准文号 */
   approvalNo: string
+  /**
+   * 适用科室（正式展示名称；历史数据字段「通用科室」仅做兼容映射）。
+   * 2026-09-15 拍板：授权品种详情必须展示。
+   */
+  applicableDept: string
   dosageForm: string
   spec: string
   package: string
   unit: string
+  /** 药品上市许可持有人（MAH） */
   holder: string
   manufacturer: string
   validUntil: string
@@ -525,6 +536,8 @@ export interface Task {
 export interface CreateTaskInput {
   varieties: string[]
   provider: string
+  /** 创建任务的服务委托方（药厂/持有人）名称：一次会话只操作本厂任务 */
+  holderPharma: string
   regions: string[]
   startDate: string
   endDate: string
@@ -556,9 +569,11 @@ export interface CreateAuthInput {
 
 export interface NavFocus {
   taskId?: string
-  budgetAnalysis?: { budgetPlanId: string year: number provider: string }
+  budgetAnalysis?: { budgetPlanId: string; year: number; provider: string }
   /** 跳转「用户与组织」时按角色筛选人员列表（来自角色管理「已授权用户」跳转） */
   userOrgRoleId?: string
+  /** 跳转「业务授权」时预选的服务商（来自合作关系页「查看授权」） */
+  businessAuthProviderTenantId?: string
 }
 
 export type NavigateFn = (page: PageId, focus?: NavFocus) => void
@@ -587,11 +602,21 @@ export interface AuditLogEntry {
   target: string
   beforeState?: string
   afterState?: string
+  /** 标准原因码（登录认证链路：SMS_SENT / ACCOUNT_FROZEN 等；种子数据为中文说明） */
+  reasonCode?: string
   ip: string
   result: "成功" | "失败"
 }
 
-export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "departments" | "audit-log" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center"
+/**
+ * 页面 id（多租户权限架构重构版）：
+ * - 原「用户与组织」（departments）拆分为 组织架构/用户管理/角色与数据范围（+服务商工作组管理）；
+ * - 原「合作药厂与服务范围授权」（provider-pharma-scope）独立模块删除，能力归位到
+ *   「角色与数据范围 · 已授权成员」（员工药厂/品种范围）与「合作关系」（合作台账）；
+ * - 平台工作空间新增 菜单管理 / 合作关系监管 / 平台审计日志（平台唯一预置角色=平台系统管理员）。
+ * 菜单显示统一由 ResourcePage.realms/tenantTypes + 角色 pagePerms 判定，不再按旧视角隐藏。
+ */
+export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "cooperation-supervision" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management"
 
 // ===== 话术管理（品种话术维护 + baiyee-AI 生成场景） =====
 
@@ -662,8 +687,10 @@ export interface MenuItem {
   badge?: number
   /** 种子展示属性（药厂业务开关置灰但保留展示） */
   displayDisabled?: boolean
-  /** 按登录角色隐藏菜单入口（保留页面权限与 URL 访问），仅种子配置 */
-  hideForRoles?: Role[]
+  /**
+   * 菜单显示不再依赖任何旧视角/角色名兼容逻辑：可见性 = 当前身份权限域 +
+   * 页面 resource realms/tenantTypes + 角色 pagePerms 统一判定（App 计算）。
+   */
   updatedAt: string
   updatedBy: string
 }
@@ -855,7 +882,7 @@ export interface WorkbenchAIAnalysis {
   /** 已验证事实与待核实假设分开 */
   cause: string
   suggestion: string
-  actions: { label: string target: PageId }[]
+  actions: { label: string; target: PageId }[]
   /** AI 生成时间；与业务数据截至时间分开 */
   generatedAt: string
 }
@@ -877,7 +904,7 @@ export interface SalesWorkbenchData {
 }
 
 /**
- * 平台管理角色工作台（平台运营 / 系统管理员 / 账户管理员，以及未来平台侧定制角色）。
+ * 平台工作台（平台唯一预置角色=平台系统管理员，以及未来平台侧定制角色）。
  * 登录改造后工作台不再只有药厂/服务商两类视角；平台侧角色需要中性的管理与监控视角。
  */
 export interface PlatformWorkbenchData {
@@ -909,7 +936,7 @@ export interface DashboardRoleData {
   trend: {
     title: string
     subtitle?: string
-    points: { label: string value: number }[]
+    points: { label: string; value: number }[]
     summary: DashboardStatItem[]
   }
   ranking?: {
@@ -1256,7 +1283,8 @@ export interface VendorAccessHistory {
   id: string
   action: "保存草稿" | "提交" | "通过" | "驳回"
   operator: string
-  role: "服务提供商" | "药厂合规部门"
+  /** 展示值（新口径：药厂侧身份统一「企业管理员 · 部门」，部门不是角色） */
+  role: "服务提供商" | "企业管理员 · 合规部" | "药厂合规部门"
   time: string
   comment?: string
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, PencilLine } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { usePermission } from '../context/PermissionContext';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
@@ -10,7 +11,7 @@ import type { ToastMessage } from '../components/Toast';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
 }
 
 const inputStyle: React.CSSProperties = {
@@ -28,6 +29,7 @@ const emptyForm: Omit<Variety, 'id'> = {
   genericName: '',
   tradeName: '',
   approvalNo: '',
+  applicableDept: '',
   dosageForm: '',
   spec: '',
   package: '',
@@ -40,7 +42,9 @@ const emptyForm: Omit<Variety, 'id'> = {
 
 export function VarietyManage({ addToast, currentRole }: Props) {
   const { varieties, createVariety, updateVariety } = useTaskData();
-  const canWrite = currentRole === '药厂销售部门';
+  // 按角色页面权限判定（不再用旧角色名称字符串）
+  const { can } = usePermission();
+  const canWrite = can('varieties', 'edit');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Variety | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -95,19 +99,20 @@ export function VarietyManage({ addToast, currentRole }: Props) {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['通用名', '商品名', '批准文号', '剂型', '规格', '包装', '单位', '持有人', '生产厂家', '有效期', '操作'].map((h) => (
+                {['通用名', '商品名', '批准文号', '适用科室', '剂型', '规格', '包装', '单位', '持有人(MAH)', '生产厂家', '有效期', '操作'].map((h) => (
                   <th key={h} style={th}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {varieties.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState title="暂无品种" description="请先新建品种，再做授权和价目配置。" /></td></tr>
+                <tr><td colSpan={12}><EmptyState title="暂无品种" description="请先新建品种，再做授权和价目配置。" /></td></tr>
               ) : varieties.map((v) => (
                 <tr key={v.id}>
                   <td style={td}>{v.genericName}</td>
                   <td style={td}>{v.tradeName}</td>
                   <td style={td}>{v.approvalNo}</td>
+                  <td style={td}>{v.applicableDept || '—'}</td>
                   <td style={td}>{v.dosageForm}</td>
                   <td style={td}>{v.spec}</td>
                   <td style={td}>{v.package}</td>
@@ -144,6 +149,7 @@ export function VarietyManage({ addToast, currentRole }: Props) {
           <Field label="通用名"><input value={form.genericName} onChange={(e) => set('genericName', e.target.value)} style={inputStyle} /></Field>
           <Field label="商品名"><input value={form.tradeName} onChange={(e) => set('tradeName', e.target.value)} style={inputStyle} /></Field>
           <Field label="批准文号"><input value={form.approvalNo} onChange={(e) => set('approvalNo', e.target.value)} style={inputStyle} /></Field>
+          <Field label="适用科室"><input value={form.applicableDept} onChange={(e) => set('applicableDept', e.target.value)} style={inputStyle} placeholder="例如：心血管内科" /></Field>
           <Field label="剂型"><input value={form.dosageForm} onChange={(e) => set('dosageForm', e.target.value)} style={inputStyle} /></Field>
           <Field label="规格"><input value={form.spec} onChange={(e) => set('spec', e.target.value)} style={inputStyle} /></Field>
           <Field label="包装"><input value={form.package} onChange={(e) => set('package', e.target.value)} style={inputStyle} /></Field>

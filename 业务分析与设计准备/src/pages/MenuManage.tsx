@@ -462,7 +462,6 @@ export function MenuManage({ menuItems, onChange, addToast }: Props) {
           </span>
           <StatusTag status={item.enabled ? '启用' : '已停用'} size="sm" />
           {item.displayDisabled && <Tag label="置灰展示" />}
-          {item.hideForRoles?.length ? <Tag label={`对${item.hideForRoles.join('/')}隐藏`} /> : null}
           <span style={{ display: 'inline-flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
             {isGroup && (
               <IconButton

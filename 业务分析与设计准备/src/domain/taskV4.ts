@@ -142,7 +142,7 @@ export function defaultSettlementPeriods(
 export function validateSettlementPeriods(
   startDate: string,
   endDate: string,
-  periods: { startDate: string endDate: string }[],
+  periods: { startDate: string; endDate: string }[],
 ): string | undefined {
   if (!periods.length) return "请配置覆盖整个推广期的结算周期"
   const sorted = [...periods].sort((a, b) =>
@@ -200,7 +200,7 @@ export function varietyPriceBook(
 export function assertSamePriceBook(
   varieties: Variety[],
   books: PriceBook[],
-): { ok: true book: PriceBook } | { ok: false error: string } {
+): { ok: true; book: PriceBook } | { ok: false; error: string } {
   if (!varieties.length) return { ok: false, error: "请选择品种" }
   const bound = varieties.map((v) => ({ v, book: varietyPriceBook(v, books) }))
   const missing = bound.find((x) => !isPriceBookActive(x.book))
@@ -282,7 +282,7 @@ export function recommendedBudget(params: {
   endDate: string
   categories: ServiceCategory[]
   plans: BudgetPlan[]
-}): { amount: number configured: boolean detail: string } {
+}): { amount: number; configured: boolean; detail: string } {
   const { provider, varieties, regions, startDate, endDate, plans } = params
   const months = monthsCovered(startDate, endDate)
   if (!provider || !varieties.length || !regions.length || !months.length) {
@@ -389,7 +389,7 @@ export function suggestedOf(
   book: PriceBook,
   category: string,
   name: string,
-): { unitPrice: number unit: string } | undefined {
+): { unitPrice: number; unit: string } | undefined {
   const rule = book.rules.find(
     (r) => r.category === category && r.name === name,
   )

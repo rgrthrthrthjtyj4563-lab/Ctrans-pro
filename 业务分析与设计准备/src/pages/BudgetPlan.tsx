@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, PencilLine, BarChart2 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { usePermission } from '../context/PermissionContext';
 import { FilterBar } from '../components/FilterBar';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
@@ -20,7 +21,7 @@ import type { ToastMessage } from '../components/Toast';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
   navigate: NavigateFn;
 }
 
@@ -97,7 +98,9 @@ function ChipSelect({
 
 export function BudgetPlanPage({ addToast, currentRole, navigate }: Props) {
   const { budgetPlans, varieties, tasks, createBudgetPlan, updateBudgetPlan, varietiesOf, regionsOf } = useTaskData();
-  const canWrite = currentRole === '药厂销售部门';
+  // 按角色页面权限判定（不再用旧角色名称字符串）
+  const { can } = usePermission();
+  const canWrite = can('budget-plan', 'edit');
 
   const [filters, setFilters] = useState<Record<string, string>>({ year: '2026' });
   const [applied, setApplied] = useState<Record<string, string>>({ year: '2026' });

@@ -2,17 +2,18 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react"
+import { effectiveProviderAuthRows, subscribeCooperation } from "../data/cooperationModel"
 import {
   DEMO_HOLDER,
   DEMO_PROVIDER,
   filterAuthorizedProviders,
   isPairAuthorized,
   regionsOfProvider,
-  seedAuths,
   seedBudgetPlans,
   seedExecutionChain,
   seedPriceBooks,
@@ -50,7 +51,6 @@ import type {
   BudgetPlan,
   ChainChangeRecord,
   ConfirmSettlementInput,
-  CreateAuthInput,
   CreateBudgetPlanInput,
   CreateSubAuthInput,
   CreateTaskInput,
@@ -215,7 +215,7 @@ export function workloadStageOf(task: Task): WorkloadStage {
 /** 工作量进度：已完成 n / 待审核 m / 未完成 k */
 export function progressCountOf(
   task: Task,
-): { done: number review: number todo: number } {
+): { done: number; review: number; todo: number } {
   return {
     done: task.workloadAssigns.filter((a) => a.progress === "已完成").length,
     review: task.workloadAssigns.filter((a) => a.progress === "待审核").length,
@@ -234,7 +234,7 @@ export function workloadStageLabel(task: Task): string {
 /** 展示层状态映射：数据层手册词 → 主状态 + 辅助状态（V2 设计方案 5.5） */
 export function displayStatusOf(
   task: Task,
-): { main: string aux?: string owner: string } {
+): { main: string; aux?: string; owner: string } {
   if (task.taskStatus === "待确认")
     return { main: "待服务商确认", owner: "服务提供商" }
   if (task.taskStatus === "已撤销") return { main: "已撤销", owner: "—" }
@@ -391,7 +391,7 @@ interface TaskDataContextValue {
   createBudgetPlan: (input: CreateBudgetPlanInput) => MutationResult<BudgetPlan>
   updateBudgetPlan: (
     id: string,
-    patch: { yearAmount?: number months?: number[] },
+    patch: { yearAmount?: number; months?: number[] },
   ) => MutationResult<BudgetPlan>
   createTask: (input: CreateTaskInput, role?: Role) => MutationResult<Task>
   revokeTask: (id: string) => MutationResult<Task>
@@ -460,12 +460,6 @@ interface TaskDataContextValue {
     varietyId: string,
     priceBookId: string,
   ) => MutationResult<Variety>
-  createAuth: (input: CreateAuthInput) => MutationResult<VarietyProviderAuth>
-  updateAuth: (
-    id: string,
-    input: CreateAuthInput,
-  ) => MutationResult<VarietyProviderAuth>
-  deleteAuth: (id: string) => MutationResult
   savePriceItems: (varietyId: string, items: PriceItem[]) => MutationResult
   savePriceRatios: (varietyId: string, ratios: PriceRatio[]) => MutationResult
   saveReportPrices: (varietyId: string, prices: ReportPrice[]) => MutationResult
@@ -490,9 +484,32 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const [varieties, setVarieties] = useState<Variety[]>(() =>
     clone(seedVarieties),
   )
-  const [auths, setAuths] = useState<VarietyProviderAuth[]>(() =>
-    clone(seedAuths),
+  /**
+   * 业务授权（P0-3 统一数据源）：auths 不再维护独立 state，实时派生自
+   * cooperationModel（药厂「业务授权」页的唯一事实源）。药厂撤销授权 /
+   * 暂停合作后，任务创建、预算分析、品种过滤与本页数据同步失效。
+   */
+  const [cooperationVersion, setCooperationVersion] = useState(0)
+  useEffect(
+    () => subscribeCooperation(() => setCooperationVersion((v) => v + 1)),
+    [],
   )
+  const auths = useMemo<VarietyProviderAuth[]>(() => {
+    void cooperationVersion
+    return effectiveProviderAuthRows().flatMap((row) =>
+      row.varietyNames.map((name) => {
+        const variety = varieties.find((v) => v.tradeName.startsWith(name))
+        return {
+          id: `${row.id}:${name}`,
+          provider: row.provider,
+          varietyId: variety?.id ?? name,
+          varietyName: variety?.tradeName ?? name,
+          holder: variety?.holder ?? DEMO_HOLDER,
+          regions: row.regions,
+        }
+      }),
+    )
+  }, [cooperationVersion, varieties])
   const [priceBooks, setPriceBooks] = useState<PriceBook[]>(() =>
     clone(seedPriceBooks),
   )
@@ -786,7 +803,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const updateBudgetPlan = useCallback(
     (
       id: string,
-      patch: { yearAmount?: number months?: number[] },
+      patch: { yearAmount?: number; months?: number[] },
     ): MutationResult<BudgetPlan> => {
       const row = budgetPlans.find((p) => p.id === id)
       if (!row) return { ok: false, error: "预算行不存在" }
@@ -833,7 +850,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       role: Role = "药厂销售部门",
     ): MutationResult<Task> => {
       if (role !== "药厂销售部门")
-        return { ok: false, error: "仅药厂销售部门可以创建任务" }
+        return { ok: false, error: "仅药厂企业管理员可以创建任务" }
       if (!input.provider) return { ok: false, error: "请选择服务提供商" }
       if (!input.varieties?.length) return { ok: false, error: "请选择品种" }
       if (!input.regions?.length) return { ok: false, error: "请选择服务地区" }
@@ -936,6 +953,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         taskName: `${input.varieties.join("、")}_${first?.holder ?? DEMO_HOLDER}`,
         varieties: [...input.varieties],
         provider: input.provider,
+        holderPharma: input.holderPharma,
         regions: [...input.regions],
         startDate: input.startDate,
         endDate: input.endDate,
@@ -1013,7 +1031,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: "李强",
-          role: "药厂销售部门",
+          role: "企业管理员 · 销售部",
           action: "撤销任务",
           detail: "药厂撤销待确认任务",
           beforeState: "待确认",
@@ -1070,7 +1088,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: "李强",
-          role: "药厂销售部门",
+          role: "企业管理员 · 销售部",
           action: "撤回服务商确认",
           detail: "无执行数据，撤回后回到待服务商确认",
           beforeState: "执行中",
@@ -1824,7 +1842,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: "李强",
-          role: "药厂销售部门",
+          role: "企业管理员 · 销售部",
           action: "结算确认",
           detail: `${bill.billNo} 申请 ${formatCNY(appliedAmount)}，确认 ${formatCNY(finalAmount)}，声明 ${opts.declarationVersion}`,
           afterState: "已结算",
@@ -1858,7 +1876,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: "李强",
-          role: "药厂销售部门",
+          role: "企业管理员 · 销售部",
           action: "结算完结",
           detail:
             remain > 0
@@ -1930,7 +1948,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: "李强",
-          role: "药厂销售部门",
+          role: "企业管理员 · 销售部",
           action: "回退发起结算",
           detail: `${bill.billNo} 逻辑作废，任务量与报告解除占用`,
           beforeState: "对账中",
@@ -1987,7 +2005,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: "李强",
-          role: "药厂销售部门",
+          role: "企业管理员 · 销售部",
           action: "回退结算确认",
           detail: `${bill.billNo} 恢复为对账中`,
           beforeState: "已结算",
@@ -2015,7 +2033,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         opsLogs: appendLog(task, {
           time: DEMO_NOW,
           operator: "李强",
-          role: "药厂销售部门",
+          role: "企业管理员 · 销售部",
           action: "回退结算完结",
           detail: "恢复执行中，剩余可结算金额重新计算",
           beforeState: "已结算",
@@ -2101,82 +2119,6 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     },
     [varieties],
   )
-
-  const assertAuthUnique = useCallback(
-    (input: CreateAuthInput, exceptId?: string): string | undefined => {
-      if (!input.provider || !input.varietyId || input.regions.length === 0)
-        return "请填写服务提供方、品种和管理区域"
-      const variety = varieties.find((v) => v.id === input.varietyId)
-      const others = auths.filter(
-        (a) => a.id !== exceptId && a.varietyId === input.varietyId,
-      )
-      for (const region of input.regions) {
-        const hit = others.find((a) => {
-          if (region === "全国" || a.regions.includes("全国"))
-            return a.provider !== input.provider
-          return a.regions.includes(region) && a.provider !== input.provider
-        })
-        if (hit) {
-          return `针对${variety?.tradeName || "该品种"}，区域「${
-            region === "全国" ? "全国" : region
-          }」已授权给${hit.provider}，同一管理区域内仅能对应一家服务提供方`
-        }
-      }
-      return undefined
-    },
-    [auths, varieties],
-  )
-
-  const createAuth = useCallback(
-    (input: CreateAuthInput): MutationResult<VarietyProviderAuth> => {
-      const err = assertAuthUnique(input)
-      if (err) return { ok: false, error: err }
-      const variety = varieties.find((v) => v.id === input.varietyId)!
-      const row: VarietyProviderAuth = {
-        id: nextId(
-          "AUTH",
-          auths.map((a) => a.id),
-        ),
-        provider: input.provider,
-        varietyId: input.varietyId,
-        varietyName: variety.tradeName,
-        holder: variety.holder,
-        regions: [...input.regions],
-      }
-      setAuths((prev) => [row, ...prev])
-      return { ok: true, data: row }
-    },
-    [assertAuthUnique, auths, varieties],
-  )
-
-  const updateAuth = useCallback(
-    (
-      id: string,
-      input: CreateAuthInput,
-    ): MutationResult<VarietyProviderAuth> => {
-      const err = assertAuthUnique(input, id)
-      if (err) return { ok: false, error: err }
-      const row = auths.find((a) => a.id === id)
-      if (!row) return { ok: false, error: "授权记录不存在" }
-      const variety = varieties.find((v) => v.id === input.varietyId)!
-      const next: VarietyProviderAuth = {
-        ...row,
-        provider: input.provider,
-        varietyId: input.varietyId,
-        varietyName: variety.tradeName,
-        holder: variety.holder,
-        regions: [...input.regions],
-      }
-      setAuths((prev) => prev.map((a) => (a.id === id ? next : a)))
-      return { ok: true, data: next }
-    },
-    [assertAuthUnique, auths, varieties],
-  )
-
-  const deleteAuth = useCallback((id: string): MutationResult => {
-    setAuths((prev) => prev.filter((a) => a.id !== id))
-    return { ok: true }
-  }, [])
 
   const savePriceItems = useCallback(
     (varietyId: string, items: PriceItem[]): MutationResult => {
@@ -2349,9 +2291,6 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       createVariety,
       updateVariety,
       bindVarietyPriceBook,
-      createAuth,
-      updateAuth,
-      deleteAuth,
       savePriceItems,
       savePriceRatios,
       saveReportPrices,
@@ -2401,9 +2340,6 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       createVariety,
       updateVariety,
       bindVarietyPriceBook,
-      createAuth,
-      updateAuth,
-      deleteAuth,
       savePriceItems,
       savePriceRatios,
       saveReportPrices,

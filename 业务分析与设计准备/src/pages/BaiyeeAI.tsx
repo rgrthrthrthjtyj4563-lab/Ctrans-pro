@@ -53,7 +53,7 @@ const STEPS: Step[] = [
 ];
 // ===== 品种话术生成：演示剧本常量（AI 建议，人工确认后采纳） =====
 
-interface AiStage { title: string; summary: string; chips: string[]; text: string; warning?: boolean; }
+interface AiStage { title: string; summary: string; chips: string[]; text: string; warning?: boolean; /** 演示动效时长（ms）；缺省按 0 立即进入下一阶段 */ duration?: number; }
 
 const AI_STAGES: AiStage[] = [
   { title: '解析品种合规资产', summary: '说明书、适应症与既有话术库已载入', chips: ['说明书 ✓', '适应症 ✓', '批准文号 ✓', '既有话术 3 条'], text: '读取阿托伐他汀钙片(20mg) 说明书：适应症为高胆固醇血症、混合型血脂异常；校验批准文号 国药准字H20051408 状态有效；载入该品种既有话术 3 条，提取本厂惯用表述风格……' },
@@ -1092,7 +1092,7 @@ function ScriptProcessCard({ params, cost, onComplete }: { params: ScriptParams;
   const [collapsed, setCollapsed] = useState(false);
   const doneRef = useRef(false);
   const mode = AI_MODES.find((m) => m.key === params.mode)!;
-  const totalMs = stages.reduce((s, st) => s + st.duration, 0);
+  const totalMs = stages.reduce((s, st) => s + (st.duration ?? 0), 0);
 
   useEffect(() => {
     const timers: number[] = [];
@@ -1103,12 +1103,12 @@ function ScriptProcessCard({ params, cost, onComplete }: { params: ScriptParams;
         setRevealed(i + 1);
         setExpanded((prev) => (prev.includes(i) ? prev : [...prev, i]));
         if (i === 4 && params.mode !== 'checkup') setSelfCorrect('done');
-      }, t + stage.duration));
+      }, t + (stage.duration ?? 0)));
       if (i === 4 && params.mode !== 'checkup') {
         timers.push(window.setTimeout(() => setSelfCorrect('error'), t + 700));
         timers.push(window.setTimeout(() => setSelfCorrect('correcting'), t + 1600));
       }
-      t += stage.duration;
+      t += stage.duration ?? 0;
     });
     timers.push(window.setTimeout(() => {
       if (!doneRef.current) {
@@ -1323,7 +1323,7 @@ function ScriptResultCard({ msgId, locked, payload, onAdopt, onRegenerate, onTun
       <ReportBlock payload={payload} />
       <div style={S.confirmactions}>
         {locked ? null : (<button type="button" onClick={() => onTune(msgId, params)} style={S.cancel}>微调（5 积分）</button>) }
-        <button type="button" onClick={() => onRegenerate(params)} style={S.cancel}>重新生成</button>
+        <button type="button" onClick={() => onRegenerate(msgId, params)} style={S.cancel}>重新生成</button>
         {locked ? <span style={{ fontSize: 'var(--fs-12)', color: 'var(--color-brand)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Check size={13} /> 已处理</span> : (<button type="button" onClick={() => onAdopt(msgId, payload.items, params)} style={S.confirmbutton}>采纳并入库</button>) }
       </div>
     </div>

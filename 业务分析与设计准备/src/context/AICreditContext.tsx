@@ -10,13 +10,22 @@ import type { AIBilling, PendingScriptTask } from '../types';
  */
 
 /** 生成模式与积分价目（单一事实源，两页共用） */
-export const AI_MODES = [
+/** 生成模式价目（perUnit 仅计件类模式携带） */
+export interface AiModeDef {
+  key: 'single' | 'package' | 'checkup';
+  label: string;
+  cost: number;
+  perUnit?: string;
+  desc: string;
+}
+
+export const AI_MODES: AiModeDef[] = [
   { key: 'single', label: '单条生成', cost: 10, desc: '按品种+场景生成一条话术与配套客户反馈' },
   { key: 'package', label: '品种话术包', cost: 100, desc: '一次生成某类别下 5 条组合话术（开场/学术要点/异议应对/跟进/收尾）' },
   { key: 'checkup', label: '既有话术合规体检', cost: 2, perUnit: '条', desc: '扫描该品种既有话术，逐条输出合规风险与改写建议' },
-] as const;
+];
 
-export type AIModeKey = (typeof AI_MODES)[number]['key'];
+export type AIModeKey = AiModeDef['key'];
 
 /** 微调价目 */
 export const TUNE_COST = 5;
@@ -43,11 +52,22 @@ const SEED_BILLING: AIBilling[] = [
 const SEED_CREDITS = 3860;
 
 /** 充值套餐（演示：对公转账口径，不产生真实订单） */
-export const CREDIT_PACKAGES = [
+/** 充值套餐（popular 标记推荐档） */
+export interface CreditPackageDef {
+  key: 'starter' | 'standard' | 'enterprise';
+  name: string;
+  price: number;
+  priceLabel: string;
+  credits: number;
+  bonus: number;
+  popular?: boolean;
+}
+
+export const CREDIT_PACKAGES: CreditPackageDef[] = [
   { key: 'starter', name: '体验档', price: 500, priceLabel: '￥500', credits: 5000, bonus: 0 },
   { key: 'standard', name: '标准档', price: 2000, priceLabel: '￥2,000', credits: 22000, bonus: 2000, popular: true },
   { key: 'enterprise', name: '企业档', price: 5000, priceLabel: '￥5,000', credits: 60000, bonus: 10000 },
-] as const;
+];
 
 let moduleCredits = SEED_CREDITS;
 let moduleBilling: AIBilling[] | null = null;

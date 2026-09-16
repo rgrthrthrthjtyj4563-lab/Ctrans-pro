@@ -36,7 +36,7 @@ import { Field, inputStyle, tdStyle, thStyle } from './complianceUi';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  currentRole: Role;
+  currentRole?: Role;
   /** main=我的准入资料/审核列表；records=服务商提交记录 */
   view?: 'main' | 'records';
 }
@@ -186,7 +186,7 @@ function VendorMyAccess({
           <EmptyState
             icon={FileText}
             title="完成服务商准入后即可承接合作"
-            description="请提交企业基本资料和营业执照，药厂合规部门审核通过后完成准入。"
+            description="请提交企业基本资料和营业执照，药厂企业管理员审核通过后完成准入。"
             action={{ label: '填写并提交资料', onClick: () => { setForm(emptyVendorAccessInput()); setEditing(true); } }}
           />
         )}
@@ -200,7 +200,7 @@ function VendorMyAccess({
             secondary={(
               <>
                 <Button variant="secondary" onClick={() => runOp(saveDraft, '已保存草稿', '资料仅本企业可见，可继续补充后提交。')}>保存草稿</Button>
-                <Button variant="primary" onClick={() => runOp(submit, '已提交审核', '请等待药厂合规部门审核。')}>提交审核</Button>
+                <Button variant="primary" onClick={() => runOp(submit, '已提交审核', '请等待药厂企业管理员（合规）审核。')}>提交审核</Button>
               </>
             )}
           />
@@ -232,7 +232,7 @@ function VendorMyAccess({
                   }
                 }}>删除草稿</Button>
                 <Button variant="secondary" onClick={() => runOp(saveDraft, '已保存草稿', '资料仅本企业可见，可继续补充后提交。')}>保存草稿</Button>
-                <Button variant="primary" onClick={() => runOp(submit, '已提交审核', '请等待药厂合规部门审核。')}>提交审核</Button>
+                <Button variant="primary" onClick={() => runOp(submit, '已提交审核', '请等待药厂企业管理员（合规）审核。')}>提交审核</Button>
               </>
             )}
           />
@@ -459,7 +459,7 @@ function ReadonlyAccessPanel({ record, onResubmit }: { record: VendorAccessRecor
     <div>
       {status === '待提交' && (
         <StatusBanner tone="info" tag="待提交">
-          <strong>待药厂合规审核</strong>：资料已于 {record.submittedAt} 提交，暂不可修改。下一步由药厂合规部门通过或驳回。
+          <strong>待药厂合规审核</strong>：资料已于 {record.submittedAt} 提交，暂不可修改。下一步由药厂企业管理员（合规）通过或驳回。
         </StatusBanner>
       )}
       {status === '已驳回' && (
@@ -480,7 +480,7 @@ function ReadonlyAccessPanel({ record, onResubmit }: { record: VendorAccessRecor
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, margin: '16px 0' }}>
           <MetricCard compact title="待提交" value={status === '待提交' ? 1 : 0} icon={ClipboardCheck} iconColor="#C77A16" iconBg="#FEF3E2" />
           <MetricCard compact title="已通过" value={status === '已通过' ? 1 : 0} icon={BadgeCheck} iconColor="#248A5A" iconBg="#E6F5ED" />
-          <MetricCard compact title="已驳回" value={status === '已驳回' ? 1 : 0} icon={Ban} iconColor="#C73A3A" iconBg="#FEECEC" />
+          <MetricCard compact title="已驳回" value={record.status === '已驳回' ? 1 : 0} icon={Ban} iconColor="#C73A3A" iconBg="#FEECEC" />
         </div>
       )}
 
@@ -662,11 +662,15 @@ function ComplianceReview({
     if (!approveTarget) return;
     const res = approve(approveTarget.id);
     if (res.ok) {
-      addToast({ type: 'success', title: `已通过「${approveTarget.vendorName}」的准入申请` });
+      addToast({
+        type: 'success',
+        title: `已通过「${approveTarget.vendorName}」的准入申请`,
+        description: '已同步创建并生效对应的药厂—服务商合作关系（本地模拟数据）；可在「合作关系」「合作药厂与业务授权」查看。',
+      });
       setApproveConfirmId(null);
       setDetailId(null);
     } else {
-      addToast({ type: 'error', title: res.error ?? '操作失败' });
+      addToast({ type: 'error', title: '审核未生效', description: res.error });
     }
   }
 

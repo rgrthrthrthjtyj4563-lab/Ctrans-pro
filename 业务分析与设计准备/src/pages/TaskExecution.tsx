@@ -9,6 +9,7 @@ import {
   Download,
   FileText,
   RefreshCw,
+  ShieldOff,
 } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
 import { FilterBar } from "../components/FilterBar"
@@ -19,8 +20,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog"
 import { EmptyState } from "../components/EmptyState"
 import { Pagination } from "../components/Pagination"
 import {
-  DEMO_PROVIDER,
-  DEMO_HOLDER,
   chainLevelOfTask,
   displayStatusOf,
   formatCNY,
@@ -31,6 +30,9 @@ import {
   useTaskData,
 } from "../context/TaskDataContext"
 import { usePermission } from "../context/PermissionContext"
+import { resolveGroupLeader } from "../data/permissions"
+import { membershipsOfTenant } from "../data/cooperationModel"
+import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from "../hooks/useServingBizScope"
 import {
   formatCNYUpper,
   RECON_STATUS_OPTIONS,
@@ -90,7 +92,7 @@ import type { ToastMessage } from "../components/Toast"
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, "id">) => void
-  currentRole: Role
+  currentRole?: Role
   navFocus?: NavFocus
   navigate: NavigateFn
 }
@@ -158,7 +160,22 @@ export function TaskExecution({
   navigate,
 }: Props) {
   const ctx = useTaskData()
-  const { principal } = usePermission()
+  const { principal, orgs, users, assignments, groupLeaders } = usePermission()
+  /**
+   * 组长拦截（2026-09-15 拍板）：无有效组长的工作组（未设置/被停用/调离本组/
+   * 角色被回收）不得接收新的管理任务——下派控件禁用并说明原因。
+   */
+  const blockedWorkGroups = useMemo(() => {
+    if (principal.realm !== "TENANT" || principal.tenantKind !== "provider") return {}
+    const memberships = membershipsOfTenant(principal.tenantId)
+    const out: Record<string, string> = {}
+    for (const g of orgs.filter(o => o.type === "group" && o.parentId === principal.tenantId)) {
+      const res = resolveGroupLeader(g.id, groupLeaders[g.id], { users, assignments, memberships, tenantId: principal.tenantId })
+      if (res.status === "none") out[g.name] = "该工作组尚未配置有效组长，请先在「工作组管理」指定组长"
+      else if (res.status === "invalid") out[g.name] = `组长失效（${res.reason}），请先在「工作组管理」重新指定`
+    }
+    return out
+  }, [principal, orgs, users, assignments, groupLeaders])
   const {
     tasks,
     varieties,
@@ -180,9 +197,11 @@ export function TaskExecution({
     rollbackCompleteSettlement,
   } = ctx
 
-  const isSales = currentRole === "药厂销售部门"
-  const isProvider = currentRole === "服务提供商"
-  const isCompliance = currentRole === "药厂合规部门"
+  // 按钮与数据分支口径（2026-09-15）：按租户类型 + 当前角色页面权限判定，
+  // 不再使用旧角色名称字符串硬编码
+  const { can: canAction } = usePermission()
+  const isProvider = principal.realm === 'TENANT' && principal.tenantKind === 'provider'
+  const isSales = principal.realm === 'TENANT' && principal.tenantKind === 'pharma' && canAction('task-dispatch', 'edit')
 
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [applied, setApplied] = useState<Record<string, string>>({})
@@ -235,15 +254,19 @@ export function TaskExecution({
   const live = (t: Task | null) =>
     t ? (tasks.find((x) => x.id === t.id) ?? t) : null
 
+  // 统一过滤口径（P0-C）：服务商 = 当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域，
+  // 范围失效默认拒绝；药厂会话 = 本厂任务（一次会话只操作一家药厂数据）
+  const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope()
+  const taskInSessionScope = (t: Task) =>
+    isProviderSession
+      ? matchesProviderRow({ provider: t.provider, holderPharma: t.holderPharma, varieties: t.varieties, regions: t.regions })
+      : isPharmaSession
+        ? matchesPharmaRow(t)
+        : true
   const visible = useMemo(() => {
     const list = tasks.filter((t) => {
-      if (isProvider && t.provider !== DEMO_PROVIDER) return false
-      // 服务专员按所选服务药厂过滤（数据范围=本次进入的药厂）
-      if (
-        principal.servingPharmaName &&
-        t.holderPharma !== principal.servingPharmaName
-      )
-        return false
+      // 会话口径：服务商四要素 / 药厂本厂任务（范围失效时恒 false，默认拒绝）
+      if (!taskInSessionScope(t)) return false
       if (applied.taskStatus && t.taskStatus !== applied.taskStatus)
         return false
       if (applied.reconStatus && t.reconStatus !== applied.reconStatus)
@@ -260,7 +283,8 @@ export function TaskExecution({
       ...list.filter((t) => pendingReportCount(t) > 0),
       ...list.filter((t) => pendingReportCount(t) === 0),
     ]
-  }, [tasks, applied, isProvider, principal.servingPharmaName])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, applied, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow])
 
   const pageData = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
@@ -466,6 +490,14 @@ export function TaskExecution({
         }
       />
       <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
+        {denied ? (
+          <EmptyState
+            icon={ShieldOff}
+            title={NO_BIZ_SCOPE_TITLE}
+            description={noBizScopeDescription(scope?.pharmaName)}
+          />
+        ) : (
+        <>
         <FilterBar
           fields={[
             {
@@ -552,7 +584,7 @@ export function TaskExecution({
                   <td colSpan={10}>
                     <EmptyState
                       title="暂无任务"
-                      description="药厂销售部门可创建任务；服务商确认后进入执行。"
+                      description="药厂可创建任务；服务商确认后进入执行。"
                     />
                   </td>
                 </tr>
@@ -570,7 +602,7 @@ export function TaskExecution({
                           : undefined,
                       }}
                     >
-                      <td style={td}>{DEMO_HOLDER}</td>
+                      <td style={td}>{t.holderPharma}</td>
                       <td style={td}>{t.provider}</td>
                       <td style={td}>{formatCoverage(t.varieties)}</td>
                       <td
@@ -653,12 +685,15 @@ export function TaskExecution({
           total={visible.length}
           onChange={setPage}
         />
+        </>
+        )}
       </div>
 
       <CreateTaskModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         addToast={addToast}
+        holderPharma={principal.realm === 'TENANT' && principal.tenantKind === 'pharma' ? principal.tenantName : ''}
       />
 
       <TaskDetailModal
@@ -720,6 +755,11 @@ export function TaskExecution({
             : "group"
         }
         targets={splitTask ? authorizedSubTargets(splitTask) : []}
+        blockedTargets={
+          splitTask && chainLevelOfTask(splitTask) !== "三级链"
+            ? blockedWorkGroups
+            : undefined
+        }
         addToast={addToast}
         onClose={() => setSplitTask(null)}
         onSave={(splits) => {
@@ -1152,10 +1192,13 @@ function CreateTaskModal({
   open,
   onClose,
   addToast,
+  holderPharma,
 }: {
   open: boolean
   onClose: () => void
   addToast: (msg: Omit<ToastMessage, "id">) => void
+  /** 创建任务的服务委托方（本厂）名称；任务随会话按本厂隔离 */
+  holderPharma: string
 }) {
   const {
     varieties,
@@ -1611,6 +1654,7 @@ function CreateTaskModal({
     const result = createTask({
       varieties: pickedVarieties,
       provider,
+      holderPharma,
       regions: pickedRegions,
       startDate,
       endDate,
@@ -2201,7 +2245,7 @@ function TaskDetailsEditor({
   priceBookName: string
   recommendedAmount?: number
   totalAmount: number
-  sectionAmounts: { promo: number analysis: number }
+  sectionAmounts: { promo: number; analysis: number }
   rows: DraftItem[]
   onTotalChange: (value: number) => void
   onSectionChange: (section: "promo" | "analysis", value: number) => void
@@ -2401,7 +2445,7 @@ function ItemEditorTable({
   rows: DraftItem[]
   filterVariety: string
   filterRegion: string
-  groups: { title: string rows: PriceRow[] }[]
+  groups: { title: string; rows: PriceRow[] }[]
   onPatch: (
     idx: number,
     part: Partial<DraftItem>,
@@ -2551,7 +2595,7 @@ function ItemEditorTable({
 function stepStateOf(
   task: Task,
 ): {
-  steps: { label: string owner: string status: "done" | "current" | "todo" }[]
+  steps: { label: string; owner: string; status: "done" | "current" | "todo" }[]
   currentLabel: string
 } {
   const promo = hasPromoItems(task)
@@ -3142,7 +3186,7 @@ function TaskDetailV5({
     settled: !!report.settledBillNo,
     raw: report,
   }))
-  const tabs: { id: DetailTab label: string badge?: number }[] = [
+  const tabs: { id: DetailTab; label: string; badge?: number }[] = [
     { id: "plan", label: "任务计划" },
     { id: "exec", label: "任务拆解" },
     {
@@ -3218,7 +3262,7 @@ function TaskDetailV5({
   const threeLevel = chainLevelOfTask(task) === "三级链"
   // 三级链：任务量直挂专员（无工作组层），拆解页签按专员聚合
   const specialistGroups = task.workloadAssigns
-    .reduce<{ specialist: string amount: number rows: WorkloadAssign[] }[]>(
+    .reduce<{ specialist: string; amount: number; rows: WorkloadAssign[] }[]>(
       (acc, a) => {
         const g = acc.find((x) => x.specialist === a.specialist)
         if (g) {
@@ -3705,7 +3749,7 @@ function TaskDetailV5({
             (threeLevel ? (
               <Section
                 title="任务分配"
-                subtitle="三级链任务：工作量由服务提供商直接分配给服务专员（不经工作组）"
+                subtitle="三级链任务：工作量由服务提供商直接分配给服务专员（不经工作组，不适用工作组组长承接规则）"
               >
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
@@ -4732,7 +4776,7 @@ function SettlementReceipt({
             ["服务品种", task.varieties.join("、")],
             ["推广时段", `${task.startDate} ~ ${task.endDate}`],
             ["制单日", bill.createdAt],
-            ["服务委托方", DEMO_HOLDER],
+            ["服务委托方", task.holderPharma],
             ["服务提供方", task.provider],
           ].map(([label, value]) => (
             <div
@@ -5070,15 +5114,18 @@ function SplitModal({
   task,
   mode = "group",
   targets,
+  blockedTargets,
   onClose,
   onSave,
   addToast,
   /** group = 四级链按工作组拆分；specialist = 三级链直接分配服务专员 */
-  /** 拆包强约束：仅列出的已授权对象可选 */
+  /** 拆包强约束：仅列出的已授权对象可选；blockedTargets = 组长无效的工作组（禁选） */
 }: {
   task: Task | null
   mode?: "group" | "specialist"
   targets: string[]
+  /** 目标名 → 禁止下派原因（工作组无有效组长时不得接收新的管理任务） */
+  blockedTargets?: Record<string, string>
   onClose: () => void
   onSave: (rows: Omit<WorkgroupSplit, "id">[]) => void
   addToast: (msg: Omit<ToastMessage, "id">) => void
@@ -5271,7 +5318,7 @@ function SplitModal({
         const planSum = caps.reduce((s, x) => s + x.it.amount, 0)
         const qty: Record<string, number> = {}
         let rest = target
-        const fracs: { id: string frac: number cap: number price: number }[] =
+        const fracs: { id: string; frac: number; cap: number; price: number }[] =
           []
         caps.forEach(({ it, cap }) => {
           const share =
@@ -5317,7 +5364,7 @@ function SplitModal({
       Object.entries(g.qty)
         .map(([id, q]) => ({ plan: planOf(id), qty: Number(q) || 0 }))
         .filter(
-          (x): x is { plan: ServiceItem qty: number } => !!x.plan && x.qty > 0,
+          (x): x is { plan: ServiceItem; qty: number } => !!x.plan && x.qty > 0,
         )
         .map((x) => ({
           workGroup: g.workGroup,
@@ -5412,6 +5459,17 @@ function SplitModal({
                     type: "error",
                     title: `存在未分配的${targetWord}`,
                     description: `请为「${unassigned.join("、")}」分配业务次数，或取消勾选`,
+                  })
+                  return
+                }
+                const blockedSelected = groups
+                  .map((x) => x.workGroup)
+                  .filter((name) => blockedTargets?.[name])
+                if (blockedSelected.length > 0) {
+                  addToast({
+                    type: "error",
+                    title: "存在未配置有效组长的工作组",
+                    description: `「${blockedSelected.join("、")}」尚未配置有效组长，不能下派新的管理任务；请先在「工作组管理」指定组长`,
                   })
                   return
                 }
@@ -5572,6 +5630,8 @@ function SplitModal({
               const amt = g ? groupAmount(g) : 0
               const isEmpty = on && amt <= 0
               const isActive = activeGroup?.workGroup === wg
+              const blockedReason = blockedTargets?.[wg]
+              const blocked = Boolean(blockedReason)
               return (
                 <div
                   key={wg}
@@ -5582,15 +5642,19 @@ function SplitModal({
                     gap: 8,
                     padding: "9px 12px",
                     cursor: on ? "pointer" : "default",
+                    opacity: blocked ? 0.7 : 1,
                     background: isActive
                       ? "var(--color-brand-subtle)"
                       : undefined,
                     borderBottom: "1px solid #F3F4F6",
                   }}
+                  title={blockedReason}
                 >
                   <input
                     type="checkbox"
                     checked={on}
+                    disabled={blocked}
+                    aria-label={blocked ? `${wg}（${blockedReason}）` : wg}
                     onClick={(e) => e.stopPropagation()}
                     onChange={() => toggleGroup(wg)}
                     style={{ flexShrink: 0 }}
@@ -5600,19 +5664,30 @@ function SplitModal({
                       style={{
                         fontSize: "var(--fs-13)",
                         fontWeight: isActive ? 650 : 500,
-                        color: isEmpty ? "#C73A3A" : "var(--color-text-1)",
+                        color: blocked
+                          ? "#C77A16"
+                          : isEmpty
+                            ? "#C73A3A"
+                            : "var(--color-text-1)",
                       }}
                     >
                       {wg}
                     </div>
                     <div style={{ fontSize: "var(--fs-11)", color: "#98A2B3" }}>
-                      {isSpecialist
-                        ? "服务专员"
-                        : `${workGroupMembers[wg] ?? 0} 位专员`}
-                      {on ? ` · ${formatCNY(amt)}` : ""}
+                      {blocked ? (
+                        blockedReason
+                      ) : (
+                        <>
+                          {isSpecialist
+                            ? "服务专员"
+                            : `${workGroupMembers[wg] ?? 0} 位专员`}
+                          {on ? ` · ${formatCNY(amt)}` : ""}
+                        </>
+                      )}
                     </div>
                   </div>
-                  {isEmpty && <Tag label="未分配" color="danger" />}
+                  {blocked && <Tag label="待指定组长" color="warning" />}
+                  {!blocked && isEmpty && <Tag label="未分配" color="danger" />}
                 </div>
               )
             })}
@@ -6949,7 +7024,7 @@ function ConfirmBillModal({
   onSave: (
     billId: string,
     lines: SettlementLine[],
-    opts: { declarationAccepted: boolean declarationVersion: string },
+    opts: { declarationAccepted: boolean; declarationVersion: string },
   ) => void
 }) {
   const bill = task?.settlements.find((b) => !b.confirmed && !b.voided)
@@ -7656,7 +7731,7 @@ function Section({
   )
 }
 
-function Info({ label, value }: { label: string value: React.ReactNode }) {
+function Info({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
       <div

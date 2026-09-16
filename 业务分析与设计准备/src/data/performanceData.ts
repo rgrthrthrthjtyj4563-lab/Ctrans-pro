@@ -43,6 +43,8 @@ export interface SpecialistRecord {
   chain: ChainKind
   month: string
   provider: string
+  /** 业务归属药厂（持有人）；会话按当前服务药厂过滤 */
+  holderPharma: string
   group: string | null
   variety: string
   specialist: string
@@ -55,12 +57,14 @@ export interface SpecialistRecord {
   operatedAt: string
 }
 
-/** 绩效批次（服务商 × 品种 × 考核月 × 链型） */
+/** 绩效批次（服务商 × 药厂 × 品种 × 考核月 × 链型） */
 export interface PerfBatch {
   batchNo: string
   chain: ChainKind
   month: string
   provider: string
+  /** 业务归属药厂（持有人）；会话按当前服务药厂过滤 */
+  holderPharma: string
   group: string | null
   directCount?: number
   variety: string
@@ -213,73 +217,105 @@ const d = (count: number, unitPrice = 100): BizItem[] => {
 const seedRecords: SpecialistRecord[] = [
   {
     id: "PF-202608-012-S01", batchNo: "PF-202608-012", chain: "四级链", month: "2026-08",
-    provider: "程秋明发企", group: "程秋明团队", variety: "优甲乐 100片装",
-    specialist: "程插美", username: "cakin27", items: d(9), status: "已生效",
+    provider: "智联科技有限公司", holderPharma: "百益制药", group: "工作组一", variety: "二甲双胍缓释片(500mg)",
+    specialist: "张伟", username: "zhangwei", items: d(9), status: "已生效",
     actualAmount: 900, evaluation: { p1: 0.9, p2: 0.9, p3: 0.9, p4: 0.9 },
-    operator: "程秋明团队", operatedAt: "2026-08-31 17:40",
+    operator: "工作组一", operatedAt: "2026-08-31 17:40",
   },
   {
     id: "PF-202608-012-S02", batchNo: "PF-202608-012", chain: "四级链", month: "2026-08",
-    provider: "程秋明发企", group: "程秋明团队", variety: "优甲乐 100片装",
-    specialist: "汪志强", username: "cakin28", items: d(7), status: "已生效",
+    provider: "智联科技有限公司", holderPharma: "百益制药", group: "工作组一", variety: "二甲双胍缓释片(500mg)",
+    specialist: "李强", username: "liqiang", items: d(7), status: "已生效",
     actualAmount: 770, evaluation: { p1: 0.85, p2: 0.85, p3: 0.85, p4: 0.85 },
-    operator: "程秋明团队", operatedAt: "2026-08-31 17:42",
+    operator: "工作组一", operatedAt: "2026-08-31 17:42",
   },
   {
     id: "PF-202608-012-S03", batchNo: "PF-202608-012", chain: "四级链", month: "2026-08",
-    provider: "程秋明发企", group: "程秋明团队", variety: "优甲乐 100片装",
-    specialist: "李文静", username: "cakin29", items: d(5), status: "未打绩效",
-    operator: "程秋明团队", operatedAt: "—",
+    provider: "智联科技有限公司", holderPharma: "百益制药", group: "工作组一", variety: "二甲双胍缓释片(500mg)",
+    specialist: "王芳", username: "wangfang", items: d(5), status: "未打绩效",
+    operator: "工作组一", operatedAt: "—",
   },
   {
     id: "PF-202608-014-D01", batchNo: "PF-202608-014", chain: "三级直达", month: "2026-08",
-    provider: "程秋明发企", group: null, variety: "优甲乐 100片装",
-    specialist: "周航", username: "cakin35", items: d(8), status: "已生效",
+    provider: "智联科技有限公司", holderPharma: "百益制药", group: null, variety: "二甲双胍缓释片(500mg)",
+    specialist: "刘洋", username: "liuyang", items: d(8), status: "已生效",
     actualAmount: 800, evaluation: { p1: 0.9, p2: 0.9, p3: 0.9, p4: 0.9 },
-    operator: "程秋明发企", operatedAt: "2026-08-30 10:15",
+    operator: "智联科技有限公司", operatedAt: "2026-08-30 10:15",
   },
   {
     id: "PF-202608-015-D01", batchNo: "PF-202608-015", chain: "三级直达", month: "2026-08",
-    provider: "程秋明发企", group: null, variety: "优甲乐 100片装",
-    specialist: "蒋莉", username: "cakin36", items: d(6), status: "未打绩效",
-    operator: "程秋明发企", operatedAt: "—",
+    provider: "智联科技有限公司", holderPharma: "百益制药", group: null, variety: "二甲双胍缓释片(500mg)",
+    specialist: "陈静", username: "chenjing", items: d(6), status: "未打绩效",
+    operator: "智联科技有限公司", operatedAt: "—",
+  },
+  // 东方恒业 × 百益品种（会话范围过滤演示：provider=东方恒业、品种∈百益授权品种）
+  {
+    id: "PF-202609-101-S01", batchNo: "PF-202609-101", chain: "四级链", month: "2026-09",
+    provider: "东方恒业推广有限公司", holderPharma: "百益制药", group: "工作组三", variety: "阿托伐他汀钙片",
+    specialist: "杨明", username: "yangming", items: d(9), status: "已生效",
+    actualAmount: 950, evaluation: { p1: 0.95, p2: 0.9, p3: 0.9, p4: 0.95 },
+    operator: "工作组三", operatedAt: "2026-09-12 17:30",
+  },
+  {
+    id: "PF-202609-101-S02", batchNo: "PF-202609-101", chain: "四级链", month: "2026-09",
+    provider: "东方恒业推广有限公司", holderPharma: "百益制药", group: "工作组三", variety: "阿托伐他汀钙片",
+    specialist: "黄峰", username: "huangfeng", items: d(7), status: "未打绩效",
+    operator: "工作组三", operatedAt: "—",
+  },
+  {
+    id: "PF-202609-102-D01", batchNo: "PF-202609-102", chain: "三级直达", month: "2026-09",
+    provider: "东方恒业推广有限公司", holderPharma: "百益制药", group: null, variety: "奥美拉唑肠溶胶囊",
+    specialist: "李晨", username: "lichen", items: d(6), status: "未打绩效",
+    operator: "东方恒业推广有限公司", operatedAt: "—",
   },
 ]
 
 const seedBatches: PerfBatch[] = [
   {
-    batchNo: "PF-202608-012", chain: "四级链", month: "2026-08", provider: "程秋明发企",
-    group: "程秋明团队", variety: "优甲乐 100片装", workload: 21, defaultAmount: 2100,
+    batchNo: "PF-202608-012", chain: "四级链", month: "2026-08", provider: "智联科技有限公司",
+    holderPharma: "百益制药", group: "工作组一", variety: "二甲双胍缓释片(500mg)", workload: 21, defaultAmount: 2100,
     actualAmount: 2100, status: "已生效",
-    ops: [{ actor: "程秋明发企", time: "2026-08-31 17:20", action: "阶段一提交生效" }],
+    ops: [{ actor: "智联科技有限公司", time: "2026-08-31 17:20", action: "阶段一提交生效" }],
   },
   {
-    batchNo: "PF-202608-013", chain: "四级链", month: "2026-08", provider: "程秋明发企",
-    group: "程秋明二团队", variety: "优甲乐 100片装", workload: 12, defaultAmount: 1200,
+    batchNo: "PF-202608-013", chain: "四级链", month: "2026-08", provider: "智联科技有限公司",
+    holderPharma: "百益制药", group: "工作组二", variety: "二甲双胍缓释片(500mg)", workload: 12, defaultAmount: 1200,
     status: "未打绩效", ops: [],
   },
   {
-    batchNo: "PF-202608-014", chain: "三级直达", month: "2026-08", provider: "程秋明发企",
-    group: null, directCount: 1, variety: "优甲乐 100片装", workload: 8, defaultAmount: 800,
+    batchNo: "PF-202608-014", chain: "三级直达", month: "2026-08", provider: "智联科技有限公司",
+    holderPharma: "百益制药", group: null, directCount: 1, variety: "二甲双胍缓释片(500mg)", workload: 8, defaultAmount: 800,
     actualAmount: 800, status: "已生效",
-    ops: [{ actor: "程秋明发企", time: "2026-08-30 10:15", action: "直达绩效提交生效" }],
+    ops: [{ actor: "智联科技有限公司", time: "2026-08-30 10:15", action: "直达绩效提交生效" }],
   },
   {
-    batchNo: "PF-202608-015", chain: "三级直达", month: "2026-08", provider: "程秋明发企",
-    group: null, directCount: 3, variety: "优甲乐 100片装", workload: 13, defaultAmount: 1300,
+    batchNo: "PF-202608-015", chain: "三级直达", month: "2026-08", provider: "智联科技有限公司",
+    holderPharma: "百益制药", group: null, directCount: 3, variety: "二甲双胍缓释片(500mg)", workload: 13, defaultAmount: 1300,
     status: "未打绩效", ops: [],
   },
   {
-    batchNo: "PF-202607-088", chain: "四级链", month: "2026-07", provider: "程秋明发企",
-    group: "程秋明团队", variety: "优甲乐 100片装", workload: 19, defaultAmount: 1900,
+    batchNo: "PF-202607-088", chain: "四级链", month: "2026-07", provider: "智联科技有限公司",
+    holderPharma: "百益制药", group: "工作组一", variety: "二甲双胍缓释片(500mg)", workload: 19, defaultAmount: 1900,
     actualAmount: 1900, status: "已生效",
-    ops: [{ actor: "程秋明发企", time: "2026-07-31 16:02", action: "阶段一提交生效" }],
+    ops: [{ actor: "智联科技有限公司", time: "2026-07-31 16:02", action: "阶段一提交生效" }],
   },
   {
-    batchNo: "PF-202607-086", chain: "四级链", month: "2026-07", provider: "程秋明发企",
-    group: "程秋明团队", variety: "百赛松 30mg", workload: 13, defaultAmount: 1300,
+    batchNo: "PF-202607-086", chain: "四级链", month: "2026-07", provider: "智联科技有限公司",
+    holderPharma: "百益制药", group: "工作组一", variety: "辛伐他汀片(20mg)", workload: 13, defaultAmount: 1300,
     status: "已撤销",
-    ops: [{ actor: "程秋明发企", time: "2026-07-30 11:47", action: "阶段一提交生效" }],
+    ops: [{ actor: "智联科技有限公司", time: "2026-07-30 11:47", action: "阶段一提交生效" }],
+  },
+  // 东方恒业 × 百益品种（会话范围过滤演示）
+  {
+    batchNo: "PF-202609-101", chain: "四级链", month: "2026-09", provider: "东方恒业推广有限公司",
+    holderPharma: "百益制药", group: "工作组三", variety: "阿托伐他汀钙片", workload: 16, defaultAmount: 1600,
+    actualAmount: 950, status: "已生效",
+    ops: [{ actor: "东方恒业推广有限公司", time: "2026-09-12 17:20", action: "阶段一提交生效" }],
+  },
+  {
+    batchNo: "PF-202609-102", chain: "三级直达", month: "2026-09", provider: "东方恒业推广有限公司",
+    holderPharma: "百益制药", group: null, directCount: 1, variety: "奥美拉唑肠溶胶囊", workload: 6, defaultAmount: 600,
+    status: "未打绩效", ops: [],
   },
 ]
 
