@@ -13,7 +13,7 @@
   min-height: 100vh;
   font-family: var(--font-sans);
   color: var(--lg-text-1);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 1.5715;
   display: flex;
   justify-content: center;
@@ -41,18 +41,16 @@
 }
 
 .auth-gate-brand-name {
-  font-size: 16px;
+  font-size: var(--fs-16);
   font-weight: 600;
   color: var(--lg-text-1);
   line-height: 1.2;
-  letter-spacing: -0.01em;
 }
 
 .auth-gate-brand-sub {
-  font-size: 11px;
+  font-size: var(--fs-12);
   color: var(--lg-text-3);
   line-height: 1.4;
-  letter-spacing: 0.04em;
   margin-top: 2px;
 }
 
@@ -91,33 +89,195 @@
 }
 
 .auth-gate-title {
-  margin: 0 0 6px;
-  font-size: 26px;
+  margin: 0 0 8px;
+  font-size: var(--fs-24);
   font-weight: 600;
+  line-height: 1.3;
   color: var(--lg-text-1);
-  letter-spacing: -0.02em;
 }
 
 .auth-gate-subtitle {
-  margin: 0 0 18px;
-  font-size: 13px;
+  margin: 0 0 16px;
+  font-size: var(--fs-13);
   color: rgba(26, 43, 66, 0.45);
   line-height: 1.6;
 }
 
-/* ── 已验证小字行（选择所属企业页） ── */
-.identity-gate-verified {
+/* ── 企业身份卡片：白底 + 选中薄荷绿描边 + 右下对勾徽章 ── */
+/* ── 平台/租户边界：紧凑一行说明 + 问号提示（桌面悬浮/键盘焦点，移动端点按） ── */
+.auth-gate-boundary {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 14px;
-  font-size: 12px;
-  color: var(--lg-text-2);
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-brand) 6%, #fff);
+  border: 1px solid color-mix(in srgb, var(--color-brand) 22%, #fff);
+  font-size: var(--fs-12, 12px);
+  color: #475467;
+  line-height: 1.5;
 }
 
-.identity-gate-verified svg { color: var(--lg-brand); flex-shrink: 0; }
+.auth-gate-q {
+  position: relative;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.18);
+  background: #fff;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
-/* ── 企业身份卡片：白底 + 选中薄荷绿描边 + 右下对勾徽章 ── */
+.auth-gate-q::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 24px;
+  top: -8px;
+  width: min(300px, 70vw);
+  padding: 10px 12px;
+  background: #101828;
+  color: #f4f7fa;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  text-align: left;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.auth-gate-q:hover::after,
+.auth-gate-q:focus::after,
+.auth-gate-q:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.auth-gate-q:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+}
+
+@media (max-width: 560px) {
+  .auth-gate-q::after {
+    left: auto;
+    right: 0;
+    top: 24px;
+  }
+}
+
+/* ── 角色确认：横向可选行（桌面列：角色身份｜授权状态，极简口径 2026-09-16） ──
+   列定义只在此处声明一次（--identity-gate-cols），表头与内容行共用；
+   状态列固定宽保证多行/表头对齐；勾选标记内联于状态列（不用绝对定位，杜绝挤压叠加），
+   与标签间距 8px、与角色名列间距 12px。 */
+.identity-gate-rows {
+  --identity-gate-cols: minmax(0, 1fr) 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.identity-gate-rowhead {
+  display: grid;
+  grid-template-columns: var(--identity-gate-cols);
+  gap: 12px;
+  padding: 0 14px;
+  font-size: var(--fs-11, 12px);
+  font-weight: 700;
+  color: #667085;
+  letter-spacing: 0.02em;
+}
+
+.identity-gate-row {
+  display: grid;
+  grid-template-columns: var(--identity-gate-cols);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid rgba(17, 24, 39, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.identity-gate-row:hover:not(:disabled) {
+  border-color: rgba(25, 197, 154, 0.55);
+}
+
+.identity-gate-row--selected {
+  border-color: var(--color-brand);
+  background: color-mix(in srgb, var(--color-brand) 7%, #fff);
+  box-shadow: 0 0 0 1px var(--color-brand) inset;
+}
+
+.identity-gate-cell--role {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.identity-gate-role {
+  font-size: var(--fs-14, 14px);
+  font-weight: 700;
+  color: var(--color-text-1, #101828);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.identity-gate-merged {
+  font-size: var(--fs-11, 12px);
+  color: var(--color-brand);
+  font-weight: 600;
+}
+
+.identity-gate-cell--status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.identity-gate-row-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+/* 移动端：隐藏表头（单行「角色名 + 状态标签」自明），保持单行横向布局不换列 */
+@media (max-width: 640px) {
+  .identity-gate-rowhead {
+    display: none;
+  }
+  .identity-gate-row {
+    gap: 10px;
+    padding: 11px 12px;
+  }
+}
+
 .identity-gate-orglist {
   display: flex;
   flex-direction: column;
@@ -158,7 +318,7 @@
 }
 
 .identity-gate-orgcard-name {
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: 600;
   color: var(--lg-text-1);
 }
@@ -166,7 +326,7 @@
 .identity-gate-orgcard-meta {
   display: block;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--lg-text-2);
   line-height: 1.7;
 }
@@ -197,7 +357,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--fs-12);
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 6px;
@@ -224,6 +384,72 @@
   color: #B45309;
 }
 
+.auth-gate-tag--block {
+  background: rgba(100, 116, 139, 0.08);
+  border: 1px solid rgba(100, 116, 139, 0.28);
+  color: #64748B;
+}
+
+/* ── 四步口径步数条（企业验证 → 短信验证 → 角色确认 → 选择服务药厂） ── */
+.auth-gate-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  font-size: var(--fs-12);
+}
+
+.auth-gate-stepitem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--lg-text-3);
+  white-space: nowrap;
+}
+
+.auth-gate-stepitem + .auth-gate-stepitem::before {
+  content: "›";
+  margin-right: 4px;
+  color: rgba(26, 43, 66, 0.22);
+}
+
+.auth-gate-stepnum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(200, 215, 235, 0.9);
+  background: rgba(255, 255, 255, 0.85);
+  font-size: var(--fs-12);
+  line-height: 1;
+}
+
+.auth-gate-stepitem--done {
+  color: var(--lg-brand-dim);
+}
+
+.auth-gate-stepitem--done .auth-gate-stepnum {
+  border-color: rgba(25, 197, 154, 0.4);
+  background: rgba(25, 197, 154, 0.1);
+  color: var(--lg-brand-dim);
+}
+
+.auth-gate-stepitem--active {
+  color: var(--lg-text-1);
+  font-weight: 600;
+}
+
+.auth-gate-stepitem--active .auth-gate-stepnum {
+  border-color: var(--lg-brand);
+  background: linear-gradient(135deg, #0E8F76 0%, #19C59A 100%);
+  color: #ffffff;
+}
+
 /* ── 提示条 ── */
 .auth-gate-note {
   display: flex;
@@ -231,7 +457,7 @@
   gap: 8px;
   padding: 10px 13px;
   border-radius: 9px;
-  font-size: 12.5px;
+  font-size: var(--fs-13);
   line-height: 1.6;
 }
 
@@ -269,10 +495,14 @@
 
 .identity-gate-btnrow {
   display: flex;
-  gap: 10px;
+  flex-direction: row;
+  gap: 12px;
 }
 
-.identity-gate-btn-half { flex: 1; min-width: 0; }
+/* 参考稿比例：更换账号 45% ｜ 确认登录 55%（含箭头），行内不换行 */
+.identity-gate-btn-half { flex: 45 1 0; min-width: 0; }
+.identity-gate-btn-confirm { flex: 55 1 0; min-width: 0; }
+.identity-gate-btnrow .auth-gate-btn { font-weight: 600; }
 
 .auth-gate-btn {
   display: inline-flex;
@@ -280,9 +510,9 @@
   justify-content: center;
   gap: 8px;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: 500;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   cursor: pointer;
   transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease, background 150ms ease;
 }
@@ -324,7 +554,7 @@
   border: none;
   padding: 6px 0;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-13);
   color: var(--lg-text-3);
   cursor: pointer;
   transition: color 150ms ease;
@@ -392,14 +622,14 @@
 }
 
 .pharma-gate-idrow dt {
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--lg-text-3);
   flex-shrink: 0;
 }
 
 .pharma-gate-idrow dd {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 600;
   color: var(--lg-text-1);
   text-align: right;
@@ -412,9 +642,24 @@
   padding: 16px;
 }
 
+/* 单药厂自动进入过渡态（first 模式直达，非按钮） */
+.pharma-gate-auto {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-brand) 8%, #fff);
+  color: var(--color-brand);
+  font-size: var(--fs-14, 14px);
+  font-weight: 600;
+}
+
 .pharma-gate-solo-label {
-  margin: 0 0 6px;
-  font-size: 12px;
+  margin: 0 0 8px;
+  font-size: var(--fs-12);
   color: var(--lg-text-3);
 }
 
@@ -422,7 +667,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16px;
+  font-size: var(--fs-16);
   font-weight: 600;
   color: var(--lg-text-1);
 }
@@ -503,7 +748,7 @@
 }
 
 .pharma-gate-card-name {
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: 600;
   color: var(--lg-text-1);
 }
@@ -511,8 +756,8 @@
 .pharma-gate-card-meta {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font-size: 12px;
+  gap: 4px;
+  font-size: var(--fs-12);
   color: var(--lg-text-2);
   line-height: 1.6;
 }
@@ -538,6 +783,83 @@
   margin-top: 2px;
 }
 
+/* 可进入但带备案警告的卡片：警告提示行 */
+.pharma-gate-card-warn {
+  color: #92400E !important;
+  background: rgba(217, 119, 6, 0.05);
+  border: 1px dashed rgba(217, 119, 6, 0.25);
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-top: 2px;
+}
+
+.pharma-gate-card-warn svg { color: #B45309 !important; }
+
+/* ── 空态：全部药厂不可用（认证已完成，不可用原因清单可见） ── */
+.pharma-gate-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 20px 22px;
+  border-radius: 14px;
+  border: 1px dashed rgba(200, 215, 235, 0.9);
+  background: rgba(26, 43, 66, 0.02);
+  text-align: center;
+}
+
+.pharma-gate-empty-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(217, 119, 6, 0.08);
+  color: #B45309;
+}
+
+.pharma-gate-empty-title {
+  font-size: var(--fs-15);
+  font-weight: 600;
+  color: var(--lg-text-1);
+}
+
+.pharma-gate-empty-sub {
+  margin: 0;
+  font-size: var(--fs-13);
+  color: var(--lg-text-2);
+  line-height: 1.7;
+  max-width: 340px;
+}
+
+.pharma-gate-empty-list {
+  width: 100%;
+  max-width: 340px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pharma-gate-empty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(200, 215, 235, 0.7);
+}
+
+.pharma-gate-empty-name {
+  font-size: var(--fs-13);
+  font-weight: 500;
+  color: var(--lg-text-1);
+  text-align: left;
+}
+
 /* ── 确认弹窗（Modal 内） ── */
 .pharma-gate-dialog-grid {
   display: flex;
@@ -558,14 +880,14 @@
 .pharma-gate-dialog-grid > div:last-child { border-bottom: none; }
 
 .pharma-gate-dialog-grid dt {
-  font-size: 12.5px;
+  font-size: var(--fs-13);
   color: var(--lg-text-2);
   flex-shrink: 0;
 }
 
 .pharma-gate-dialog-grid dd {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 600;
   color: var(--lg-text-1);
   text-align: right;
@@ -578,11 +900,21 @@
   margin-top: 18px;
 }
 
+/* ── 焦点环：清晰且不被圆角/overflow 截断（清单 §11.5） ── */
+.auth-gate-btn:focus-visible,
+.auth-gate-linkbtn:focus-visible,
+.identity-gate-orgcard:focus-visible,
+.pharma-gate-card-item:focus-visible,
+.pharma-gate-close:focus-visible {
+  outline: 2px solid rgba(25, 197, 154, 0.7);
+  outline-offset: 2px;
+}
+
 /* ── 页脚 ── */
 .auth-gate-foot {
   margin: 0;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--fs-12);
   color: rgba(26, 43, 66, 0.3);
   line-height: 1.7;
 }
@@ -590,8 +922,21 @@
 /* ── 窄屏 ── */
 @media (max-width: 560px) {
   .auth-gate-stage { padding: 24px 16px calc(36px + env(safe-area-inset-bottom)); }
-  .auth-gate-card { padding: 22px 18px 20px; min-height: 360px; border-radius: 18px; }
+  .auth-gate-card { padding: 20px 16px; min-height: 320px; border-radius: 18px; }
   .identity-gate-btnrow { flex-direction: column-reverse; }
+  /* 纵向堆叠时取消行内 45/55 伸缩比例，恢复整宽按钮 */
+  .identity-gate-btnrow .auth-gate-btn { flex: 0 0 auto; width: 100%; height: 46px; }
+  .auth-gate-btn--primary, .auth-gate-btn--secondary { width: 100%; height: 46px; }
+  .pharma-gate-card-item, .identity-gate-row { padding: 10px; }
+  .auth-gate-title { font-size: var(--fs-20); }
+}
+@media (max-width: 400px) {
+  .auth-gate-stage { padding: 16px 12px calc(28px + env(safe-area-inset-bottom)); }
+  .auth-gate-card { padding: 16px 12px; border-radius: 14px; min-height: 280px; }
+  /* 长企业名允许换行，企业码保持整体可读 */
+  .pharma-gate-card-name, .identity-gate-orgcard-name { overflow-wrap: anywhere; }
+  .pharma-gate-empty-sub, .pharma-gate-card-meta { overflow-wrap: anywhere; }
+  .auth-gate-btn--primary, .auth-gate-btn--secondary { height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -602,4 +947,176 @@
   .identity-gate-orgcard,
   .pharma-gate-card-item,
   .auth-gate-btn { transition: none !important; }
+}
+
+/* ── 角色确认页身份信息（2026-09-15 整改：姓名在头像旁 + 两行结构化） ── */
+.identity-gate-idhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  flex-wrap: wrap;
+}
+.identity-gate-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(25, 197, 154, 0.12);
+  color: #0D9B7A;
+  font-size: var(--fs-13);
+  font-weight: 600;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.identity-gate-idname {
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--lg-text-1);
+  letter-spacing: 0;
+}
+
+/* ── 首登激活庆祝弹框（act-cele-*）：无按钮、5 秒自动淡出 ────────────────── */
+.act-cele-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 1;
+  transition: opacity 320ms ease;
+}
+.act-cele-overlay--leaving {
+  opacity: 0;
+}
+.act-cele-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.act-cele-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border: 1px solid rgba(25, 197, 154, 0.18);
+  border-radius: 24px;
+  padding: 30px 28px 26px;
+  text-align: center;
+  overflow: hidden;
+  box-shadow:
+    0 25px 60px -15px rgba(20, 184, 166, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.8);
+  animation: actCelePop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.act-cele-ribbon {
+  position: absolute;
+  top: -48px;
+  width: 144px;
+  height: 144px;
+  border-radius: 50%;
+  filter: blur(32px);
+  pointer-events: none;
+}
+.act-cele-ribbon--l { left: -48px; background: rgba(110, 231, 183, 0.45); }
+.act-cele-ribbon--r { right: -48px; background: rgba(153, 246, 228, 0.5); }
+.act-cele-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0E8F76, #19C59A);
+  color: #ffffff;
+  box-shadow: 0 12px 24px -6px rgba(25, 197, 154, 0.45);
+}
+.act-cele-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(25, 197, 154, 0.08);
+  border: 1px solid rgba(25, 197, 154, 0.25);
+  color: #0D9B7A;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.act-cele-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #19C59A;
+  animation: actCelePing 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.act-cele-title {
+  position: relative;
+  margin: 12px 0 10px;
+  font-size: var(--fs-20);
+  font-weight: 700;
+  color: #1A2B42;
+  letter-spacing: 0;
+}
+.act-cele-body {
+  position: relative;
+  margin: 0;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: #F6FAF9;
+  border: 1px solid rgba(200, 215, 235, 0.6);
+  text-align: left;
+  font-size: var(--fs-13);
+  line-height: 1.8;
+  color: rgba(26, 43, 66, 0.6);
+}
+.act-cele-body strong {
+  color: #1A2B42;
+  font-weight: 600;
+}
+.act-cele-count {
+  color: #0D9B7A !important;
+  font-weight: 800 !important;
+}
+@keyframes actCelePop {
+  from { opacity: 0; transform: scale(0.92) translateY(14px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes actCelePing {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.7); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .act-cele-card { animation: none; }
+  .act-cele-badge-dot { animation: none; }
+  .act-cele-overlay { transition: none; }
+}
+.act-cele-countdown {
+  position: absolute;
+  top: 15px;
+  right: 17px;
+  font-size: 10px;
+  color: rgba(26, 43, 66, 0.38);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  z-index: 1;
+}
+.act-cele-countdown-num {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  color: #0D9B7A;
 }

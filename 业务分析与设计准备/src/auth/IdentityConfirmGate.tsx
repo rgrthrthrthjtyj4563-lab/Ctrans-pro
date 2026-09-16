@@ -1,76 +1,101 @@
 /**
- * 登录三步流 · 第二步：选择所属企业（原「身份确认」按参考稿重设计）。
- * 手机号/账号只验证「人」；验证通过后列出该账号名下全部有效企业身份
- * （生效授权 → 企业根 + 角色），由用户选定本次登录身份。
- * 单身份账号也走同一页（一张默认选中的卡），保持流程一致。
+ * 登录三步流 · 第二步：角色确认（权限域分离版）。
+ * 工作空间编码在第 1 步确定认证域：平台编码 → 平台工作空间（显示「当前工作空间：
+ * 药合作平台」，不显示「认证企业」）；企业编码 → 租户工作空间（显示当前企业，
+ * 卡片仅展示角色身份与授权状态两字段，极简口径 2026-09-16）。
+ * 同一角色存在多条有效授权时只显示一条并合并展示可管理范围。
+ * 单角色由网关直签 identityConfirmed，不经过本页；双企业身份回登录页换编码。
  * 确认只换发登录身份（免重新认证），不换业务会话数据。
  */
 import { useState } from "react";
-import { Check, Info, Smartphone } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { BrandMark } from "../components/Brand";
 import { LoginBackdrop } from "./LoginBackdrop";
 import "./loginShell.css";
-import type { AuthSession, LoginIdentityOption } from "./authTypes";
+import type { AuthPrincipal, AuthSession, LoginIdentityOption } from "./authTypes";
+import { PLATFORM_WORKSPACE_NAME } from "./authTypes";
 import "./authGates.css";
 
 const METHOD_LABEL: Record<AuthSession["method"], string> = {
   password: "账号密码",
   sms: "短信验证码",
   qr: "扫码",
-};
+}
+
+/** 身份信息脱敏（已认证手机号只显示脱敏号码） */
+function maskPhone(phone: string): string {
+  return phone.length === 11 ? `${phone.slice(0, 3)}****${phone.slice(7)}` : phone
+}
 
 interface IdentityConfirmGateProps {
   session: AuthSession;
-  /** 返回是否成功；成功后调用方换发会话进入下一步 */
-  onConfirm: (assignmentId: string) => Promise<boolean>;
+  /** 按角色选定本次身份（同角色多授权合并生效）；返回是否成功 */
+  onConfirm: (roleId: string) => Promise<boolean>;
   onChangeAccount: () => void;
 }
 
-function formatPhoneGrouped(digits: string): string {
-  const a = digits.slice(0, 3);
-  const b = digits.slice(3, 7);
-  const c = digits.slice(7, 11);
-  return [a, b, c].filter(Boolean).join(" ");
+/** 步数条：第 1 步按域显示「工作空间验证」（平台）或「企业验证」（租户） */
+function GateSteps({ principal }: { principal: AuthPrincipal }) {
+  const isProviderMember = principal.realm === "TENANT" && principal.tenantKind === "provider";
+  const firstStep = principal.realm === "PLATFORM" ? "工作空间验证" : "企业验证";
+  const steps = [firstStep, "短信验证", "角色确认", ...(isProviderMember ? ["选择服务药厂"] : [])];
+  const current = 2; // 角色确认
+  return (
+    <ol className="auth-gate-steps" aria-label="登录步骤">
+      {steps.map((label, i) => (
+        <li
+          key={label}
+          className={`auth-gate-stepitem${i < current ? " auth-gate-stepitem--done" : ""}${i === current ? " auth-gate-stepitem--active" : ""}`}
+          aria-current={i === current ? "step" : undefined}
+        >
+          <span className="auth-gate-stepnum" aria-hidden>{i < current ? "✓" : i + 1}</span>
+          {label}
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: IdentityConfirmGateProps) {
   const p = session.principal;
+  const isPlatform = p.realm === "PLATFORM";
   const options: LoginIdentityOption[] =
     session.identityOptions && session.identityOptions.length > 0
       ? session.identityOptions
       : [
+          // 兜底单选项（会话未携带列表时按当前主体构造）
           {
-            assignmentId: p.assignmentId,
-            enterpriseId: p.enterpriseId,
-            enterpriseName: p.enterpriseName,
-            enterpriseType: p.scope === "PHARMA" ? "药厂" : p.scope === "PROVIDER" ? "服务提供商" : "平台",
-            roleId: p.roleId,
-            roleName: p.roleName,
-            scope: p.scope,
-            scopeOrgId: p.scopeOrgId,
-            scopeOrgName: p.scopeOrgName,
+            realm: p.realm,
+            key: p.realm === "PLATFORM" ? p.platformRoleId : `${p.activeRoleId}@${p.tenantId}`,
+            assignmentIds: p.realm === "PLATFORM" ? [] : p.effectiveAssignmentIds,
+            roleId: p.realm === "PLATFORM" ? p.platformRoleId : p.activeRoleId,
+            roleName: p.realm === "PLATFORM" ? p.platformRoleName : p.activeRoleName,
+            permSummary: "",
+            scopeSummary: p.realm === "PLATFORM" ? p.dutyScope : p.dataScopeSummary,
+            grantedBy: "—",
+            grantedAt: "",
+            effectiveFrom: "",
+            tenantId: p.realm === "TENANT" ? p.tenantId : undefined,
+            tenantName: p.realm === "TENANT" ? p.tenantName : undefined,
+            orgName: p.orgName,
           },
         ];
-  const [selectedId, setSelectedId] = useState(p.assignmentId);
+  const [selectedKey, setSelectedKey] = useState(options.some((o) => o.roleId === (p.realm === "PLATFORM" ? p.platformRoleId : p.activeRoleId))
+    ? options.find((o) => o.roleId === (p.realm === "PLATFORM" ? p.platformRoleId : p.activeRoleId))!.key
+    : options[0].key);
   const [busy, setBusy] = useState(false);
+
+  const selected = options.find((o) => o.key === selectedKey) ?? options[0];
 
   const methodLabel =
     session.method === "qr" && session.qrSource
       ? `${METHOD_LABEL[session.method]}（${session.qrSource === "wecom" ? "企业微信" : "微信开放平台"}）`
       : METHOD_LABEL[session.method];
 
-  // 同一企业多条授权（如药厂销售 + 区域定制角色）时，卡面标题追加角色消歧
-  const enterpriseCounts = new Map<string, number>();
-  for (const o of options) {
-    enterpriseCounts.set(o.enterpriseName, (enterpriseCounts.get(o.enterpriseName) ?? 0) + 1);
-  }
-  const cardTitle = (o: LoginIdentityOption) =>
-    (enterpriseCounts.get(o.enterpriseName) ?? 0) > 1 ? `${o.enterpriseName} · ${o.roleName}` : o.enterpriseName;
-
   const handleConfirm = async () => {
     setBusy(true);
     try {
-      await onConfirm(selectedId);
+      await onConfirm(selected.roleId);
     } finally {
       setBusy(false);
     }
@@ -90,49 +115,89 @@ export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: Ide
 
         <section className="auth-gate-card">
           <div className="auth-gate-step">
-            <h1 className="auth-gate-title">选择所属企业</h1>
+            <GateSteps principal={p} />
+            <h1 className="auth-gate-title">
+              {isPlatform ? "选择本次使用的平台角色" : "选择本次使用的角色"}
+            </h1>
             <p className="auth-gate-subtitle">
               {options.length > 1
-                ? "该手机号关联了多个有效企业身份，请选择本次登录身份。"
-                : "该账号当前有一个有效企业身份，确认后即以此身份进入。"}
+                ? isPlatform
+                  ? "该平台账号关联了多个平台角色，请选择本次使用的平台角色。"
+                  : "你在本企业内关联了多个有效角色，请选择本次使用的角色。"
+                : "确认本次使用的角色后进入。"}
             </p>
-            <p className="identity-gate-verified">
-              <Smartphone size={13} aria-hidden />
-              {methodLabel}已验证：{p.name} · <span className="font-mono-nums">{formatPhoneGrouped(p.phone)}</span>
-            </p>
+            <div className="identity-gate-idhead">
+              <span className="identity-gate-avatar" aria-hidden>{p.name.slice(0, 1)}</span>
+              <span className="identity-gate-idname">{p.name}</span>
+              <span className="auth-gate-tag auth-gate-tag--ok">{methodLabel}验证通过</span>
+            </div>
+            <dl className="pharma-gate-idcard" style={{ margin: "0 0 16px" }}>
+              <div className="pharma-gate-idrow">
+                <dt>已验证手机号</dt>
+                <dd className="font-mono-nums" style={{ letterSpacing: "0.06em" }}>{maskPhone(p.phone)}</dd>
+              </div>
+              <div className="pharma-gate-idrow">
+                <dt>{isPlatform ? "当前工作空间" : "当前企业"}</dt>
+                <dd>
+                  {isPlatform ? (
+                    <>
+                      {PLATFORM_WORKSPACE_NAME}
+                      <span className="auth-gate-tag auth-gate-tag--brand" style={{ marginLeft: 8 }}>平台工作空间 · 非企业租户</span>
+                    </>
+                  ) : (
+                    p.tenantName
+                  )}
+                </dd>
+              </div>
+            </dl>
 
-            <div className="auth-gate-note auth-gate-note--brand" style={{ marginBottom: 16 }} role="note">
-              <Info size={14} aria-hidden />
-              <span>企业选择发生在手机号验证之后，因此登录页不需要公开展示租户名单。</span>
+            <div className="auth-gate-boundary" style={{ marginBottom: 14 }}>
+              <span>
+                {isPlatform ? "平台工作空间：只管理租户与企业码，不进入企业内部配置。" : "本企业内选择角色；换企业可在进入工作台后通过用户菜单「切换企业」。"}
+              </span>
+              <button
+                type="button"
+                className="auth-gate-q"
+                aria-label="平台与企业边界说明"
+                data-tip={isPlatform
+                  ? "平台系统管理员只管理租户开通与企业码、菜单管理、合作关系监管和平台审计；平台不属于任何企业租户，不进入企业内部的组织、用户与权限配置。"
+                  : "角色选择只在本次认证的企业内进行；同一手机号在其他企业的成员身份不受影响。进入工作台后可在用户菜单「切换企业」免验证码切换到其他已激活企业。"}
+              >
+                ?
+              </button>
             </div>
 
-            <div className="identity-gate-orglist" role="radiogroup" aria-label="选择本次登录的企业身份">
+            <div className="identity-gate-rows" role="radiogroup" aria-label="选择本次使用的角色">
+              <div className="identity-gate-rowhead" aria-hidden>
+                <span>角色身份</span>
+                <span>授权状态</span>
+              </div>
               {options.map((opt) => {
-                const isSelected = selectedId === opt.assignmentId;
+                const isSelected = selectedKey === opt.key;
                 return (
                   <button
-                    key={opt.assignmentId}
+                    key={opt.key}
                     type="button"
                     role="radio"
                     aria-checked={isSelected}
-                    className="identity-gate-orgcard"
+                    className={`identity-gate-row${isSelected ? " identity-gate-row--selected" : ""}`}
                     disabled={busy}
-                    onClick={() => setSelectedId(opt.assignmentId)}
+                    onClick={() => setSelectedKey(opt.key)}
                   >
-                    <span className="identity-gate-orgcard-head">
-                      <span className="identity-gate-orgcard-name">{cardTitle(opt)}</span>
-                      <span className="auth-gate-tag auth-gate-tag--ok">账号正常</span>
+                    <span className="identity-gate-cell--role">
+                      <span className="identity-gate-role">{opt.roleName}</span>
+                      {opt.assignmentIds.length > 1 && (
+                        <span className="identity-gate-merged">{opt.assignmentIds.length} 条有效授权已合并</span>
+                      )}
                     </span>
-                    <span className="identity-gate-orgcard-meta">
-                      企业类型：{opt.enterpriseType}
-                      <br />
-                      角色：{opt.roleName}
+                    <span className="identity-gate-cell--status">
+                      <span className="auth-gate-tag auth-gate-tag--ok">授权生效</span>
+                      {isSelected && (
+                        <span className="identity-gate-row-check" aria-hidden>
+                          <Check size={14} strokeWidth={2.5} />
+                        </span>
+                      )}
                     </span>
-                    {isSelected && (
-                      <span className="identity-gate-orgcard-check" aria-hidden>
-                        <Check size={18} strokeWidth={2.5} />
-                      </span>
-                    )}
                   </button>
                 );
               })}
@@ -146,21 +211,24 @@ export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: Ide
                   disabled={busy}
                   onClick={onChangeAccount}
                 >
-                  使用其他手机号
+                  更换账号
                 </button>
                 <button
                   type="button"
                   className="auth-gate-btn auth-gate-btn--primary identity-gate-btn-confirm"
-                  disabled={busy || !selectedId}
+                  disabled={busy || !selected}
                   onClick={() => void handleConfirm()}
                 >
                   {busy ? (
                     <>
                       <span className="auth-gate-spin auth-gate-spin--onbrand" aria-hidden />
-                      正在进入…
+                      正在进入工作空间…
                     </>
                   ) : (
-                    "确认登录"
+                    <>
+                      确认登录
+                      <ArrowRight size={16} strokeWidth={2.5} aria-hidden />
+                    </>
                   )}
                 </button>
               </div>
@@ -168,7 +236,7 @@ export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: Ide
           </div>
         </section>
 
-        <p className="auth-gate-foot">原型演示 · 选择身份免重新认证，所属企业决定本次登录身份</p>
+        <p className="auth-gate-foot">原型演示 · 选择角色免重新认证，工作空间与人员身份保持不变</p>
       </div>
     </div>
   );

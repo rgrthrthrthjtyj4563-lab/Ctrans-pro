@@ -4,25 +4,44 @@
  * 角色事实源仍是 RoleAssignment），登录页也不得维护独立账号清单。
  */
 
-import type { QrIdentity, ServingPharma } from "./authTypes"
+import type { EnterpriseCodeEntry, QrIdentity } from "./authTypes"
 import { PERM_USERS, PERM_ORGS } from "../data/permissions"
 import { enterpriseRootOf } from "../data/permissions"
 
-/** 演示环境统一固定密码（登录页明示，不作为真实安全能力） */
+/** 演示环境统一固定密码（登录页明示，不作为真实安全能力；密码入口本期隐藏，代码保留） */
 export const DEMO_PASSWORD = "demo123"
 
-/** 平台侧角色（进入平台管理工作台，而非某企业工作空间）；App 壳与身份确认页共用 */
-export const PLATFORM_ROLE_IDS = new Set([
-  "role-platform-ops",
-  "role-sys-admin",
-  "role-account-admin",
-])
+/**
+ * 平台角色 id 集合（realm=PLATFORM 的全部预置角色）。仅作种子校验/兜底；
+ * 运行时一律以 AuthPrincipal.realm 与 SysRole.realm 判定，不再按角色 id 集合推断。
+ */
+export const PLATFORM_ROLE_IDS = new Set(["role-sys-admin"])
+
+/**
+ * 企业编码登记表（原型口径：生产由平台系统管理员在租户管理生成，8 位大写字母数字、
+ * 排除易混字符 0/O、1/I、无业务语义；平台/药厂/服务商共用同一编号空间）。
+ * 2026-09-15 拍板：一个企业只有一个主码，别名码全链路删除。
+ * 平台侧运行时新建租户的主码由 tenantRegistry 生成并即时并入解析。
+ */
+export const ENTERPRISE_CODES: EnterpriseCodeEntry[] = [
+  { code: "M8QT3ZRN", enterpriseId: "org-platform", enabled: true },
+  { code: "E9K4P7X2", enterpriseId: "org-pharma", enabled: true },
+  { code: "W6HK2T9V", enterpriseId: "org-provider-east", enabled: true },
+  { code: "F3JN7QX4", enterpriseId: "org-provider-smart", enabled: true },
+]
 
 export interface AuthProfile {
   userId: string
   /** 登录成功后默认进入的主角色（SysRole.id）；无生效授权时按账号状态拒绝 */
   defaultRoleId: string
   password: string
+  /**
+   * 企业级成员状态（原型口径，不改 PERM_USERS.accountStatus 枚举）：
+   * 待激活 = 首次短信登录放行并激活（内存态，刷新回到待激活为预期）；
+   * 冻结 = 该企业内拒绝登录，不影响同一自然人在其他企业的身份。
+   * 披露时点 = 验证码校验成功之后。
+   */
+  memberStatusByEnterprise?: Record<string /*enterpriseId*/, "pending_activation" | "frozen">
 }
 
 /**
@@ -30,16 +49,52 @@ export interface AuthProfile {
  * 停用 / 无生效授权 / 过期 / 已回收 —— 拒绝并给出原因。
  */
 export const AUTH_PROFILES: Record<string, AuthProfile> = {
-  "u-wangmin": { userId: "u-wangmin", defaultRoleId: "role-platform-ops", password: DEMO_PASSWORD },
-  "u-lihang": { userId: "u-lihang", defaultRoleId: "role-pharma-sales", password: DEMO_PASSWORD },
-  "u-zhaoning": { userId: "u-zhaoning", defaultRoleId: "role-pharma-compliance", password: DEMO_PASSWORD },
+  "u-wangmin": { userId: "u-wangmin", defaultRoleId: "role-sys-admin", password: DEMO_PASSWORD },
+  "u-shenyue": { userId: "u-shenyue", defaultRoleId: "role-pharma-admin", password: DEMO_PASSWORD },
+  "u-lihang": { userId: "u-lihang", defaultRoleId: "role-pharma-admin", password: DEMO_PASSWORD },
+  "u-zhaoning": { userId: "u-zhaoning", defaultRoleId: "role-pharma-admin", password: DEMO_PASSWORD },
   "u-chenwei": { userId: "u-chenwei", defaultRoleId: "role-provider-admin", password: DEMO_PASSWORD },
   "u-liuyang": { userId: "u-liuyang", defaultRoleId: "role-group-lead", password: DEMO_PASSWORD },
   "u-yangming": { userId: "u-yangming", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
   "u-huangfeng": { userId: "u-huangfeng", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
   "u-lichen": { userId: "u-lichen", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
-  "u-zhengjie": { userId: "u-zhengjie", defaultRoleId: "role-account-admin", password: DEMO_PASSWORD },
+  // 待激活新成员（东方恒业）：首次短信登录自动激活并 toast「账号已激活」
+  "u-hejing": {
+    userId: "u-hejing",
+    defaultRoleId: "role-group-lead",
+    password: DEMO_PASSWORD,
+    memberStatusByEnterprise: { "org-provider-east": "pending_activation" },
+  },
+  // 企业级冻结演示：在东方恒业被冻结，百益制药身份不受影响
+  "u-hanlei": {
+    userId: "u-hanlei",
+    defaultRoleId: "role-provider-admin",
+    password: DEMO_PASSWORD,
+    memberStatusByEnterprise: { "org-provider-east": "frozen" },
+  },
+  // 全不可用药厂的服务专员：认证通过进门页空态
+  "u-sunqi": { userId: "u-sunqi", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
 }
+
+/**
+ * 演示账号分组：按全流程测试主线划分（登录页速查与用户菜单「切换角色」共用），
+ * 让测试时一眼定位「进哪个账号会看到什么场景」。
+ */
+export type DemoAccountGroupKey = "platform" | "pharma" | "provider" | "status"
+
+export interface DemoAccountGroup {
+  key: DemoAccountGroupKey
+  label: string
+  /** 分组补充说明（企业编码等速查信息） */
+  hint: string
+}
+
+export const DEMO_ACCOUNT_GROUPS: DemoAccountGroup[] = [
+  { key: "platform", label: "平台侧", hint: "系统管理与开户闭环 · M8QT3ZRN" },
+  { key: "pharma", label: "药厂侧 · 百益制药", hint: "E9K4P7X2" },
+  { key: "provider", label: "服务商侧", hint: "东方恒业 W6HK2T9V · 智联 F3JN7QX4" },
+  { key: "status", label: "登录状态与拦截演示", hint: "激活 / 冻结 / 空态" },
+]
 
 /** 登录页「演示账号」速查：由认证资料 + 用户主数据派生，不另行维护清单 */
 export interface DemoAccountHint {
@@ -48,56 +103,44 @@ export interface DemoAccountHint {
   name: string
   roleName: string
   orgName: string
-  /** 一句话说明该账号演示的场景 */
+  /** 演示场景分组（标题见 DEMO_ACCOUNT_GROUPS） */
+  group: DemoAccountGroupKey
+  /** 场景短标签（1-2 个，标注该账号主要演示什么） */
+  tags: string[]
+  /** 该条演示场景对应的企业编码（登录卡第 1 步直接回填） */
+  enterpriseCode: string
+  /** 该账号手机号（登录卡第 2 步直接回填） */
+  phone: string
+  /** 一句话说明该账号演示的场景（速查表可点 ⓘ 展开完整内容） */
   scene: string
 }
 
 export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
-  { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "平台运营", orgName: "百益健康科技", scene: "平台侧全量页面；企业微信扫码则以「系统管理员」身份进入" },
-  { userId: "u-lihang", account: "lihang", name: "李航", roleName: "药厂销售管理员", orgName: "西北大区", scene: "药厂销售主线；微信开放平台扫码则以定制角色「药厂区域销售经理」进入" },
-  { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "药厂合规管理员", orgName: "合规部", scene: "备案审核与服务商准入审核" },
-  { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", scene: "任务承接、绩效与准入资料；企业微信扫码可登录；双企业身份演示（东方恒业服务商管理员 / 百益制药药厂合规）" },
-  { userId: "u-liuyang", account: "liuyang", name: "刘洋", roleName: "工作组长", orgName: "工作组一", scene: "工作组分派与初审" },
-  { userId: "u-yangming", account: "yangming", name: "杨明", roleName: "服务专员", orgName: "工作组三", scene: "多药厂服务专员：后台登录后选择服务药厂进入对应业务范围（含一家合作暂停）" },
-  { userId: "u-huangfeng", account: "huangfeng", name: "黄峰", roleName: "服务专员", orgName: "工作组三", scene: "单药厂服务专员：后台登录后自动收敛为唯一服务药厂" },
-  { userId: "u-zhengjie", account: "zhengjie", name: "郑洁", roleName: "账户管理员", orgName: "华东大区", scene: "用户建档、启停与账户解锁" },
+  // ── 平台侧 ──
+  { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "平台系统管理员", orgName: "平台系统部", group: "platform", tags: ["平台工作台", "免角色确认"], enterpriseCode: "M8QT3ZRN", phone: "13901350101", scene: "平台唯一预置角色：认证成功直接进入平台工作台（无角色确认页），管理租户/菜单/合作监管/平台审计" },
+  // 平台侧运行时租户的待激活管理员（种子租户：云杏生物/泰合医学推广；「恢复演示数据」可复位重演）
+  { userId: "u-rt-zhouting", account: "rt-zhouting", name: "周婷", roleName: "企业管理员", orgName: "云杏生物医药有限公司", group: "platform", tags: ["平台开户·首登激活", "药厂租户"], enterpriseCode: "R8NV3KQ2", phone: "13809120116", scene: "待激活药厂管理员：验证码通过即激活并提示「账号已激活，欢迎加入」，单角色直入药厂工作台，租户转「正常」（配套王敏的平台建租户动作；服务商租户同类场景同理）" },
+  // ── 药厂侧（百益制药） ──
+  { userId: "u-shenyue", account: "shenyue", name: "沈悦", roleName: "企业管理员", orgName: "信息技术部", group: "pharma", tags: ["组织/用户/角色授权主线"], enterpriseCode: "E9K4P7X2", phone: "13901350121", scene: "药厂企业管理主线：本药厂组织架构、用户、角色与数据范围（唯一授权入口）" },
+  { userId: "u-lihang", account: "lihang", name: "李航", roleName: "企业管理员", orgName: "西北大区", group: "pharma", tags: ["角色确认双选"], enterpriseCode: "E9K4P7X2", phone: "13901350102", scene: "「企业管理员 · 西北大区」；另持有定制角色「药厂区域销售经理」→ 角色确认页双选项" },
+  { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "企业管理员", orgName: "合规部", group: "pharma", tags: ["备案/准入审核"], enterpriseCode: "E9K4P7X2", phone: "13901350103", scene: "「企业管理员 · 合规部」：备案审核、服务商准入审核（通过即创建合作关系）与合作关系暂停" },
+  // ── 服务商侧 ──
+  { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", group: "provider", tags: ["双企业身份", "配药厂范围"], enterpriseCode: "W6HK2T9V", phone: "13809120104", scene: "双企业身份：东方恒业编码登录=服务商管理员（可演示给员工配不同药厂范围）；百益制药编码（E9K4P7X2）登录=企业管理员 · 合规部" },
+  { userId: "u-liuyang", account: "liuyang", name: "刘洋", roleName: "工作组组长", orgName: "工作组一", group: "provider", tags: ["任务分派与初审"], enterpriseCode: "F3JN7QX4", phone: "13809120105", scene: "工作组分派与初审（智联科技成员；用百益编码登录可演示非成员防枚举）" },
+  { userId: "u-yangming", account: "yangming", name: "杨明", roleName: "服务专员", orgName: "工作组三", group: "provider", tags: ["选药厂门页·四状态", "专员执行"], enterpriseCode: "W6HK2T9V", phone: "13809120106", scene: "四卡门页：百益服务中 / 华康备案待审核（可进入+警告）/ 康宁合作暂停（禁用）/ 泽康业务授权已撤销（禁用）；专员名下仅一家可用药厂时不出选择列表、自动直达" },
+  // ── 登录状态与拦截演示 ──
+  { userId: "u-hejing", account: "hejing", name: "何静", roleName: "工作组组长", orgName: "工作组三", group: "status", tags: ["待激活·首登放行"], enterpriseCode: "W6HK2T9V", phone: "13809120113", scene: "待激活新成员：验证码校验成功后自动激活并提示「账号已激活，欢迎加入」" },
+  { userId: "u-hanlei", account: "hanlei", name: "韩磊", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", group: "status", tags: ["冻结拦截", "双企业对照"], enterpriseCode: "W6HK2T9V", phone: "13809120114", scene: "企业级成员身份冻结：东方恒业编码登录被拒（成员身份已冻结）；百益编码（E9K4P7X2）登录=企业管理员，不受影响" },
 ]
 
 /**
- * 服务专员名下的服务药厂授权（多租户演示口径）：
- * 登录后由「选择服务药厂」步骤确定本次业务数据范围；列表为空或全部暂停的
- * 纯移动端账号维持「仅限移动端」拦截。药厂名与组织树/种子任务的持有方口径一致。
+ * 服务专员名下的服务药厂不在本文件静态维护：可进入药厂由 cooperationModel
+ * 实时派生（员工被授予 ∧ 合作生效 ∧ 药厂对服务商业务授权有效）。
+ * 状态口径：status = 合作语义（active/paused）；blockedKind = 硬阻断
+ * （合作暂停/终止、业务授权撤销、未分配范围）；warningKind = 备案类警告
+ * （不阻断进入，仅拦学术拜访）。员工可处理药厂的唯一配置入口 =
+ * 「角色与数据范围」页的「已授权成员」页签（pharmaTenantIds / varietyNames）。
  */
-export const SPECIALIST_SERVING_PHARMAS: Record<string, ServingPharma[]> = {
-  "u-yangming": [
-    {
-      id: "pharma-baiyi",
-      name: "百益制药",
-      status: "active",
-      workGroup: "工作组三",
-      regions: "陕西省",
-      lastUsedAt: "2026-09-10 18:32",
-    },
-    {
-      id: "pharma-huakang",
-      name: "华康药业",
-      status: "active",
-      workGroup: "西北推广组",
-      regions: "陕西省、甘肃省",
-      lastUsedAt: "2026-09-08 17:20",
-    },
-    {
-      id: "pharma-kangning",
-      name: "康宁制药",
-      status: "paused",
-      pausedAt: "2026-08-31",
-      pausedReason: "合作授权已暂停",
-    },
-  ],
-  "u-huangfeng": [
-    { id: "pharma-baiyi", name: "百益制药", status: "active" },
-  ],
-}
 
 /**
  * 模拟的外部扫码身份池（真实产品分别来自企业微信通讯录与微信开放平台 unionid）。

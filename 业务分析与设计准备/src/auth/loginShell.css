@@ -68,24 +68,87 @@
     background: rgba(255,255,255,0.95);
     border: 1px solid var(--lg-input-border);
     border-radius: 10px;
-    color: var(--lg-text-1); font-size: 14px; font-family: inherit;
+    color: var(--lg-text-1); font-size: var(--fs-14); font-family: inherit;
     outline: none; transition: border-color 200ms ease, box-shadow 200ms ease;
   }
   .lg-field::placeholder { color: rgba(26,43,66,0.3); }
   .lg-field:focus { border-color: var(--lg-brand); box-shadow: 0 0 0 3px rgba(25,197,154,0.12), 0 1px 3px rgba(0,0,0,0.06); }
   .lg-field[aria-invalid="true"] { border-color: #DC2626; }
   .lg-field[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px rgba(220,38,38,0.1); }
-  .lg-label { display: block; font-size: 12px; font-weight: 500; color: rgba(26,43,66,0.5); margin-bottom: 7px; letter-spacing: 0.02em; }
+  .lg-label { display: block; font-size: var(--fs-13); font-weight: 500; color: rgba(26,43,66,0.55); margin-bottom: 8px; }
   .lg-error-pill {
-    padding: 10px 13px; background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.2);
-    border-radius: 9px; color: #C83232; font-size: 13px;
+    padding: 10px 12px; background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 9px; color: #C83232; font-size: var(--fs-13);
     display: flex; align-items: center; gap: 8px; line-height: 1.5;
   }
   .lg-error-pill svg { flex-shrink: 0; }
 
+  /* 两段式步骤指示（1 企业验证 › 2 短信验证） */
+  .lg-stepchip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 999px; font-size: var(--fs-12);
+    border: 1px solid rgba(200,215,235,0.8); background: rgba(255,255,255,0.7);
+    color: rgba(26,43,66,0.55); white-space: nowrap;
+  }
+
+  /* 登录卡内小条提示（成功/警告/信息），配合 aria-live 状态区 */
+  .lg-ok-note, .lg-warn-note, .lg-info-note {
+    display: flex; align-items: center; gap: 6px;
+    font-size: var(--fs-13); line-height: 1.5; padding: 2px 0;
+  }
+  .lg-ok-note { color: #0D9B7A; }
+  .lg-warn-note { color: #B45309; }
+  .lg-info-note { color: rgba(26,43,66,0.5); }
+
+  /* 本设备记住的企业：快捷条目（点击仅回填编码并重新解析） */
+  .lg-memo-row {
+    display: flex; align-items: stretch; gap: 0;
+    border: 1px solid rgba(200,215,235,0.8); border-radius: 10px;
+    background: rgba(255,255,255,0.9); overflow: hidden;
+  }
+  .lg-memo-main {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; border: none; background: none; cursor: pointer;
+    font-family: inherit; text-align: left; color: var(--lg-text-1);
+    transition: background 150ms ease;
+  }
+  .lg-memo-main:hover:not(:disabled) { background: rgba(25,197,154,0.06); }
+  .lg-memo-main:disabled, .lg-memo-del:disabled { cursor: not-allowed; opacity: 0.55; }
+  .lg-memo-main svg { color: var(--lg-brand-dim); flex-shrink: 0; }
+  .lg-memo-name {
+    font-size: var(--fs-13); font-weight: 500; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lg-memo-code { font-size: var(--fs-12); color: #0D9B7A; letter-spacing: 0.06em; flex-shrink: 0; }
+  .lg-memo-del {
+    flex-shrink: 0; width: 34px; border: none; border-left: 1px solid rgba(200,215,235,0.6);
+    background: none; cursor: pointer; color: rgba(26,43,66,0.3);
+    display: flex; align-items: center; justify-content: center;
+    transition: color 150ms ease, background 150ms ease;
+  }
+  .lg-memo-del:hover:not(:disabled) { color: #C83232; background: rgba(239,68,68,0.05); }
+
+  /* 第 2 段：已识别企业条 + 切换企业 */
+  .lg-ent-chip {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 12px;
+    background: rgba(25,197,154,0.05); border: 1px solid rgba(25,197,154,0.22);
+    color: var(--lg-brand-dim);
+  }
+  .lg-ent-chip-name {
+    font-size: var(--fs-14); font-weight: 600; color: var(--lg-text-1); line-height: 1.3;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lg-ent-switch {
+    flex-shrink: 0; border: none; background: none; cursor: pointer;
+    font-family: inherit; font-size: var(--fs-13); color: var(--lg-brand-dim);
+    padding: 4px 6px; border-radius: 6px; transition: background 150ms ease;
+  }
+  .lg-ent-switch:hover { background: rgba(25,197,154,0.1); }
+
   .lg-tab {
     flex: 1; background: none; border: none; padding: 0 0 12px; cursor: pointer;
-    font-size: 13px; font-family: inherit; letter-spacing: 0.01em;
+    font-size: var(--fs-13); font-family: inherit; letter-spacing: 0;
     color: rgba(26,43,66,0.42); position: relative; transition: color 200ms ease;
   }
   .lg-tab[aria-selected="true"] { color: var(--lg-brand); font-weight: 500; }
@@ -102,7 +165,7 @@
 
   .lg-submit {
     width: 100%; height: 50px; border-radius: 11px; border: none; cursor: pointer;
-    color: #FFFFFF; font-size: 15px; font-weight: 500; letter-spacing: 0.01em; font-family: inherit;
+    color: #FFFFFF; font-size: var(--fs-15); font-weight: 500; letter-spacing: 0; font-family: inherit;
     display: flex; align-items: center; justify-content: center; gap: 8px;
     background: linear-gradient(135deg, #0E8F76 0%, #13A98D 50%, #19C59A 100%);
     transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
@@ -113,7 +176,7 @@
 
   .lg-btn-solid {
     height: 34px; padding: 0 14px; border-radius: 9px; border: none; cursor: pointer;
-    color: #FFFFFF; font-size: 13px; font-weight: 500; font-family: inherit;
+    color: #FFFFFF; font-size: var(--fs-13); font-weight: 500; font-family: inherit;
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     background: linear-gradient(135deg, #0E8F76 0%, #13A98D 50%, #19C59A 100%);
     transition: filter 150ms ease, opacity 150ms ease;
@@ -123,7 +186,7 @@
   .lg-btn-soft {
     height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
     border: 1px solid rgba(25,197,154,0.3); background: rgba(25,197,154,0.06);
-    color: var(--lg-brand-dim); font-size: 13px; font-weight: 500; font-family: inherit;
+    color: var(--lg-brand-dim); font-size: var(--fs-13); font-weight: 500; font-family: inherit;
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     transition: background 150ms ease, opacity 150ms ease;
   }
@@ -135,7 +198,7 @@
     background: rgba(26,43,66,0.04); border-radius: 10px;
   }
   .lg-seg-btn {
-    height: 32px; font-size: 13px; font-family: inherit; cursor: pointer;
+    height: 32px; font-size: var(--fs-13); font-family: inherit; cursor: pointer;
     border: none; border-radius: 8px; background: transparent;
     color: rgba(26,43,66,0.45); font-weight: 500; transition: all 150ms ease;
   }
@@ -170,14 +233,59 @@
   .lg-anim-4 { animation: lgFadeInUp 0.55s 0.38s both cubic-bezier(0.16,1,0.3,1); }
   .lg-anim-card { animation: lgFadeInBlur 0.7s 0.2s both cubic-bezier(0.16,1,0.3,1); }
 
-  .lg-demo-row {
-    width: 100%; background: none; cursor: pointer; padding: 10px 14px;
-    display: flex; align-items: center; justify-content: space-between;
-    border: none; border-bottom: 1px solid rgba(200,215,235,0.3);
-    font-family: inherit; text-align: left; transition: background 150ms ease;
+  /* 演示账号速查：卡片底部弹框入口 */
+  .lg-demo-entry {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 999px;
+    border: 1px dashed rgba(25,197,154,0.4); background: rgba(25,197,154,0.05);
+    color: rgba(26,43,66,0.55); font-size: var(--fs-12); font-family: inherit;
+    cursor: pointer; transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
   }
-  .lg-demo-row:last-child { border-bottom: none; }
+  .lg-demo-entry:hover { color: #0D9B7A; border-color: rgba(25,197,154,0.65); background: rgba(25,197,154,0.09); }
+  .lg-demo-entry-count { color: rgba(26,43,66,0.35); font-size: 10px; }
+  .lg-demo-entry:hover .lg-demo-entry-count { color: rgba(13,155,122,0.7); }
+
+  /* 演示账号速查（弹框内）：分组头 + 行（主按钮区 + ⓘ 展开按钮）。
+     组头 sticky 吸顶，背景必须不透明——半透明会让滚过的账号行文字透出来叠字 */
+  .lg-demo-group {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    padding: 8px 14px 6px; background: #F3FCFA;
+    border-bottom: 1px solid rgba(200,215,235,0.3);
+    position: sticky; top: 0; z-index: 1;
+  }
+  .lg-demo-group-label {
+    font-size: var(--fs-11); font-weight: 700; color: #0D9B7A; letter-spacing: 0.05em;
+  }
+  .lg-demo-group-hint { font-size: 10px; color: rgba(26,43,66,0.35); }
+  .lg-demo-row {
+    display: flex; align-items: stretch;
+    border-bottom: 1px solid rgba(200,215,235,0.3);
+    transition: background 150ms ease;
+  }
   .lg-demo-row:hover { background: rgba(25,197,154,0.05); }
+  .lg-demo-row:last-child { border-bottom: none; }
+  .lg-demo-main {
+    flex: 1; min-width: 0; display: flex; align-items: center;
+    background: none; border: none; cursor: pointer; font-family: inherit;
+    padding: 10px 6px 10px 14px; text-align: left;
+  }
+  .lg-demo-more {
+    flex-shrink: 0; width: 32px; height: 26px; margin: auto 10px auto 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; border: 1px solid rgba(200,215,235,0.75);
+    background: rgba(255,255,255,0.65); color: rgba(26,43,66,0.38);
+    cursor: pointer; transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+  }
+  .lg-demo-more:hover { color: #0D9B7A; border-color: rgba(25,197,154,0.45); background: rgba(25,197,154,0.07); }
+  .lg-demo-more[aria-expanded="true"] {
+    color: #FFFFFF; background: linear-gradient(135deg, #0E8F76, #19C59A); border-color: transparent;
+  }
+  .lg-demo-tag {
+    display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px;
+    font-size: 10px; font-weight: 600; line-height: 1.6; letter-spacing: 0.02em;
+    color: #0D9B7A; background: rgba(25,197,154,0.09); border: 1px solid rgba(25,197,154,0.28);
+    white-space: nowrap;
+  }
   .lg-copy-btn {
     background: none; border: none; cursor: pointer; color: rgba(26,43,66,0.3);
     padding: 2px; display: flex; transition: color 150ms ease;
@@ -185,6 +293,27 @@
   .lg-copy-btn:hover { color: var(--lg-brand); }
 
   .login-shell :focus-visible { outline: 2px solid rgba(25,197,154,0.65); outline-offset: 2px; }
+
+  /* ── 窄屏（≤480px）：登录卡 320px 不裁切 ─────────────────────────────── */
+  @media (max-width: 480px) {
+    .login-main { padding: 16px 16px 32px; }
+    .lg-card { border-radius: 16px !important; padding: 20px 16px !important; }
+    .login-mobile-brand { padding: 12px 4px 0; }
+    /* 「输入 + 行内按钮」空间不足时纵向排列，按钮整行 */
+    .lg-field-row { flex-direction: column; }
+    .lg-field-row > button { width: 100%; height: 44px; }
+    /* 验证码分格弹性收缩（6 格 + 5 间隙在 288px 内容宽内可用） */
+    .lg-codeboxes { flex-wrap: nowrap; }
+    .lg-codeboxes input {
+      width: auto !important;
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: 48px;
+      height: 44px;
+    }
+    .lg-memo-main { padding: 8px 12px; }
+    .lg-memo-del { width: 40px; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .lg-blob, .lg-scanline, .lg-qr-card, .lg-dot,

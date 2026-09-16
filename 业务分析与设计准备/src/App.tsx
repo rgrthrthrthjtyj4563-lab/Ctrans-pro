@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, createContext, useCo
 import {
   ChevronDown,
   ChevronRight,
+  Menu,
   Bell,
   Search,
   LogOut,
@@ -12,6 +13,7 @@ import {
   TabletSmartphone,
   Repeat,
   Presentation,
+  ArrowLeftRight,
   type LucideIcon,
 } from "lucide-react"
 import { Dashboard } from "./pages/Dashboard"
@@ -20,7 +22,7 @@ import { TaskExecution } from "./pages/TaskExecution"
 import { BudgetPlanPage } from "./pages/BudgetPlan"
 import { BudgetAnalysis } from "./pages/BudgetAnalysis"
 import { VarietyManage } from "./pages/VarietyManage"
-import { VarietyAuth } from "./pages/VarietyAuth"
+import { BusinessAuthorization } from "./pages/BusinessAuthorization"
 import { PriceTableConfig } from "./pages/PriceTableConfig"
 import { DoctorMaster } from "./pages/DoctorMaster"
 import { Settlement } from "./pages/Settlement"
@@ -29,7 +31,6 @@ import { RepFilingManage } from "./pages/RepFilingManage"
 import { VendorAccessManage } from "./pages/VendorAccessManage"
 import { RoleManage } from "./pages/RoleManage"
 import { RolePreview } from "./pages/RolePreview"
-import { UserOrgManage } from "./pages/UserOrgManage"
 import { ExecutionChainConfig } from "./pages/ExecutionChainConfig"
 import { MenuManage } from "./pages/MenuManage"
 import { PerformanceTeamQuality } from "./pages/PerformanceTeamQuality"
@@ -43,6 +44,13 @@ import { PharmaConfigSwitch } from "./pages/PharmaConfigSwitch"
 import { BizDetailExport } from "./pages/BizDetailExport"
 import { TalkScriptVariety } from "./pages/TalkScriptVariety"
 import { ScenarioCenter } from "./pages/ScenarioCenter"
+import { TenantManagement } from "./pages/TenantManagement"
+import { OrgStructure } from "./pages/OrgStructure"
+import { UserManage } from "./pages/UserManage"
+import { WorkGroupManage } from "./pages/WorkGroupManage"
+import { PharmaCooperation } from "./pages/PharmaCooperation"
+import { ProviderPartners } from "./pages/ProviderPartners"
+import { CooperationSupervision } from "./pages/CooperationSupervision"
 import { TalkScriptProvider } from "./context/TalkScriptContext"
 import { AICreditProvider } from "./context/AICreditContext"
 import { BrandLogo } from "./components/Brand"
@@ -55,15 +63,18 @@ import { DisplayPreferenceProvider } from "./context/DisplayPreferenceContext"
 import { PermissionProvider, usePermission } from "./context/PermissionContext"
 import { VendorAccessProvider } from "./context/VendorAccessContext"
 import { RepFilingProvider } from "./context/RepFilingContext"
-import { RESOURCE_PAGES } from "./data/permissions"
-import { buildNavGroups, seedMenuItems, type NavItem } from "./data/menus"
+import { RESOURCE_PAGES, identityLabel } from "./data/permissions"
+import { buildNavGroups, seedMenuItems, workspaceOfPrincipal, type MenuSeedItem, type NavItem } from "./data/menus"
 import { AuthProvider, useAuth } from "./auth/AuthProvider"
 import { LoginPage } from "./auth/LoginPage"
 import { authGateway } from "./auth/mockGateway"
-import { DEMO_ACCOUNT_HINTS, DEMO_PASSWORD, PLATFORM_ROLE_IDS } from "./auth/authProfiles"
+import { DEMO_ACCOUNT_GROUPS, DEMO_ACCOUNT_HINTS, DEMO_PASSWORD } from "./auth/authProfiles"
 import { IdentityConfirmGate } from "./auth/IdentityConfirmGate"
 import { PharmaGate } from "./auth/PharmaGate"
-import type { AuthPrincipal, ServingPharma } from "./auth/authTypes"
+import { LoginBackdrop } from "./auth/LoginBackdrop"
+import { EnterpriseSwitchGate } from "./auth/EnterpriseSwitchGate"
+import { currentPharmaOf, principalWorkspaceName, type AuthPrincipal, type AuthSession, type ServingPharma, type SwitchableEnterprise, type TenantPrincipal } from "./auth/authTypes"
+import { useCooperationRevision } from "./hooks/useServingBizScope"
 import type { MenuItem, NavFocus, NavigateFn, PageId } from "./types"
 
 const pageLabels: Record<string, string> = {
@@ -78,18 +89,24 @@ const pageLabels: Record<string, string> = {
   "task-dispatch": "任务执行",
   doctors: "医生主数据",
   varieties: "品种信息",
-  "variety-auth": "品种授权",
-  "rep-filing": "医药代表备案管理",
+  "variety-auth": "业务授权",
+  "pharma-cooperation": "合作关系",
+  "provider-partners": "合作药厂与业务授权",
+  "rep-filing": "服务人员备案",
   "vendor-access": "服务商准入",
   "vendor-access-records": "提交记录",
   settlement: "结算明细",
   "business-switch": "药厂配置开关",
   "price-config": "价目表配置",
-  roles: "角色管理",
+  roles: "角色与数据范围",
   menus: "菜单管理",
   "role-preview": "角色预览",
-  departments: "用户与组织",
-  "audit-log": "操作日志",
+  "org-structure": "组织架构",
+  "user-manage": "用户管理",
+  "workgroup-manage": "工作组管理",
+  "audit-log": "企业审计日志",
+  "platform-audit": "平台审计日志",
+  "cooperation-supervision": "合作关系监管",
   "execution-chain": "执行链路配置",
   "performance-team": "团队工作质量评价",
   "performance-specialist": "服务专员绩效",
@@ -98,38 +115,46 @@ const pageLabels: Record<string, string> = {
   "talk-script-variety": "品种话术维护",
   "baiyee-ai": "baiyee-AI",
   "scenario-center": "业务搭建中心",
+  "tenant-management": "平台管理",
 }
 
 const pageSections: Record<string, string> = {
-  "hospital-visits": "业务数据",
-  "commercial-visits": "业务数据",
-  "pharmacy-visits": "业务数据",
-  meetings: "业务数据",
-  surveys: "业务数据",
-  "budget-plan": "任务管理",
-  analytics: "任务管理",
-  "task-dispatch": "任务管理",
-  settlement: "绩效管理",
-  "performance-team": "绩效管理",
-  "performance-specialist": "绩效管理",
-  "performance-settings": "绩效管理",
-  doctors: "品种管理",
-  varieties: "品种管理",
-  "variety-auth": "品种管理",
-  "rep-filing": "合规管理",
-  "vendor-access": "合规管理",
-  "vendor-access-records": "服务商准入",
-  "business-switch": "系统管理",
-  "price-config": "价目管理",
-  roles: "权限管理",
-  menus: "系统管理",
-  "role-preview": "权限管理",
-  departments: "权限管理",
-  "audit-log": "系统管理",
-  "execution-chain": "系统管理",
-  "biz-detail-export": "统计管理",
-  "talk-script-variety": "话术管理",
+  "hospital-visits": "业务管理",
+  "commercial-visits": "业务管理",
+  "pharmacy-visits": "业务管理",
+  meetings: "业务管理",
+  surveys: "业务管理",
+  "budget-plan": "业务管理",
+  analytics: "业务管理",
+  "task-dispatch": "业务管理",
+  settlement: "业务管理",
+  "performance-team": "业务管理",
+  "performance-specialist": "业务管理",
+  "performance-settings": "业务管理",
+  doctors: "基础数据",
+  varieties: "基础数据",
+  "variety-auth": "合作与授权",
+  "pharma-cooperation": "合作与授权",
+  "provider-partners": "合作管理",
+  "rep-filing": "合作与授权",
+  "vendor-access": "合作与授权",
+  "vendor-access-records": "合作管理",
+  "business-switch": "基础数据",
+  "price-config": "基础数据",
+  roles: "企业管理",
+  menus: "平台管理",
+  "role-preview": "企业管理",
+  "org-structure": "企业管理",
+  "user-manage": "企业管理",
+  "workgroup-manage": "企业管理",
+  "audit-log": "企业管理",
+  "platform-audit": "平台管理",
+  "cooperation-supervision": "平台管理",
+  "execution-chain": "基础数据",
+  "biz-detail-export": "业务管理",
+  "talk-script-variety": "业务管理",
   "scenario-center": "扩展能力",
+  "tenant-management": "平台管理",
 }
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
@@ -377,7 +402,7 @@ function NavGroup({
               badge={child.badge}
               disabled={child.disabled}
               collapsed={false}
-              onClick={() => onNavigate(child.id)}
+              onClick={() => onNavigate(child.id as PageId)}
             />
           ))}
         </div>
@@ -424,7 +449,7 @@ function NavGroup({
               collapsed={false}
               onClick={() => {
                 setFlyoutAt(null)
-                onNavigate(child.id)
+                onNavigate(child.id as PageId)
               }}
             />
           ))}
@@ -514,6 +539,46 @@ function StubPage({
 /** 会话级 Toast：挂在 Workbench 外层，切换服务药厂重建业务树时提示不丢失 */
 const SessionToastContext = createContext<(msg: Omit<ToastMessage, "id">) => void>(() => {})
 
+/**
+ * 首门页实时化（P0-C）：门页停留期间，药厂侧暂停合作/撤销授权（含跨 tab 同步）
+ * → 重拉名下服务药厂列表，禁用/警告状态即时刷新，不待下次登录。
+ */
+function PharmaGateFirst({
+  session,
+  onEnter,
+  onChangeAccount,
+}: {
+  session: AuthSession;
+  onEnter: (pharmaId: string) => Promise<boolean>;
+  onChangeAccount: () => void;
+}) {
+  const revision = useCooperationRevision()
+  const [pharmas, setPharmas] = useState<ServingPharma[]>(session.pendingPharmas ?? [])
+  const principalUserId = session.principal.userId
+  const providerTenantId = session.principal.realm === "TENANT" ? session.principal.tenantId : null
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      if (!providerTenantId) return
+      const fresh = await authGateway.listServingPharmas(principalUserId, providerTenantId)
+      if (alive && Array.isArray(fresh) && fresh.length > 0) setPharmas(fresh)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [revision, principalUserId, providerTenantId])
+  return (
+    <PharmaGate
+      principal={session.principal as TenantPrincipal}
+      pharmas={pharmas}
+      mode="first"
+      activationNotice={session.activationNotice}
+      onEnter={onEnter}
+      onChangeAccount={onChangeAccount}
+    />
+  )
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -523,7 +588,7 @@ export default function App() {
 }
 
 function Root() {
-  const { session, setSession, signOut } = useAuth()
+  const { session, setSession, signOut, restoreState, restoreNotice, dismissRestoreNotice } = useAuth()
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const addToast = useCallback((msg: Omit<ToastMessage, "id">) => {
     const id = `root-toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -533,17 +598,49 @@ function Root() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
+  // 待激活账号首次登录：会话携带一次性 activationNotice，由业务壳层挂载时消费
+  // （登录页组件在 setSession 后即卸载，toast 不能落在登录页自身）。
+  // 带待选药厂的会话走门页：激活欢迎由门页庆祝弹框独家承载，壳层不再弹 toast（避免双提示）。
+  const activationNotifiedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!session?.activationNotice) return
+    if (session.pendingPharmas && session.pendingPharmas.length > 0) return
+    if (activationNotifiedFor.current === session.id) return
+    activationNotifiedFor.current = session.id
+    addToast({ type: "success", title: session.activationNotice })
+  }, [session, addToast])
+
+  // 默认登录自动进入（FR-03）：恢复成功后一次性 toast；登录页组件已卸载不承载提示
+  const restoreNotifiedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (session?.restoredFrom !== "default-login") return
+    if (restoreNotifiedFor.current === session.id) return
+    restoreNotifiedFor.current = session.id
+    addToast({
+      type: "success",
+      title: `已默认进入${principalWorkspaceName(session.principal)}`,
+      description: "本设备已记住默认登录，退出登录后失效。",
+    })
+  }, [session, addToast])
+
   let content: ReactNode
-  if (!session) {
-    content = <LoginPage />
+  if (restoreState === "restoring") {
+    // 启动恢复中：占位避免闪现登录页（AC-01/03 的直进观感）
+    content = <RestoreSplash />
+  } else if (!session) {
+    content = (
+      <LoginPage restoreNotice={restoreNotice} onDismissRestoreNotice={dismissRestoreNotice} />
+    )
   } else if (!session.identityConfirmed) {
     content = (
       <IdentityConfirmGate
         session={session}
-        onConfirm={async (assignmentId) => {
+        onConfirm={async (roleId) => {
           const result = await authGateway.chooseLoginIdentity({
             userId: session.principal.userId,
-            assignmentId,
+            roleId,
+            // 工作空间上下文贯穿：仅在本次认证域内重解选项（平台域/租户域分离）
+            workspaceId: session.principal.workspaceId,
             method: session.method,
             qrSource: session.qrSource,
           })
@@ -560,17 +657,18 @@ function Root() {
   } else if (
     session.pendingPharmas &&
     session.pendingPharmas.length > 0 &&
-    session.principal.roleName === "服务专员"
+    session.principal.realm === "TENANT" &&
+    !session.principal.currentPharmaTenantId
   ) {
     content = (
-      <PharmaGate
-        principal={session.principal}
-        pharmas={session.pendingPharmas}
-        mode="first"
+      <PharmaGateFirst
+        session={session}
         onEnter={async (pharmaId) => {
           const result = await authGateway.chooseServingPharma({
             userId: session.principal.userId,
             pharmaId,
+            // 基于当前会话主体叠加服务药厂字段（不重新解析，角色不回退默认主角色）
+            principal: session.principal,
             method: session.method,
             qrSource: session.qrSource,
           })
@@ -596,11 +694,54 @@ function Root() {
   )
 }
 
-/** 平台侧角色走管理工作台；其余按旧三类视角落在药厂/服务商工作台（集合定义在 authProfiles） */
+/** 启动恢复占位（FR-03）：默认登录校验期间避免闪现登录页 */
+function RestoreSplash() {
+  return (
+    <div
+      className="login-shell"
+      style={{ position: "fixed", inset: 0, background: "#F4F7FB", overflow: "hidden" }}
+    >
+      <LoginBackdrop />
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: "relative",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 14,
+          color: "rgba(26,43,66,0.6)",
+          fontSize: "var(--fs-14)",
+        }}
+      >
+        <span className="auth-gate-spin" aria-hidden />
+        正在恢复上次登录…
+      </div>
+    </div>
+  )
+}
 
+/**
+ * 工作台变体：权限域直接决定平台工作台；租户域按当前身份所属租户类型
+ * （tenantKind）决定药厂/服务商工作台——不再按旧视角或角色 id 集合推断。
+ */
 function dashboardVariantOf(principal: AuthPrincipal): "pharma" | "provider" | "platform" {
-  if (PLATFORM_ROLE_IDS.has(principal.roleId)) return "platform"
-  return principal.perspective === "服务提供商" ? "provider" : "pharma"
+  if (principal.realm === "PLATFORM") return "platform"
+  return principal.tenantKind === "provider" ? "provider" : "pharma"
+}
+
+/** 响应式断点（清单 §11.4 业务后台窄屏策略） */
+function useViewport() {
+  const [width, setWidth] = useState(() => (typeof window === "undefined" ? 1440 : window.innerWidth))
+  useEffect(() => {
+    const on = () => setWidth(window.innerWidth)
+    window.addEventListener("resize", on)
+    return () => window.removeEventListener("resize", on)
+  }, [])
+  return { width, isNarrow: width < 768, isTablet: width >= 768 && width < 1200 }
 }
 
 function Workbench({ principal }: { principal: AuthPrincipal }) {
@@ -637,17 +778,52 @@ function AppShell() {
   } = usePermission()
   const { session, setSession, signOut } = useAuth()
   const dashboardVariant = dashboardVariantOf(principal)
+  /** 两域统一显示量：角色名 / 工作空间名 / 当前服务药厂 / 组织标签 / 数据范围摘要 */
+  const principalRole = principal.realm === "PLATFORM" ? principal.platformRoleName : principal.activeRoleName
+  const workspaceName = principal.realm === "PLATFORM" ? principal.workspaceName : principal.tenantName
+  const workspaceKindLabel =
+    principal.realm === "PLATFORM" ? "平台工作空间" : principal.tenantKind === "provider" ? "服务商租户" : "药厂租户"
+  const servingPharma = principal.realm === "TENANT" ? currentPharmaOf(principal) : undefined
+  const dataScopeLabel = principal.realm === "PLATFORM" ? principal.dutyScope : principal.dataScopeSummary
   const [currentPage, setCurrentPage] = useState<PageId>("dashboard")
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(() => seedMenuItems())
-  // 先按登录角色过滤菜单项再构建导航树：同一页面可被多个角色各自的菜单项绑定
-  // （vendor-access 双入口），必须用菜单项级可见性，不能在树建成后按页 ID 合并判断
+  // 响应式壳层（清单 §11.4）：≥1200 完整侧栏；768–1199 默认收起（图标模式）；<768 抽屉侧栏
+  const viewport = useViewport()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1200)
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false)
+  // 跨断点切换时收敛抽屉态，避免宽屏残留遮罩
+  useEffect(() => {
+    if (!viewport.isNarrow) setNavDrawerOpen(false)
+  }, [viewport.isNarrow])
+  const [menuItems, setMenuItems] = useState<MenuSeedItem[]>(() => seedMenuItems())
+  /**
+   * 菜单显示统一口径（不再按旧视角/角色名隐藏）：
+   *   ① 工作空间：platform 项只进平台树，pharma/provider 项只进对应租户树；
+   *   ② 功能权限：pagePerms 含该页 view（visiblePages）；
+   *   ③ 页面权限域：ResourcePage.realms/tenantTypes 兜底（防菜单外入口）。
+   * 同一页面可在不同工作空间各绑定一个菜单项（vendor-access 双入口），
+   * 因此必须菜单项级过滤，不能树建成后按页 ID 合并判断。
+   */
+  const workspaceMenus = useMemo(
+    () => {
+      const allowed = workspaceOfPrincipal(principal.realm, principal.realm === "TENANT" ? principal.tenantKind : null)
+      return menuItems.filter((m) => m.enabled && allowed.includes(m.workspace))
+    },
+    [menuItems, principal],
+  )
   const roleVisibleMenuItems = useMemo(
     () =>
-      menuItems.filter(
-        (m) => m.enabled && !(m.hideForRoles ?? []).includes(currentRole),
-      ),
-    [menuItems, currentRole],
+      workspaceMenus.filter((m) => {
+        if (!m.pageId) return true
+        const page = RESOURCE_PAGES.find((p) => p.id === m.pageId)
+        if (page?.realms && !page.realms.includes(principal.realm)) return false
+        if (
+          page?.tenantTypes &&
+          (principal.realm !== "TENANT" || !page.tenantTypes.includes(principal.tenantKind))
+        )
+          return false
+        return true
+      }),
+    [workspaceMenus, principal],
   )
   const navGroups = useMemo(
     () => buildNavGroups(roleVisibleMenuItems),
@@ -674,18 +850,22 @@ function AppShell() {
   const [pharmaSwitchOpen, setPharmaSwitchOpen] = useState(false)
   const [switchPharmas, setSwitchPharmas] = useState<ServingPharma[] | null>(null)
   const openPharmaSwitch = useCallback(async () => {
-    if (!principal.servingPharmaName) return
+    if (!servingPharma?.name) return
     setShowUserMenu(false)
     setSwitchPharmas(null)
     setPharmaSwitchOpen(true)
-    setSwitchPharmas(await authGateway.listServingPharmas(principal.userId))
-  }, [principal.userId, principal.servingPharmaName])
+    if (principal.realm === "TENANT") {
+      setSwitchPharmas(await authGateway.listServingPharmas(principal.userId, principal.tenantId))
+    }
+  }, [principal.userId, servingPharma?.name])
   const handleSwitchPharma = useCallback(
     async (pharmaId: string) => {
       if (!session) return false
       const result = await authGateway.chooseServingPharma({
         userId: session.principal.userId,
         pharmaId,
+        // 基于当前会话主体换发（角色保持所选，不回退默认主角色）
+        principal: session.principal,
         method: session.method,
         qrSource: session.qrSource,
       })
@@ -694,8 +874,8 @@ function AppShell() {
         setSession(result.session)
         addToast({
           type: "success",
-          title: `已切换至${result.session.principal.servingPharmaName}`,
-          description: "所属企业与人员身份不变，业务数据已按所选药厂重置。",
+          title: `已切换至${result.session.principal.realm === "TENANT" ? result.session.principal.currentPharmaName : ""}`,
+          description: "业务数据已按所选药厂刷新，所属企业与人员身份不变。",
         })
         return true
       }
@@ -726,6 +906,57 @@ function AppShell() {
       setSession(result.session)
     },
     [addToast, setSession],
+  )
+
+  // 切换企业（免重新认证，FR-04~07）：可切换企业 ≥2 才展示菜单入口；
+  // 列表随菜单展开实时刷新（合作/成员状态变化即时反映，FR-05）
+  const [entSwitchOpen, setEntSwitchOpen] = useState(false)
+  const [switchableEnts, setSwitchableEnts] = useState<SwitchableEnterprise[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const list = await authGateway.listSwitchableEnterprises({
+        userId: principal.userId,
+        currentWorkspaceId: principal.workspaceId,
+      })
+      if (alive) setSwitchableEnts(list)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [principal.userId, principal.workspaceId, showUserMenu])
+  const openEnterpriseSwitch = useCallback(async () => {
+    setShowUserMenu(false)
+    const list = await authGateway.listSwitchableEnterprises({
+      userId: principal.userId,
+      currentWorkspaceId: principal.workspaceId,
+    })
+    setSwitchableEnts(list)
+    setEntSwitchOpen(true)
+  }, [principal.userId, principal.workspaceId])
+  const handleSwitchEnterprise = useCallback(
+    async (targetWorkspaceId: string) => {
+      if (!session) return false
+      const result = await authGateway.switchEnterprise({
+        userId: session.principal.userId,
+        targetWorkspaceId,
+        currentWorkspaceId: session.principal.workspaceId,
+        method: session.method,
+      })
+      if (result.ok) {
+        setEntSwitchOpen(false)
+        setSession(result.session)
+        addToast({
+          type: "success",
+          title: `已切换至${principalWorkspaceName(result.session.principal)}`,
+          description: "菜单、角色与数据范围已按目标企业重新加载。",
+        })
+        return true
+      }
+      addToast({ type: "error", title: "切换失败", description: result.failure.message })
+      return false
+    },
+    [session, setSession, addToast],
   )
 
   const navigate: NavigateFn = (page, focus) => {
@@ -779,23 +1010,23 @@ function AppShell() {
           />
         )
       case "hospital-visits":
-        return <VisitManagement addToast={addToast} currentRole={currentRole} />
+        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} />
       case "commercial-visits":
-        return <VisitManagement addToast={addToast} currentRole={currentRole} />
+        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} />
       case "pharmacy-visits":
-        return <VisitManagement addToast={addToast} currentRole={currentRole} />
+        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} />
       case "budget-plan":
         return (
           <BudgetPlanPage
             addToast={addToast}
-            currentRole={currentRole}
+            currentRole={currentRole ?? undefined}
             navigate={navigate}
           />
         )
       case "analytics":
         return (
           <BudgetAnalysis
-            currentRole={currentRole}
+            currentRole={currentRole ?? undefined}
             navigate={navigate}
             focus={navFocus}
           />
@@ -805,53 +1036,78 @@ function AppShell() {
           <TaskExecution
             addToast={addToast}
             navigate={navigate}
-            currentRole={currentRole}
+            currentRole={currentRole ?? undefined}
             navFocus={navFocus}
           />
         )
       case "doctors":
         return <DoctorMaster />
       case "varieties":
-        return <VarietyManage addToast={addToast} currentRole={currentRole} />
+        return <VarietyManage addToast={addToast} currentRole={currentRole ?? undefined} />
       case "variety-auth":
-        return <VarietyAuth addToast={addToast} currentRole={currentRole} />
+        return <BusinessAuthorization addToast={addToast} focusProviderTenantId={navFocus?.businessAuthProviderTenantId} />
+      case "pharma-cooperation":
+        return (
+          <PharmaCooperation
+            addToast={addToast}
+            onOpenAuthorization={(providerTenantId) =>
+              navigate("variety-auth", { businessAuthProviderTenantId: providerTenantId })
+            }
+          />
+        )
+      case "provider-partners":
+        return <ProviderPartners addToast={addToast} />
       case "price-config":
-        return <PriceTableConfig addToast={addToast} currentRole={currentRole} />
+        return <PriceTableConfig addToast={addToast} currentRole={currentRole ?? undefined} />
       case "settlement":
         return (
           <Settlement
             addToast={addToast}
-            currentRole={currentRole}
+            currentRole={currentRole ?? undefined}
             navigate={navigate}
           />
         )
       case "audit-log":
         return <AuditLog />
+      case "platform-audit":
+        return <AuditLog />
+      case "cooperation-supervision":
+        return <CooperationSupervision addToast={addToast} />
       case "menus":
-        return <MenuManage menuItems={menuItems} onChange={setMenuItems} addToast={addToast} />
+        return (
+          <MenuManage
+            menuItems={menuItems}
+            onChange={setMenuItems as (items: MenuItem[]) => void}
+            addToast={addToast}
+          />
+        )
       case "rep-filing":
-        return <RepFilingManage addToast={addToast} currentRole={currentRole} />
+        return <RepFilingManage addToast={addToast} currentRole={currentRole ?? undefined} />
       case "vendor-access":
         return (
-          <VendorAccessManage addToast={addToast} currentRole={currentRole} />
+          <VendorAccessManage addToast={addToast} currentRole={currentRole ?? undefined} />
         )
       case "vendor-access-records":
         return (
           <VendorAccessManage
             addToast={addToast}
-            currentRole={currentRole}
+            currentRole={currentRole ?? undefined}
             view="records"
           />
         )
       case "roles":
-        return <RoleManage addToast={addToast} navigate={navigate} />
+        return <RoleManage addToast={addToast} />
       case "role-preview":
         return <RolePreview addToast={addToast} navigate={navigate} />
-      case "departments":
-        return <UserOrgManage addToast={addToast} navFocus={navFocus} />
+      case "org-structure":
+        return <OrgStructure addToast={addToast} />
+      case "user-manage":
+        return <UserManage addToast={addToast} navFocus={navFocus} />
+      case "workgroup-manage":
+        return <WorkGroupManage addToast={addToast} />
       case "execution-chain":
         return (
-          <ExecutionChainConfig addToast={addToast} currentRole={currentRole} />
+          <ExecutionChainConfig addToast={addToast} currentRole={currentRole ?? undefined} />
         )
       case "performance-team":
         return <PerformanceTeamQuality addToast={addToast} />
@@ -860,21 +1116,23 @@ function AppShell() {
       case "performance-settings":
         return <PerformanceSettings addToast={addToast} operator={principal.name} />
       case "business-switch":
-        return <PharmaConfigSwitch addToast={addToast} currentRole={currentRole} />
+        return <PharmaConfigSwitch addToast={addToast} currentRole={currentRole ?? undefined} />
       case "biz-detail-export":
         return (
-          <BizDetailExport addToast={addToast} currentRole={currentRole} />
+          <BizDetailExport addToast={addToast} currentRole={currentRole ?? undefined} />
         )
       case "talk-script-variety":
         return (
           <TalkScriptVariety
             addToast={addToast}
-            currentRole={currentRole}
+            currentRole={currentRole ?? undefined}
             navigate={navigate}
           />
         )
       case "scenario-center":
         return <ScenarioCenter addToast={addToast} />
+      case "tenant-management":
+        return <TenantManagement addToast={addToast} />
       case "baiyee-ai":
         return <BaiyeeAI navigate={navigate} />
       default:
@@ -885,21 +1143,23 @@ function AppShell() {
   const SIDEBAR_W = sidebarCollapsed ? 60 : 240
   const notificationCount =
     dashboardVariant === "platform"
-      ? getPlatformWorkbenchData(principal.roleId, principal.roleName).unreadCount
-      : getRoleDashboardData(currentRole).unreadCount
+      ? getPlatformWorkbenchData(
+          principal.realm === "PLATFORM" ? principal.platformRoleId : "",
+          principal.realm === "PLATFORM" ? principal.platformRoleName : "",
+        ).unreadCount
+      : getRoleDashboardData(currentRole ?? '药厂销售部门').unreadCount
 
-  // 面包屑优先取当前角色可见的菜单项名称与所属目录（vendor-access 双角色各有入口名）
+  // 面包屑优先取当前身份可见的菜单项名称与所属目录（vendor-access 双域各有入口名）
   const menuMetaByPage = useMemo(() => {
     const map = new Map<string, { name: string; section: string }>()
-    for (const m of menuItems) {
+    for (const m of roleVisibleMenuItems) {
       if (m.type !== "page" || !m.pageId) continue
-      if (!m.enabled || (m.hideForRoles ?? []).includes(currentRole)) continue
       if (map.has(m.pageId)) continue
       const parent = menuItems.find((p) => p.id === m.parentId)
       map.set(m.pageId, { name: m.name, section: parent?.name ?? "" })
     }
     return map
-  }, [menuItems, currentRole])
+  }, [menuItems, roleVisibleMenuItems])
 
   const breadcrumb = (() => {
     const meta = menuMetaByPage.get(currentPage)
@@ -1018,8 +1278,16 @@ function AppShell() {
         overflow: "hidden",
       }}
     >
+      {/* 窄屏（<768px）抽屉遮罩：侧栏改抽屉，主内容占满（清单 §11.4） */}
+      {viewport.isNarrow && navDrawerOpen && (
+        <div
+          onClick={() => setNavDrawerOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1390, background: "rgba(17,24,39,0.45)" }}
+          aria-hidden
+        />
+      )}
       {/* Unmount original chrome on baiyee-AI. Do not hide with CSS: a later `display:'flex'` in this object previously overrode `none`. */}
-      {!isBaiyeeAI && (
+      {!isBaiyeeAI && (!viewport.isNarrow || navDrawerOpen) && (
         <aside
           style={{
             display: "flex",
@@ -1031,7 +1299,12 @@ function AppShell() {
             transition: "width 200ms cubic-bezier(0.25,0.46,0.45,0.94)",
             position: "relative",
             zIndex: showUserMenu ? 60 : 10,
+            /* 窄屏抽屉形态：固定定位覆盖主内容 */
+            ...(viewport.isNarrow
+              ? { position: "fixed" as const, left: 0, top: 0, bottom: 0, height: "100vh" as const, zIndex: 1400 }
+              : {}),
           }}
+          aria-label="主导航"
         >
           {/* Logo */}
           <div
@@ -1223,9 +1496,9 @@ function AppShell() {
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                       }}
-                      title={`${principal.orgName} · ${principal.roleName}`}
+                      title={identityLabel(principalRole, principal.orgName)}
                     >
-                      {principal.roleName}
+                      {identityLabel(principalRole, principal.orgName)}
                     </div>
                   </div>
                 )}
@@ -1280,7 +1553,7 @@ function AppShell() {
                         marginTop: 3,
                       }}
                     >
-                      {principal.roleName} · {principal.orgName}
+                      {identityLabel(principalRole, principal.orgName)}
                     </div>
                     <div
                       style={{
@@ -1289,9 +1562,9 @@ function AppShell() {
                         marginTop: 2,
                       }}
                     >
-                      数据范围：{principal.scopeOrgName}
+                      数据范围：{dataScopeLabel}
                     </div>
-                    {principal.servingPharmaName && (
+                    {servingPharma?.name && !viewport.isNarrow && (
                       <div
                         style={{
                           fontSize: "var(--fs-11)",
@@ -1299,11 +1572,44 @@ function AppShell() {
                           marginTop: 2,
                         }}
                       >
-                        当前服务药厂：{principal.servingPharmaName}
+                        当前服务药厂：{servingPharma?.name}
                       </div>
                     )}
                   </div>
-                  {principal.servingPharmaName && principal.roleName === "服务专员" && (
+                  {/* 切换企业（FR-04）：仅拥有 ≥2 家已激活且有效企业时展示；单企业/平台用户隐藏 */}
+                  {(switchableEnts?.length ?? 0) >= 2 && (
+                    <button
+                      type="button"
+                      onClick={() => void openEnterpriseSwitch()}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        width: "100%",
+                        padding: "7px 8px",
+                        fontSize: "var(--fs-13)",
+                        color: "var(--color-sidebar-text)",
+                        background: "none",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        gap: 8,
+                        marginBottom: 4,
+                      }}
+                      onMouseEnter={(e) => {
+                        ;(e.currentTarget as HTMLButtonElement).style.background =
+                          "rgba(255,255,255,0.04)"
+                      }}
+                      onMouseLeave={(e) => {
+                        ;(e.currentTarget as HTMLButtonElement).style.background =
+                          "none"
+                      }}
+                    >
+                      <ArrowLeftRight size={13} /> 切换企业
+                      <ChevronRight size={13} aria-hidden style={{ marginLeft: "auto", flexShrink: 0, opacity: 0.65 }} />
+                    </button>
+                  )}
+                  {servingPharma && principal.realm === "TENANT" && principal.tenantKind === "provider" && (
                     <button
                       type="button"
                       onClick={() => void openPharmaSwitch()}
@@ -1331,7 +1637,7 @@ function AppShell() {
                           "none"
                       }}
                     >
-                      <Building2 size={13} /> 切换服务药厂 · {principal.servingPharmaName}
+                      <Building2 size={13} /> 切换服务药厂 · {servingPharma?.name}
                     </button>
                   )}
                   <div
@@ -1431,87 +1737,135 @@ function AppShell() {
                   </div>
                   <div
                     style={{
-                      maxHeight: 216,
+                      maxHeight: 288,
                       overflowY: "auto",
                       marginBottom: 2,
                     }}
                   >
-                    {DEMO_ACCOUNT_HINTS.filter(
-                      (hint) => hint.userId !== principal.userId,
-                    ).map((hint) => (
-                      <button
-                        key={hint.userId}
-                        type="button"
-                        disabled={switchingAccount !== null}
-                        onClick={() => void switchAccount(hint.account)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          width: "100%",
-                          padding: "6px 8px",
-                          background: "none",
-                          border: "none",
-                          borderRadius: "4px",
-                          cursor:
-                            switchingAccount !== null ? "wait" : "pointer",
-                          textAlign: "left",
-                          opacity: switchingAccount === hint.account ? 0.6 : 1,
-                        }}
-                        onMouseEnter={(e) => {
-                          ;(
-                            e.currentTarget as HTMLButtonElement
-                          ).style.background = "rgba(255,255,255,0.04)"
-                        }}
-                        onMouseLeave={(e) => {
-                          ;(e.currentTarget as HTMLButtonElement).style.background =
-                            "none"
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
+                    {DEMO_ACCOUNT_GROUPS.map((group) => {
+                      const items = DEMO_ACCOUNT_HINTS.filter(
+                        (hint) =>
+                          hint.group === group.key &&
+                          hint.userId !== principal.userId,
+                      )
+                      if (items.length === 0) return null
+                      return (
+                        <div key={group.key}>
                           <div
                             style={{
-                              fontSize: "var(--fs-13)",
-                              color: "var(--color-sidebar-text)",
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
+                              fontSize: "var(--fs-11)",
+                              fontWeight: 600,
+                              color: "#9CA3AF",
+                              letterSpacing: "0.05em",
+                              padding: "7px 8px 3px",
                             }}
                           >
-                            {hint.name}
-                            <span
+                            {group.label}
+                          </div>
+                          {items.map((hint) => (
+                            <button
+                              key={hint.userId}
+                              type="button"
+                              disabled={switchingAccount !== null}
+                              onClick={() => void switchAccount(hint.account)}
+                              title={hint.scene}
                               style={{
-                                marginLeft: 6,
-                                fontSize: "var(--fs-11)",
-                                color: "#6B7280",
+                                display: "flex",
+                                alignItems: "center",
+                                width: "100%",
+                                padding: "6px 8px",
+                                background: "none",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor:
+                                  switchingAccount !== null ? "wait" : "pointer",
+                                textAlign: "left",
+                                opacity: switchingAccount === hint.account ? 0.6 : 1,
+                              }}
+                              onMouseEnter={(e) => {
+                                ;(
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.background = "rgba(255,255,255,0.04)"
+                              }}
+                              onMouseLeave={(e) => {
+                                ;(e.currentTarget as HTMLButtonElement).style.background =
+                                  "none"
                               }}
                             >
-                              {hint.account}
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "var(--fs-11)",
-                              color: "var(--color-sidebar-accent)",
-                              marginTop: 2,
-                            }}
-                          >
-                            {hint.roleName} · {hint.orgName}
-                          </div>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div
+                                  style={{
+                                    fontSize: "var(--fs-13)",
+                                    color: "var(--color-sidebar-text)",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {hint.name}
+                                  <span
+                                    style={{
+                                      marginLeft: 6,
+                                      fontSize: "var(--fs-11)",
+                                      color: "#6B7280",
+                                    }}
+                                  >
+                                    {hint.account}
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "var(--fs-11)",
+                                    color: "var(--color-sidebar-accent)",
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  {hint.roleName} · {hint.orgName}
+                                </div>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: 4,
+                                    marginTop: 3,
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  {hint.tags.map((tag) => (
+                                    <span
+                                      key={tag}
+                                      style={{
+                                        display: "inline-flex",
+                                        padding: "1px 6px",
+                                        borderRadius: 5,
+                                        fontSize: 10,
+                                        lineHeight: 1.6,
+                                        color: "var(--color-sidebar-accent)",
+                                        border: "1px solid rgba(255,255,255,0.16)",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              {switchingAccount === hint.account && (
+                                <span
+                                  style={{
+                                    marginLeft: "auto",
+                                    fontSize: "var(--fs-11)",
+                                    color: "#6B7280",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  切换中…
+                                </span>
+                              )}
+                            </button>
+                          ))}
                         </div>
-                        {switchingAccount === hint.account && (
-                          <span
-                            style={{
-                              marginLeft: "auto",
-                              fontSize: "var(--fs-11)",
-                              color: "#6B7280",
-                              flexShrink: 0,
-                            }}
-                          >
-                            切换中…
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                      )
+                    })}
                   </div>
                   <div
                     style={{
@@ -1590,12 +1944,36 @@ function AppShell() {
               borderBottom: "1px solid var(--color-border)",
               display: "flex",
               alignItems: "center",
-              padding: "0 20px",
+              padding: viewport.isNarrow ? "0 12px" : "0 20px",
               gap: 12,
               flexShrink: 0,
               zIndex: 5,
             }}
           >
+            {/* 窄屏抽屉开关 */}
+            {viewport.isNarrow && (
+              <button
+                type="button"
+                onClick={() => setNavDrawerOpen(true)}
+                aria-label="打开导航菜单"
+                aria-expanded={navDrawerOpen}
+                style={{
+                  width: 36,
+                  height: 36,
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: 8,
+                  background: "none",
+                  cursor: "pointer",
+                  color: "#374151",
+                }}
+              >
+                <Menu size={17} />
+              </button>
+            )}
             {/* Breadcrumb */}
             <nav
               style={{
@@ -1644,6 +2022,7 @@ function AppShell() {
                 className="project-intro-entry"
                 onClick={() => window.open("/project-intro/index.html", "_blank", "noopener,noreferrer")}
                 title="打开药合作重构项目介绍"
+                style={viewport.isNarrow ? { display: "none" } : undefined}
               >
                 <Presentation size={15} strokeWidth={2.2} />
                 <span>项目介绍</span>
@@ -1651,7 +2030,8 @@ function AppShell() {
               </button>
             </nav>
 
-            {/* Global search */}
+            {/* Global search（窄屏隐藏静态占位，避免挤压身份区） */}
+            {!viewport.isNarrow && (
             <div
               style={{
                 display: "flex",
@@ -1664,6 +2044,7 @@ function AppShell() {
                 borderRadius: "6px",
                 width: 240,
                 cursor: "text",
+                flexShrink: 0,
               }}
             >
               <Search size={13} style={{ color: "#9CA3AF", flexShrink: 0 }} />
@@ -1684,6 +2065,7 @@ function AppShell() {
                 ⌘K
               </span>
             </div>
+            )}
 
             {/* Display preferences (personal, all roles) */}
             <DisplaySettingsMenu
@@ -1739,18 +2121,20 @@ function AppShell() {
               </span>
             </button>
 
-            {/* Enterprise + role */}
+            {/* Enterprise + role（窄屏收缩：名称省略，服务药厂徽章隐藏） */}
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                padding: "0 12px",
+                padding: viewport.isNarrow ? "0 8px" : "0 12px",
                 height: 36,
                 border: "1px solid var(--color-border)",
                 borderRadius: "8px",
                 cursor: "pointer",
                 background: "#F9FAFB",
+                minWidth: 0,
+                flexShrink: 1,
               }}
             >
               <Building2 size={14} style={{ color: "#9CA3AF" }} />
@@ -1759,11 +2143,38 @@ function AppShell() {
                   fontSize: "var(--fs-13)",
                   color: "#374151",
                   fontWeight: 500,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  maxWidth: viewport.isNarrow ? 96 : undefined,
+                }}
+                title={workspaceName}
+              >
+                {workspaceName}
+              </span>
+              {/* 身份域文字标签（不只靠颜色区分平台/药厂/服务商） */}
+              <span
+                title={
+                  principal.realm === "PLATFORM"
+                    ? "平台工作空间：管理租户与企业码，不进入租户内部配置"
+                    : principal.tenantKind === "provider"
+                      ? "服务商租户：本企业的组织、用户与授权管理"
+                      : "药厂租户：本企业的组织、用户与授权管理"
+                }
+                style={{
+                  fontSize: "var(--fs-11)",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  border: "1px solid var(--color-border)",
+                  color: "#667085",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
                 }}
               >
-                {principal.enterpriseName}
+                {workspaceKindLabel}
               </span>
               <span
+                title={identityLabel(principalRole, principal.orgName)}
                 style={{
                   fontSize: "var(--fs-11)",
                   padding: "2px 6px",
@@ -1771,13 +2182,17 @@ function AppShell() {
                   background: "var(--color-brand-subtle)",
                   color: "var(--color-brand)",
                   fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  maxWidth: viewport.isNarrow ? 120 : 220,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
               >
-                {principal.roleName}
+                {identityLabel(principalRole, principal.orgName)}
               </span>
-              {principal.servingPharmaName && (
+              {servingPharma?.name && (
                 <span
-                  title="当前服务药厂：本次业务数据范围，可在用户菜单切换"
+                  title="当前服务药厂：本次业务数据范围（单次会话只操作一家药厂），可在用户菜单切换"
                   style={{
                     fontSize: "var(--fs-11)",
                     padding: "2px 6px",
@@ -1789,9 +2204,13 @@ function AppShell() {
                     alignItems: "center",
                     gap: 4,
                     whiteSpace: "nowrap",
+                    maxWidth: viewport.isNarrow ? 130 : undefined,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
                   }}
                 >
-                  <Building2 size={11} /> 服务药厂 · {principal.servingPharmaName}
+                  {!viewport.isNarrow && <Building2 size={11} aria-hidden />}
+                  服务药厂 · {servingPharma?.name}
                 </span>
               )}
             </div>
@@ -1855,7 +2274,7 @@ function AppShell() {
             overflow: "auto",
           }}
         >
-          {switchPharmas ? (
+          {switchPharmas && principal.realm === "TENANT" ? (
             <PharmaGate
               principal={principal}
               pharmas={switchPharmas}
@@ -1875,6 +2294,41 @@ function AppShell() {
               }}
             >
               正在加载服务药厂…
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 切换企业浮层（免重新认证；敏感目标先短信重认证，确认后换发会话整树重建） */}
+      {entSwitchOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1400,
+            background: "var(--color-canvas)",
+            overflow: "auto",
+          }}
+        >
+          {switchableEnts && switchableEnts.length >= 2 ? (
+            <EnterpriseSwitchGate
+              enterprises={switchableEnts}
+              principal={principal}
+              onSelect={handleSwitchEnterprise}
+              onClose={() => setEntSwitchOpen(false)}
+            />
+          ) : (
+            <div
+              style={{
+                minHeight: "100vh",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--color-text-2)",
+                fontSize: "var(--fs-14)",
+              }}
+            >
+              正在加载可切换企业…
             </div>
           )}
         </div>
