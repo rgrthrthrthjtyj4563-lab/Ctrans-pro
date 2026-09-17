@@ -297,7 +297,7 @@ function QueueTable({
 }: {
   items: DashboardRoleData['queue'];
   navigate: (page: PageId) => void;
-  /** 平台角色工作台没有任务视图页时隐藏「查看全部」跳转 */
+  /** 系统角色工作台没有任务视图页时隐藏「查看全部」跳转 */
   viewAllTarget?: PageId | null;
 }) {
   const sorted = [...items].sort((a, b) => riskOrder[a.risk] - riskOrder[b.risk]);
@@ -1118,7 +1118,7 @@ const PROVIDER_SECTION_IDS = [
 ];
 const PROVIDER_DEFAULT_HIDDEN = ['recent-operations', 'audit-tip'];
 
-// 平台管理角色工作台板块（无业务趋势/排名语义，聚焦管理事项）
+// 系统管理角色工作台板块（无业务趋势/排名语义，聚焦管理事项）
 const PLATFORM_SIZE_SPECS: Record<string, SectionSizeSpec> = {
   metrics: sizeSpec(12, 2, 6, 2, 12, 8),
   queue: sizeSpec(7, 6, 5, 4, 12, 16),
@@ -2396,7 +2396,7 @@ function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
   );
 }
 
-// ─── 平台工作台（平台唯一预置角色：平台系统管理员） ────────────────────────
+// ─── 系统工作台（软件服务方唯一预置角色：贝医系统管理员） ────────────────────
 function PlatformWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
   const { principal, can } = usePermission();
   const platformRoleId = principal.realm === 'PLATFORM' ? principal.platformRoleId : '';
@@ -2408,7 +2408,7 @@ function PlatformWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
   const [dismissedInsights, setDismissedInsights] = useState<string[]>([]);
   const [feedbacks, setFeedbacks] = useState<Record<string, 'valid' | 'false-positive'>>({});
 
-  // 平台角色页面权限差异大：跳转目标先按当前角色可见性过滤，避免出现点了就报越权
+  // 系统角色页面权限差异大：跳转目标先按当前角色可见性过滤，避免出现点了就报越权
   const visible = useCallback(
     (page: PageId) => can(page, 'view') || !RESOURCE_PAGES.some(p => p.id === page),
     [can],
@@ -2525,7 +2525,7 @@ function PlatformWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
               审计提示
             </div>
             <div style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>
-              平台侧操作默认全程留痕：授权、回收、角色发布、登录失败都会进入操作日志；预览模式只读不落业务变更。
+              软件服务方操作默认全程留痕：授权、回收、角色发布、登录失败都会进入操作日志；预览模式只读不落业务变更。
             </div>
           </div>
         ),
@@ -2550,7 +2550,7 @@ function PlatformWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
               <Tag label={data.roleLabel} color="brand" />
               <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>
-                药合作平台 · 职责范围：{principal.realm === 'PLATFORM' ? principal.dutyScope : ''}
+                系统管理后台 · 职责范围：{principal.realm === 'PLATFORM' ? principal.dutyScope : ''}
               </span>
             </div>
             <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
@@ -2600,7 +2600,7 @@ export function Dashboard({
   addToast,
 }: {
   navigate: (page: PageId) => void;
-  /** 登录身份派生的工作台形态：药厂 / 服务商链路 / 平台管理 */
+  /** 登录身份派生的工作台形态：药厂 / 服务商链路 / 系统管理 */
   variant: 'pharma' | 'provider' | 'platform';
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
 }) {

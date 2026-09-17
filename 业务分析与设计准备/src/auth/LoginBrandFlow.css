@@ -1,0 +1,78 @@
+.lbf-scene {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1513 / 1040;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 24%, #000 74%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 24%, #000 74%, transparent 100%);
+  animation: lbfFloat 12s ease-in-out infinite alternate;
+}
+
+.lbf-art,
+.lbf-motion {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.lbf-art { object-fit: contain; }
+
+.lbf-motion {
+  overflow: hidden;
+  mix-blend-mode: screen;
+}
+
+.lbf-flow-glow,
+.lbf-flow-light {
+  stroke-dasharray: 145 2250;
+  animation: lbfTravel 12s linear infinite;
+}
+
+.lbf-flow-glow { opacity: 0.4; }
+.lbf-flow-light { opacity: 0.66; }
+
+.lbf-canvas {
+  display: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.lbf-canvas-current {
+  opacity: 0.2;
+  stroke-dasharray: 180 2400;
+  animation: lbfCanvasTravel 22s linear infinite;
+}
+
+@keyframes lbfCanvasTravel {
+  to { stroke-dashoffset: -2580; }
+}
+
+@keyframes lbfTravel {
+  to { stroke-dashoffset: -2395; }
+}
+
+@keyframes lbfFloat {
+  from { transform: translateY(-3px); }
+  to { transform: translateY(4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lbf-scene,
+  .lbf-flow-glow,
+  .lbf-flow-light,
+  .lbf-canvas-current { animation: none; }
+  .lbf-flow-glow,
+  .lbf-flow-light,
+  .lbf-canvas-current { display: none; }
+}
+
+@media (min-width: 1181px) {
+  .lbf-canvas { display: block; }
+}

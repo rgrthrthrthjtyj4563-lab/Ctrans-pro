@@ -12,16 +12,17 @@ import { enterpriseRootOf } from "../data/permissions"
 export const DEMO_PASSWORD = "demo123"
 
 /**
- * 平台角色 id 集合（realm=PLATFORM 的全部预置角色）。仅作种子校验/兜底；
+ * 系统角色 id 集合（realm=PLATFORM 的全部预置角色，即软件服务方「贝医信息科技」侧）。
+ * 仅作种子校验/兜底；
  * 运行时一律以 AuthPrincipal.realm 与 SysRole.realm 判定，不再按角色 id 集合推断。
  */
 export const PLATFORM_ROLE_IDS = new Set(["role-sys-admin"])
 
 /**
- * 企业编码登记表（原型口径：生产由平台系统管理员在租户管理生成，8 位大写字母数字、
- * 排除易混字符 0/O、1/I、无业务语义；平台/药厂/服务商共用同一编号空间）。
+ * 企业编码登记表（原型口径：生产由贝医系统管理员在租户管理生成，8 位大写字母数字、
+ * 排除易混字符 0/O、1/I、无业务语义；系统管理后台/药厂/服务商共用同一编号空间）。
  * 2026-09-15 拍板：一个企业只有一个主码，别名码全链路删除。
- * 平台侧运行时新建租户的主码由 tenantRegistry 生成并即时并入解析。
+ * 软件服务方侧运行时新建租户的主码由 tenantRegistry 生成并即时并入解析。
  */
 export const ENTERPRISE_CODES: EnterpriseCodeEntry[] = [
   { code: "M8QT3ZRN", enterpriseId: "org-platform", enabled: true },
@@ -90,7 +91,7 @@ export interface DemoAccountGroup {
 }
 
 export const DEMO_ACCOUNT_GROUPS: DemoAccountGroup[] = [
-  { key: "platform", label: "平台侧", hint: "系统管理与开户闭环 · M8QT3ZRN" },
+  { key: "platform", label: "软件服务方", hint: "系统管理与开户闭环 · M8QT3ZRN" },
   { key: "pharma", label: "药厂侧 · 百益制药", hint: "E9K4P7X2" },
   { key: "provider", label: "服务商侧", hint: "东方恒业 W6HK2T9V · 智联 F3JN7QX4" },
   { key: "status", label: "登录状态与拦截演示", hint: "激活 / 冻结 / 空态" },
@@ -116,10 +117,10 @@ export interface DemoAccountHint {
 }
 
 export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
-  // ── 平台侧 ──
-  { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "平台系统管理员", orgName: "平台系统部", group: "platform", tags: ["平台工作台", "免角色确认"], enterpriseCode: "M8QT3ZRN", phone: "13901350101", scene: "平台唯一预置角色：认证成功直接进入平台工作台（无角色确认页），管理租户/菜单/合作监管/平台审计" },
-  // 平台侧运行时租户的待激活管理员（种子租户：云杏生物/泰合医学推广；「恢复演示数据」可复位重演）
-  { userId: "u-rt-zhouting", account: "rt-zhouting", name: "周婷", roleName: "企业管理员", orgName: "云杏生物医药有限公司", group: "platform", tags: ["平台开户·首登激活", "药厂租户"], enterpriseCode: "R8NV3KQ2", phone: "13809120116", scene: "待激活药厂管理员：验证码通过即激活并提示「账号已激活，欢迎加入」，单角色直入药厂工作台，租户转「正常」（配套王敏的平台建租户动作；服务商租户同类场景同理）" },
+  // ── 软件服务方（贝医） ──
+  { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "贝医系统管理员", orgName: "系统服务部", group: "platform", tags: ["系统工作台", "免角色确认"], enterpriseCode: "M8QT3ZRN", phone: "13901350101", scene: "软件服务方唯一预置角色：认证成功直接进入系统工作台（无角色确认页），管理租户/菜单/合作监管/系统审计" },
+  // 软件服务方运行时建租户的待激活管理员（种子租户：云杏生物/泰合医学推广；「恢复演示数据」可复位重演）
+  { userId: "u-rt-zhouting", account: "rt-zhouting", name: "周婷", roleName: "企业管理员", orgName: "云杏生物医药有限公司", group: "platform", tags: ["软件服务方开户·首登激活", "药厂租户"], enterpriseCode: "R8NV3KQ2", phone: "13809120116", scene: "待激活药厂管理员：验证码通过即激活并提示「账号已激活，欢迎加入」，单角色直入药厂工作台，租户转「正常」（配套王敏的建租户动作；服务商租户同类场景同理）" },
   // ── 药厂侧（百益制药） ──
   { userId: "u-shenyue", account: "shenyue", name: "沈悦", roleName: "企业管理员", orgName: "信息技术部", group: "pharma", tags: ["组织/用户/角色授权主线"], enterpriseCode: "E9K4P7X2", phone: "13901350121", scene: "药厂企业管理主线：本药厂组织架构、用户、角色与数据范围（唯一授权入口）" },
   { userId: "u-lihang", account: "lihang", name: "李航", roleName: "企业管理员", orgName: "西北大区", group: "pharma", tags: ["角色确认双选"], enterpriseCode: "E9K4P7X2", phone: "13901350102", scene: "「企业管理员 · 西北大区」；另持有定制角色「药厂区域销售经理」→ 角色确认页双选项" },
@@ -149,7 +150,7 @@ export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
 export const QR_IDENTITIES: QrIdentity[] = [
   // 企业微信
   { id: "wm-chenwei", source: "wecom", label: "陈伟 · 东方恒业（企业微信）", detail: "userid: CHEN_WEI", userId: "u-chenwei" },
-  { id: "wm-wangmin", source: "wecom", label: "王敏 · 百益健康（企业微信）", detail: "userid: WANG_MIN", userId: "u-wangmin", roleId: "role-sys-admin" },
+  { id: "wm-wangmin", source: "wecom", label: "王敏 · 贝医信息（企业微信）", detail: "userid: WANG_MIN", userId: "u-wangmin", roleId: "role-sys-admin" },
   { id: "wm-zhaoning", source: "wecom", label: "赵宁 · 百益制药（企业微信）", detail: "userid: ZHAO_NING", userId: "u-zhaoning" },
   { id: "wm-unbound", source: "wecom", label: "外部成员（未绑定系统账号）", detail: "userid: EXTERNAL_9527" },
   // 微信开放平台
@@ -161,11 +162,11 @@ export const QR_IDENTITIES: QrIdentity[] = [
 
 export function enterpriseNameOfOrg(orgId: string): { id: string; name: string } {
   const root = enterpriseRootOf(PERM_ORGS, orgId)
-  return { id: root?.id ?? "org-platform", name: root?.name ?? "百益健康科技" }
+  return { id: root?.id ?? "org-platform", name: root?.name ?? "贝医信息科技" }
 }
 
 const ENTERPRISE_TYPE_LABEL: Record<string, string> = {
-  platform: "平台",
+  platform: "软件服务方",
   pharma: "药厂",
   provider: "服务提供商",
 }
@@ -175,8 +176,8 @@ export function enterpriseOfOrg(orgId: string): { id: string; name: string; type
   const root = enterpriseRootOf(PERM_ORGS, orgId)
   return {
     id: root?.id ?? "org-platform",
-    name: root?.name ?? "百益健康科技",
-    type: ENTERPRISE_TYPE_LABEL[root?.type ?? "platform"] ?? "平台",
+    name: root?.name ?? "贝医信息科技",
+    type: ENTERPRISE_TYPE_LABEL[root?.type ?? "platform"] ?? "软件服务方",
   }
 }
 

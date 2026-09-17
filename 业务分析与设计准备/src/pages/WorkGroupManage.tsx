@@ -106,7 +106,7 @@ export function WorkGroupManage({ addToast }: Props) {
           </InfoBanner>
         </div>
         {!isProvider ? (
-          <EmptyState title="仅服务商使用工作组" description="药厂与平台工作空间没有工作组概念。" />
+          <EmptyState title="仅服务商使用工作组" description="药厂与系统管理后台没有工作组概念。" />
         ) : groups.length === 0 ? (
           <EmptyState title="尚无工作组" description="请在「组织架构」的服务商根节点下新建工作组，再回到本页指定组长。" />
         ) : (

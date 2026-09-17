@@ -3,7 +3,7 @@
  * 负责企业根、部门、工作组（服务商）节点的建立、上下级与成员归属展示；
  * 节点详情展示直属人员明细（姓名/账号、身份展示、账号状态、最近登录/授权）
  * 与工作组组长。角色能力与人员授权统一在「角色与数据范围」；企业间合作关系
- * 不在组织树中维护。租户边界：树只展示当前企业租户（或平台工作空间）子树。
+ * 不在组织树中维护。租户边界：树只展示当前企业租户（或系统管理后台）子树。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, CornerUpRight, MoreHorizontal, Pencil, Plus, UserCheck, Users } from 'lucide-react';

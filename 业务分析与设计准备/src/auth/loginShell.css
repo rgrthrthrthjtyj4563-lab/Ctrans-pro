@@ -63,6 +63,25 @@
     .login-card-wrap { max-width: none; }
   }
 
+  /* 左栏主视觉：文案 + 透明流线；窄屏纵向堆叠，保留原背景的可见面积 */
+  .lg-hero {
+    flex: 1; display: flex; align-items: center;
+    gap: clamp(8px, 2vw, 28px); min-height: 0; padding: 14px 0;
+  }
+  .lg-hero-copy { flex: 0 0 auto; max-width: 344px; }
+  .lg-hero-rule {
+    width: 34px; height: 3px; border-radius: 2px; margin: 0 0 18px;
+    background: linear-gradient(90deg, #19C59A, rgba(25,197,154,0.25));
+  }
+  .lg-hero-flow {
+    flex: 1 1 360px; min-width: 0; max-width: 700px;
+    display: flex; align-items: center;
+  }
+  @media (max-width: 1180px) {
+    .lg-hero { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .lg-hero-flow { width: 100%; flex: 0 0 auto; }
+  }
+
   .lg-field {
     width: 100%; height: 50px; padding: 0 14px;
     background: rgba(255,255,255,0.95);

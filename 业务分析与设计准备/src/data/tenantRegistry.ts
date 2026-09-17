@@ -1,13 +1,13 @@
 /**
- * 租户注册中心（多租户平台侧 · 运行时注册表，2026-09-15 深度审核整改版）。
+ * 租户注册中心（软件服务方侧 · 运行时注册表，2026-09-15 深度审核整改版）。
  *
- * 职责：平台系统管理员「直接创建租户（原子建租：生成全局唯一主企业码 + 首位管理员
+ * 职责：贝医系统管理员「直接创建租户（原子建租：生成全局唯一主企业码 + 首位管理员
  * 待激活 + 预置授权）→ 管理员首次登录激活 → 租户生命周期（待激活/正常/
  * 已暂停/已终止）」的全部 mock 数据与业务规则。药厂与服务商共用同一套机制，
  * 仅以 type 区分扩展字段与默认管理员角色；企业码不带任何业务语义。
  *
  * 2026-09-15 整改拍板（见《多租户平台企业码与服务商可见范围-深度审核与解决
- * 方案 0915》）：平台直接创建、不套申请—审核—补正流程；一个租户只有一个
+ * 方案 0915》）：软件服务方直接创建、不套申请—审核—补正流程；一个租户只有一个
  * 主企业码（无别名码全链路）；无「重发激活提醒」（首次登录本身即激活触发点）；
  * 状态机收敛为四态；暂停/恢复/终止一律要求原因码 + 说明并写审计。
  *
@@ -35,7 +35,7 @@ export type TenantLifecycleStatus =
 /** 主企业码生命周期：active = 可解析；retired = 终止后永久保留、不得重新分配 */
 export type CodeLifecycle = "active" | "retired"
 
-/** 企业主体资料（通用字段 + 按类型的扩展字段；平台留档与基础校验用，非审核流） */
+/** 企业主体资料（通用字段 + 按类型的扩展字段；软件服务方留档与基础校验用，非审核流） */
 export interface TenantSubjectProfile {
   legalName: string
   shortName: string
@@ -158,7 +158,7 @@ export const TERMINATE_REASON_OPTIONS = [
   { code: "CONTRACT_ENDED", label: "合作协议终止" },
   { code: "SUBJECT_DEREGISTERED", label: "企业主体注销" },
   { code: "RISK_CONFIRMED", label: "合规风险坐实清退" },
-  { code: "OWNER_REQUEST", label: "企业主动退出平台" },
+  { code: "OWNER_REQUEST", label: "企业主动停用系统" },
 ] as const
 
 export const TENANT_STATUS_LABEL: Record<TenantLifecycleStatus, string> = {
@@ -181,18 +181,18 @@ const ADMIN_ROLE_BY_TYPE: Record<TenantType, { roleId: string; roleLabel: string
 
 // ─── 持久化（localStorage 全容错；生产由服务端数据库承载） ──────────────────
 
-// v3：2026-09-15 收敛版（平台唯一角色/演示登录租户并入种子）；旧数据直接作废重建种子
+// v3：2026-09-15 收敛版（软件服务方唯一角色/演示登录租户并入种子）；旧数据直接作废重建种子
 const STORAGE_KEY = "baiyee-tenant-registry-v3"
 
 function buildSeedState(): TenantRegistryState {
   return {
     version: 3,
-    // 演示种子：① 演示登录用药厂/服务商（与登录页企业码同一份登记，平台必须可查）
+    // 演示种子：① 演示登录用药厂/服务商（与登录页企业码同一份登记，软件服务方必须可查）
     //          ② 运行时租户覆盖四态可验证路径（正常/待激活/已暂停/已终止）
     // 正常（朗盛）· 待激活药厂（云杏）· 待激活服务商（泰合）· 已暂停（启辰）· 已终止（泽江）
     tenants: [
       // ── 演示登录租户：与登录页企业码（authProfiles.ENTERPRISE_CODES）同一编号空间，
-      //    平台「租户管理」必须能查到全部演示登录用租户（登录与平台共用本登记数据）
+      //    系统管理后台「租户管理」必须能查到全部演示登录用租户（登录与软件服务方共用本登记数据）
       {
         id: "tenant-baiyi",
         type: "pharma",
@@ -854,7 +854,7 @@ function activeMemberCount(tenant: TenantRecord): number {
 }
 
 /**
- * 直接创建租户（平台侧主数据开户，无申请/审核流）：
+ * 直接创建租户（软件服务方侧主数据开户，无申请/审核流）：
  * 格式与重复主体校验由向导完成 → 原子创建企业根组织 + 全局唯一主码 +
  * 首位管理员待激活成员与预置授权 → 租户 pending_activation → 全程审计。
  * 幂等键绑定 type+uscc：连续点击、刷新后重放均返回同一租户。

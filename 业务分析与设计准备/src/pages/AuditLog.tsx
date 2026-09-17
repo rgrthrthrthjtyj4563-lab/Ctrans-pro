@@ -47,9 +47,9 @@ export function AuditLog() {
   const [filters, setFilters] = useState<Record<string, string>>({});
 
   // 审计可见范围按权限域收敛（P1）：
-  // - 平台审计日志：平台自身操作 + 跨租户监管记录（全部可见）；
+  // - 系统审计日志：软件服务方自身操作 + 跨租户监管记录（全部可见）；
   // - 企业审计日志：仅当前 tenantId 的记录（按事件归属组织过滤），
-  //   其他租户与平台内部日志一律不可见。
+  //   其他租户与软件服务方内部日志一律不可见。
   const tenantOrgNames = useMemo(() => {
     if (isPlatform || principal.realm !== 'TENANT') return null;
     const rootId = principal.tenantId;

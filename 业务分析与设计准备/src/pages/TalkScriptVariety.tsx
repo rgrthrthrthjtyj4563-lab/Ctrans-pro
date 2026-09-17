@@ -444,7 +444,7 @@ function DeptModal({ script, onClose, onSave }: { script: TalkScript; onClose: (
             '该配置只在医院拜访（终端拜访）场景下生效，并且只适用于 SDGT（服务专员）',
             '科室规则为空时，本条话术的使用不受任何限制',
             '选择了科室规则后，本条话术只能被规则内包含的科室使用',
-            '规则由平台侧统一配置',
+            '规则由软件服务方统一配置',
           ].map((t) => (
             <p key={t} style={{ margin: 0 }}>
               · {t}

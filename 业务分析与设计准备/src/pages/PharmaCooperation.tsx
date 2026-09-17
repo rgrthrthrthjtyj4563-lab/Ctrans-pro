@@ -2,7 +2,7 @@
  * 合作关系（药厂侧）：本药厂与各服务商的合作关系台账与生命周期控制。
  * 只负责合作语义（生效/暂停/恢复/终止）；品种/项目/区域资格在「业务授权」。
  * 暂停/终止由药厂控制，实时影响服务商全员可进入范围（员工授权无法绕过）。
- * 数据源 = cooperationModel（服务商准入通过后的合作生效记录 + 平台运行时租户）。
+ * 数据源 = cooperationModel（服务商准入通过后的合作生效记录 + 软件服务方运行时建租户）。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, Pause, Play, ShieldX } from 'lucide-react';

@@ -44,7 +44,7 @@ const auditStatuses: AuditStatus[] = [
 ]
 
 export const DEMO_PROVIDER = "智联科技有限公司"
-export const DEMO_HOLDER = "百益健康科技"
+export const DEMO_HOLDER = "百益制药"
 
 export const specialists = [
   "张伟",
@@ -1148,7 +1148,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-001",
       taskNo: "TK-2026-0001",
-      taskName: `${V_ATOR}_百益健康科技`,
+      taskName: `${V_ATOR}_百益制药`,
       varieties: [V_ATOR],
       provider: "智联科技有限公司",
       regions: ["陕西"],
@@ -1179,7 +1179,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-002",
       taskNo: "TK-2026-0002",
-      taskName: `${V_METF}_百益健康科技`,
+      taskName: `${V_METF}_百益制药`,
       varieties: [V_METF],
       provider: "康晟云服科技有限公司",
       regions: ["山东"],
@@ -1231,7 +1231,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-003",
       taskNo: "TK-2026-0003",
-      taskName: `${V_OME}_百益健康科技`,
+      taskName: `${V_OME}_百益制药`,
       varieties: [V_OME],
       provider: "东方恒业推广有限公司",
       regions: ["广东"],
@@ -1445,7 +1445,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-004",
       taskNo: "TK-2026-0004",
-      taskName: `${V_ATOR}_百益健康科技`,
+      taskName: `${V_ATOR}_百益制药`,
       varieties: [V_ATOR],
       provider: "智联科技有限公司",
       regions: ["陕西"],
@@ -1714,7 +1714,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-005",
       taskNo: "TK-2026-0005",
-      taskName: `${V_OME}_百益健康科技`,
+      taskName: `${V_OME}_百益制药`,
       varieties: [V_OME],
       provider: "东方恒业推广有限公司",
       regions: ["广东"],
@@ -1834,7 +1834,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-006",
       taskNo: "TK-2026-0006",
-      taskName: `${V_ROSU}_百益健康科技`,
+      taskName: `${V_ROSU}_百益制药`,
       varieties: [V_ROSU],
       provider: "永泰汇通推广有限公司",
       regions: ["四川"],
@@ -1991,7 +1991,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-007",
       taskNo: "TK-2026-0007",
-      taskName: `${V_ATOR}_百益健康科技`,
+      taskName: `${V_ATOR}_百益制药`,
       varieties: [V_ATOR],
       provider: "智联科技有限公司",
       regions: ["陕西"],
@@ -2243,7 +2243,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-008",
       taskNo: "TK-2026-0008",
-      taskName: `${V_AMLO}_百益健康科技`,
+      taskName: `${V_AMLO}_百益制药`,
       varieties: [V_AMLO],
       provider: "康晟云服科技有限公司",
       regions: ["北京"],
@@ -2272,7 +2272,7 @@ export const seedTasks: Task[] = [
       // 多品种 + 多地区演示：智联 · 阿托伐他汀/二甲双胍 · 陕西/江苏；同价目表可同单
       id: "TR-009",
       taskNo: "TK-2026-0009",
-      taskName: `${V_ATOR}、${V_METF}_百益健康科技`,
+      taskName: `${V_ATOR}、${V_METF}_百益制药`,
       varieties: [V_ATOR, V_METF],
       provider: "智联科技有限公司",
       regions: ["陕西", "江苏"],
@@ -2446,7 +2446,7 @@ export const seedTasks: Task[] = [
       // 新流程演示：多品种 + 多地区 · 执行中 · 未拆分任务包
       id: "TR-010",
       taskNo: "TK-2026-0010",
-      taskName: `${V_ATOR}、${V_METF}_百益健康科技`,
+      taskName: `${V_ATOR}、${V_METF}_百益制药`,
       varieties: [V_ATOR, V_METF],
       provider: DEMO_PROVIDER,
       regions: ["陕西", "江苏"],
@@ -2506,7 +2506,7 @@ export const seedTasks: Task[] = [
     {
       id: "TR-011",
       taskNo: "TK-2026-0011",
-      taskName: `${V_ATOR}_百益健康科技`,
+      taskName: `${V_ATOR}_百益制药`,
       varieties: [V_ATOR],
       provider: DEMO_PROVIDER,
       regions: ["陕西"],
@@ -4078,16 +4078,16 @@ export function getRoleDashboardData(role: Role): DashboardRoleData {
   return roleDashboardData[role]
 }
 
-// ===== 平台工作台（2026-09-15 收敛：平台唯一预置角色=平台系统管理员） =====
-// 平台认证成功直接进入平台工作台（无角色确认页）；工作台聚焦「管理事项」：
+// ===== 系统工作台（2026-09-15 收敛：软件服务方唯一预置角色=贝医系统管理员） =====
+// 软件服务方认证成功直接进入系统工作台（无角色确认页）；工作台聚焦「管理事项」：
 // 待办、租户健康、合作监管与风险提醒。
 
 export const platformWorkbenchData: Record<string, PlatformWorkbenchData> = {
   "role-sys-admin": {
-    roleLabel: "平台系统管理员",
-    headline: "平台系统管理工作台",
+    roleLabel: "贝医系统管理员",
+    headline: "系统管理工作台",
     subtitle:
-      "把住平台边界：租户开通与企业码、菜单管理、合作关系监管与平台审计，先看清影响再动手。",
+      "把住服务边界：租户开通与企业码、菜单管理、合作关系监管与系统审计，先看清影响再动手。",
     unreadCount: 5,
     metrics: [
       {
@@ -4130,7 +4130,7 @@ export const platformWorkbenchData: Record<string, PlatformWorkbenchData> = {
       },
       {
         id: "sa-m4",
-        title: "近 30 日平台操作审计",
+        title: "近 30 日系统操作审计",
         value: 9,
         unit: "条",
         subtitle: "含发码、暂停与授权操作",
@@ -4147,7 +4147,7 @@ export const platformWorkbenchData: Record<string, PlatformWorkbenchData> = {
         title: "临时授权即将到期",
         conclusion: "「李晨 × 服务专员（智联科技）」授权 2026-09-30 到期，涉及在途任务填报。",
         basis: "命中规则：授权到期前 30 天提醒。",
-        dataRange: "授权记录 · 全平台",
+        dataRange: "授权记录 · 全部租户",
         confidence: "高",
         suggestion: "与服务商管理员确认是否续期；不续期则按期回收。",
         actionLabel: "去处理",
@@ -4211,7 +4211,7 @@ export const platformWorkbenchData: Record<string, PlatformWorkbenchData> = {
       { id: "sa-qa1", label: "租户管理", description: "开户、企业码与生命周期", target: "tenant-management" },
       { id: "sa-qa4", label: "菜单管理", description: "导航结构配置", target: "menus" },
       { id: "sa-qa2", label: "合作关系监管", description: "跨租户合作与授权状态", target: "cooperation-supervision" },
-      { id: "sa-qa6", label: "平台审计日志", description: "平台操作与登录审计", target: "platform-audit" },
+      { id: "sa-qa6", label: "系统审计日志", description: "软件服务方操作与登录审计", target: "platform-audit" },
     ],
     recentOperations: [
       { id: "sa-ro1", action: "新建租户", target: "智联科技有限公司", user: "王敏", time: "08-15 11:12", color: "#2F6BCE" },
@@ -4220,7 +4220,7 @@ export const platformWorkbenchData: Record<string, PlatformWorkbenchData> = {
       { id: "sa-ro4", action: "菜单调整", target: "服务商 · 合作管理分组", user: "王敏", time: "09-15 10:02", color: "#6B7280" },
     ],
     spotlight: {
-      title: "平台健康度",
+      title: "系统健康度",
       items: [
         { id: "sa-sp1", label: "数据同步成功率（今日）", value: "99.2%", tone: "success", progress: 99 },
         { id: "sa-sp2", label: "高危操作近 24h", value: "3 次", tone: "warning" },
@@ -4231,7 +4231,7 @@ export const platformWorkbenchData: Record<string, PlatformWorkbenchData> = {
   },
 }
 
-/** 平台侧角色工作台取数（唯一预置角色）；未登记的平台定制角色回落到平台系统管理员视角 */
+/** 软件服务方侧角色工作台取数（唯一预置角色）；未登记的定制角色回落到贝医系统管理员视角 */
 export function getPlatformWorkbenchData(
   roleId: string,
   roleName: string,

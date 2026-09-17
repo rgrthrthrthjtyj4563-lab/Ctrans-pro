@@ -34,19 +34,19 @@ interface BatchPayload extends ScriptParams { items: ScriptBatchItem[]; cost: nu
 
 interface Message { id: string; role: 'user' | 'ai'; kind: 'text' | 'process' | 'query' | 'result' | 'scriptParam' | 'scriptCredit' | 'scriptProcess' | 'scriptResult' | 'scriptAdopt' | 'scriptDone' | 'scriptSummary'; text?: string; query?: Query; result?: Result; attachments?: Attachment[]; script?: ScriptParams | ScriptPayload | BatchPayload; /** script 流的确认类卡已被处理后锁定为快照（防重复扣费/重复入库） */ confirmedScript?: boolean; }
 
-const PHARMA = '百益健康科技有限公司';
+const PHARMA = '百益制药有限公司';
 const PERIOD = '统计周期 2026-08-01 至 2026-08-26';
 const RANGE = `数据范围：${PHARMA}（含下属服务商 / 工作组 / 服务专员）`;
 const SHORTCUTS = [
-  ['查询本月预算异常', '本月百益健康预算执行情况如何？'],
+  ['查询本月预算异常', '本月百益制药预算执行情况如何？'],
   ['分析审批积压原因', '为什么本周合规审批积压？'],
   ['查看服务商逾期任务', '华东区逾期任务最多的服务商是谁？'],
-  ['配置限时拜访', '为百益健康开启限时拜访，每日 09:00 至 18:00 有效。'],
+  ['配置限时拜访', '为百益制药开启限时拜访，每日 09:00 至 18:00 有效。'],
   ['生成品种话术', '为阿托伐他汀钙片(20mg)生成一条学术拜访话术'],
 ] as const;
 const STEPS: Step[] = [
   { title: '已识别需求', summary: '启用限时拜访，每日 09:00–18:00，覆盖三类拜访。', rows: [{ k: '当前药厂', v: PHARMA }, { k: '操作类型', v: '启用业务开关' }, { k: '规则', v: '每日 09:00–18:00 限时拜访' }, { k: '覆盖业务', v: '医院拜访、商业拜访、药房拜访' }] },
-  { title: '已读取当前配置', summary: '当前未启用，拜访可全天提交。', rows: [{ k: '当前状态', v: '限时拜访未启用' }, { k: '当前拜访记录', v: '1,286 条（演示库存）' }, { k: '当前可提交时段', v: '全天' }, { k: '规则作用范围', v: '百益健康下属全部服务商、工作组与服务专员' }] },
+  { title: '已读取当前配置', summary: '当前未启用，拜访可全天提交。', rows: [{ k: '当前状态', v: '限时拜访未启用' }, { k: '当前拜访记录', v: '1,286 条（演示库存）' }, { k: '当前可提交时段', v: '全天' }, { k: '规则作用范围', v: '百益制药下属全部服务商、工作组与服务专员' }] },
   { title: '沙箱模拟完成', summary: '非工作时段将阻止三类拜访的新建、编辑和提交。', sandbox: true, rows: [{ k: '模拟规则', v: '18:00–次日 09:00 阻止医院 / 商业 / 药房拜访的新建、编辑、提交' }, { k: '今日待提交记录', v: '37 条' }, { k: '近 7 日非工作时段提交', v: '64 条' }, { k: '涉及服务商', v: '4 家（智联科技、东方恒业、康晟云服、永泰汇通）' }], notes: ['沙箱模拟不会写入生产数据，不改变真实拜访记录。'] },
   { title: '风险检查完成', summary: '范围与时间规则有效，无跨药厂影响。', rows: [{ k: '范围校验', v: '有效 · 仅当前药厂' }, { k: '时间规则', v: '有效 · 每日 09:00–18:00' }, { k: '跨药厂影响', v: '无' }], notes: ['当前有 12 条待提交拜访记录；若启用时不在允许时段，这些记录将无法提交。', '该规则影响当前药厂下全部三类拜访业务，不影响其他药厂。'] },
   { title: '等待人工确认', summary: '校验已通过，确认后才会启用。', rows: [{ k: '待确认动作', v: '启用限时拜访' }, { k: '生效方式', v: '仅切换本页演示状态，不写真实业务库' }] },
@@ -91,7 +91,7 @@ const CHECKUP_ROWS = [
   { risk: '高危' as const, note: '「安全性与疗效兼备」属疗效承诺表述，必须改写', rewrite: '（改写）……临床应用广泛，安全性与耐受性数据充分' },
 ];
 
-/** 「为什么用 baiyee-AI 生成」对比（通用 AI vs 平台 AI） */
+/** 「为什么用 baiyee-AI 生成」对比（通用 AI vs 贝医 AI） */
 const WHY_CARDS: { title: string; left: string; right: string; flywheel?: boolean }[] = [
   { title: '知识边界', left: '不掌握本品种说明书、批准文号、适应症，凭通用知识编造', right: '注入本品种合规资产（说明书/适应症/批准文号/价目/既有话术库）' },
   { title: '合规校验', left: '生成后需法务逐字审查，漏审即风险', right: '禁用语引擎+超适应症检测，生成即校验，逐条出报告' },
@@ -257,7 +257,7 @@ function stamp() { const d = new Date(), p = (n: number) => String(n).padStart(2
 function queryFor(intent: Intent): Query | undefined {
   if (intent === 'budget') return { title: '本月预算执行', conclusion: '8 月预算执行偏慢，智联科技单月计划偏高、实际结算尚未跟上；整体无超支，但进度落后时间进度约 12 个百分点。', fields: [{ k: '月度预算合计', v: '￥148,000' }, { k: '已结算实际', v: '￥96,200' }, { k: '执行率', v: '65%（时间进度约 84%）' }, { k: '药厂', v: PHARMA }], anomalies: ['智联科技 8 月预算 ￥80,000，已结算 ￥36,000，进度明显落后。', '康晟云服 11–12 月未排预算，不影响本月，但四季度计划不完整。'], range: RANGE, period: PERIOD, action: '查看预算执行分析', page: 'analytics' };
   if (intent === 'approval') return { title: '本周合规审批积压', conclusion: '积压主要来自拜访审核与代表备案待核验，集中在合规审核环节，不是任务创建量突增。', fields: [{ k: '待处理审批', v: '23 条' }, { k: '拜访待审核', v: '22 条' }, { k: '代表备案待核验', v: '7 条' }, { k: '超区域授权待核', v: '5 条' }, { k: '涉及环节', v: '拜访审核、医药代表备案' }, { k: '建议动作', v: '优先处理 22 条待审核拜访；对 7 条备案发起催核' }], range: RANGE, period: '统计周期 2026-08-20 至 2026-08-26' };
-  if (intent === 'provider') return { title: '服务商拜访完成率与逾期', conclusion: '华东口径下逾期任务最多的是东方恒业推广有限公司（9 条），完成率 74%；智联科技完成率更高但逾期 6 条。', fields: [{ k: '东方恒业推广有限公司', v: '完成率 74% · 逾期 9 条 · 奥美拉唑 / 氨氯地平' }, { k: '智联科技有限公司', v: '完成率 81% · 逾期 6 条 · 阿托伐他汀 / 二甲双胍' }, { k: '永泰汇通推广有限公司', v: '完成率 69% · 逾期 5 条 · 瑞舒伐他汀' }, { k: '康晟云服科技有限公司', v: '完成率 88% · 逾期 3 条 · 二甲双胍' }], range: '数据范围：华东演示口径（江苏 / 浙江 / 广东）· 百益健康下属服务商', period: PERIOD, action: '查看任务明细', page: 'task-dispatch' };
+  if (intent === 'provider') return { title: '服务商拜访完成率与逾期', conclusion: '华东口径下逾期任务最多的是东方恒业推广有限公司（9 条），完成率 74%；智联科技完成率更高但逾期 6 条。', fields: [{ k: '东方恒业推广有限公司', v: '完成率 74% · 逾期 9 条 · 奥美拉唑 / 氨氯地平' }, { k: '智联科技有限公司', v: '完成率 81% · 逾期 6 条 · 阿托伐他汀 / 二甲双胍' }, { k: '永泰汇通推广有限公司', v: '完成率 69% · 逾期 5 条 · 瑞舒伐他汀' }, { k: '康晟云服科技有限公司', v: '完成率 88% · 逾期 3 条 · 二甲双胍' }], range: '数据范围：华东演示口径（江苏 / 浙江 / 广东）· 百益制药下属服务商', period: PERIOD, action: '查看任务明细', page: 'task-dispatch' };
 }
 function isNarrowViewport() {
   return typeof window !== 'undefined' && window.matchMedia(NARROW_MQ).matches;
@@ -802,7 +802,7 @@ function Confirm({ confirm, cancel }: { confirm: () => void; cancel: () => void 
   return (
     <div style={S.confirm}>
       <b style={{ fontSize: 'var(--fs-14)' }}>限时拜访</b>
-      <p style={{ ...S.aitext, marginTop: 7 }}>每日 09:00–18:00<br />覆盖医院、商业、药房拜访<br />影响百益健康下属全部服务商、工作组和服务专员</p>
+      <p style={{ ...S.aitext, marginTop: 7 }}>每日 09:00–18:00<br />覆盖医院、商业、药房拜访<br />影响百益制药下属全部服务商、工作组和服务专员</p>
       <div style={S.confirmactions}>
         <button type="button" onClick={cancel} style={S.cancel}>取消</button>
         <button type="button" onClick={confirm} style={S.confirmbutton}>确认启用</button>
@@ -1029,7 +1029,7 @@ function ScriptParamCard({ msgId, locked, initial, onConfirm }: { msgId: string;
               <div key={c.title} style={{ background: '#FBFCFA', border: '1px solid #EDF0ED', borderRadius: 8, padding: '8px 10px' }}>
                 <b style={{ fontSize: 'var(--fs-12)', color: '#242725' }}>{c.title}</b>
                 <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>通用 AI：{c.left}</p>
-                <p style={{ margin: '2px 0 0', fontSize: 'var(--fs-12)', color: 'var(--color-brand)' }}>平台 AI：{c.right}</p>
+                <p style={{ margin: '2px 0 0', fontSize: 'var(--fs-12)', color: 'var(--color-brand)' }}>贝医 AI：{c.right}</p>
               </div>
             ))}
           </div>
@@ -1227,7 +1227,7 @@ function ReportBlock({ payload }: { payload: ScriptPayload }) {
             <span style={S.detailk}>法规条款引用</span>
             <span style={S.detailv}>《广告法》第九条（绝对化用语）· 药品广告审查标准相关口径 · 《医药代表备案管理办法》</span>
           </div>
-          <p style={{ ...S.note, marginTop: 8 }}>合规报告由平台规则引擎生成，供人工确认参考；最终以人工确认为准。</p>
+          <p style={{ ...S.note, marginTop: 8 }}>合规报告由系统规则引擎生成，供人工确认参考；最终以人工确认为准。</p>
         </div>
       )}
     </div>
@@ -1604,7 +1604,7 @@ function BillingModal({ open, onClose }: { open: boolean; onClose: () => void })
                 <div style={{ padding: '6px 10px', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', fontSize: 'var(--fs-12)', fontWeight: 600, color: '#1F2937' }}>{c.title}</div>
                 <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <p style={{ margin: 0, fontSize: 'var(--fs-11)', color: '#9CA3AF', lineHeight: 1.5 }}>通用 AI：{c.left}</p>
-                  <p style={{ margin: 0, fontSize: 'var(--fs-11)', color: 'var(--color-brand)', fontWeight: 500, lineHeight: 1.5, borderLeft: '3px solid var(--color-brand)', paddingLeft: 6 }}>平台 AI：{c.right}</p>
+                  <p style={{ margin: 0, fontSize: 'var(--fs-11)', color: 'var(--color-brand)', fontWeight: 500, lineHeight: 1.5, borderLeft: '3px solid var(--color-brand)', paddingLeft: 6 }}>贝医 AI：{c.right}</p>
                 </div>
               </div>
             ))}

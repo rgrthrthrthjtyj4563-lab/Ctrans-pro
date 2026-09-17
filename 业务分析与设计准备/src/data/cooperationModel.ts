@@ -20,12 +20,12 @@ import type { PlatformRoleBinding, RoleAssignment, TenantKind, TenantMembership 
 import { PLATFORM_BINDINGS, PRESET_ROLES, TENANT_MEMBERSHIPS, enterpriseRootOf, seedCustomRoles } from "./permissions"
 import { allOrgs, allUsers, allAssignments, tenantLoginAllowed } from "./tenantRegistry"
 
-// ─── 平台角色绑定（运行期内存态；登录网关与平台账号页共享同一事实源） ─────────
+// ─── 系统角色绑定（运行期内存态；登录网关与软件服务方账号页共享同一事实源） ─────────
 
 let platformBindings: PlatformRoleBinding[] = PLATFORM_BINDINGS.map((b) => ({ ...b }))
 const bindingListeners = new Set<() => void>()
 
-/** 登录链路与平台账号页统一读取 */
+/** 登录链路与软件服务方账号页统一读取 */
 export function getPlatformBindings(): PlatformRoleBinding[] {
   return platformBindings
 }
@@ -78,7 +78,7 @@ export function revokePlatformBinding(bindingId: string, actor: string, reason: 
   return { ok: true }
 }
 
-// ─── 租户与成员身份聚合（种子 + 平台侧运行时租户） ─────────────────────────────
+// ─── 租户与成员身份聚合（种子 + 软件服务方侧运行时建租户） ─────────────────────
 
 export interface Tenant {
   id: string
@@ -86,7 +86,7 @@ export interface Tenant {
   kind: TenantKind
 }
 
-/** 全部企业租户（平台不是租户；含运行时注册的租户企业根） */
+/** 全部企业租户（软件服务方不是租户；含运行时注册的租户企业根） */
 export function allTenants(): Tenant[] {
   return allOrgs()
     .filter((o) => o.type === "pharma" || o.type === "provider")
@@ -106,7 +106,7 @@ export function tenantNameOf(id: string): string {
  * （租户注册表里的用户按其组织归属根节点派生一条成员身份）。
  */
 /**
- * 租户成员关系运行时 store：种子 TENANT_MEMBERSHIPS + 平台侧运行时租户成员派生。
+ * 租户成员关系运行时 store：种子 TENANT_MEMBERSHIPS + 软件服务方侧运行时租户成员派生。
  * 这是「用户属于哪个租户、挂在哪个部门」的唯一权威——授权、调岗、列表展示
  * 一律从这里读，不得再用 User.orgId / enterpriseRootOf(User.orgId) 反推。
  */
@@ -550,7 +550,7 @@ export function visiblePharmasForUser(userId: string, providerTenantId: string):
   return out
 }
 
-/** 平台合作关系监管用：全部关系 + 授权状态展开 */
+/** 软件服务方合作关系监管用：全部关系 + 授权状态展开 */
 export function allRelationshipRows(): Array<{
   relationship: ProviderPharmaRelationship
   pharmaName: string

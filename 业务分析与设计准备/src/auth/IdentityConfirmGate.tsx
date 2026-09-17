@@ -1,7 +1,7 @@
 /**
  * 登录三步流 · 第二步：角色确认（权限域分离版）。
- * 工作空间编码在第 1 步确定认证域：平台编码 → 平台工作空间（显示「当前工作空间：
- * 药合作平台」，不显示「认证企业」）；企业编码 → 租户工作空间（显示当前企业，
+ * 工作空间编码在第 1 步确定认证域：后台编码 → 系统管理后台（显示「当前工作空间：
+ * 系统管理后台」，不显示「认证企业」）；企业编码 → 租户工作空间（显示当前企业，
  * 卡片仅展示角色身份与授权状态两字段，极简口径 2026-09-16）。
  * 同一角色存在多条有效授权时只显示一条并合并展示可管理范围。
  * 单角色由网关直签 identityConfirmed，不经过本页；双企业身份回登录页换编码。
@@ -34,7 +34,7 @@ interface IdentityConfirmGateProps {
   onChangeAccount: () => void;
 }
 
-/** 步数条：第 1 步按域显示「工作空间验证」（平台）或「企业验证」（租户） */
+/** 步数条：第 1 步按域显示「工作空间验证」（软件服务方）或「企业验证」（租户） */
 function GateSteps({ principal }: { principal: AuthPrincipal }) {
   const isProviderMember = principal.realm === "TENANT" && principal.tenantKind === "provider";
   const firstStep = principal.realm === "PLATFORM" ? "工作空间验证" : "企业验证";
@@ -117,12 +117,12 @@ export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: Ide
           <div className="auth-gate-step">
             <GateSteps principal={p} />
             <h1 className="auth-gate-title">
-              {isPlatform ? "选择本次使用的平台角色" : "选择本次使用的角色"}
+              {isPlatform ? "选择本次使用的系统角色" : "选择本次使用的角色"}
             </h1>
             <p className="auth-gate-subtitle">
               {options.length > 1
                 ? isPlatform
-                  ? "该平台账号关联了多个平台角色，请选择本次使用的平台角色。"
+                  ? "该账号关联了多个系统角色，请选择本次使用的系统角色。"
                   : "你在本企业内关联了多个有效角色，请选择本次使用的角色。"
                 : "确认本次使用的角色后进入。"}
             </p>
@@ -142,7 +142,7 @@ export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: Ide
                   {isPlatform ? (
                     <>
                       {PLATFORM_WORKSPACE_NAME}
-                      <span className="auth-gate-tag auth-gate-tag--brand" style={{ marginLeft: 8 }}>平台工作空间 · 非企业租户</span>
+                      <span className="auth-gate-tag auth-gate-tag--brand" style={{ marginLeft: 8 }}>系统管理后台 · 非企业租户</span>
                     </>
                   ) : (
                     p.tenantName
@@ -153,14 +153,14 @@ export function IdentityConfirmGate({ session, onConfirm, onChangeAccount }: Ide
 
             <div className="auth-gate-boundary" style={{ marginBottom: 14 }}>
               <span>
-                {isPlatform ? "平台工作空间：只管理租户与企业码，不进入企业内部配置。" : "本企业内选择角色；换企业可在进入工作台后通过用户菜单「切换企业」。"}
+                {isPlatform ? "系统管理后台：只管理租户与企业码，不进入企业内部配置。" : "本企业内选择角色；换企业可在进入工作台后通过用户菜单「切换企业」。"}
               </span>
               <button
                 type="button"
                 className="auth-gate-q"
-                aria-label="平台与企业边界说明"
+                aria-label="软件服务方与企业边界说明"
                 data-tip={isPlatform
-                  ? "平台系统管理员只管理租户开通与企业码、菜单管理、合作关系监管和平台审计；平台不属于任何企业租户，不进入企业内部的组织、用户与权限配置。"
+                  ? "贝医系统管理员只管理租户开通与企业码、菜单管理、合作关系监管和系统审计；软件服务方（贝医信息科技）不属于任何企业租户，不进入企业内部的组织、用户与权限配置。"
                   : "角色选择只在本次认证的企业内进行；同一手机号在其他企业的成员身份不受影响。进入工作台后可在用户菜单「切换企业」免验证码切换到其他已激活企业。"}
               >
                 ?

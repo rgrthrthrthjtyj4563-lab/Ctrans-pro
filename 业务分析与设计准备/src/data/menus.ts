@@ -1,8 +1,8 @@
 /**
  * 菜单事实源（多租户权限架构重构版）。
  *
- * 三棵工作空间菜单树（平台 / 药厂 / 服务商）互不串台：菜单项以 workspace 标注
- * 归属工作空间；平台菜单不出现在药厂/服务商后台，反之亦然。可见性判定为
+ * 三棵工作空间菜单树（软件服务方 / 药厂 / 服务商）互不串台：菜单项以 workspace 标注
+ * 归属工作空间；软件服务方菜单不出现在药厂/服务商后台，反之亦然。可见性判定为
  *   workspace 命中当前身份权限域 ∧ 角色功能权限（pagePerms 含该页 view）
  * 不再依赖旧「三类视角」或角色名兼容逻辑（App 统一计算）。
  */
@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import type { MenuItem } from '../types';
 
-/** 菜单项归属工作空间：平台/药厂/服务商/全共享 */
+/** 菜单项归属工作空间：软件服务方/药厂/服务商/全共享 */
 export type MenuWorkspace = 'platform' | 'pharma' | 'provider' | 'any';
 
 export const MENU_ICONS: Record<string, LucideIcon> = {
@@ -53,7 +53,7 @@ export const MENU_ICONS: Record<string, LucideIcon> = {
 export type MenuSeedItem = MenuItem & { workspace: MenuWorkspace };
 
 const STAMP = '2026-09-15 10:00';
-const ACTOR = '平台系统管理员';
+const ACTOR = '贝医系统管理员';
 
 function item(
   partial: Omit<MenuSeedItem, 'updatedAt' | 'updatedBy' | 'enabled'> & { enabled?: boolean },
@@ -67,15 +67,15 @@ function item(
 }
 
 const SEED_MENU_ITEMS: MenuSeedItem[] = [
-  // ── 平台工作空间（固定五项：平台工作台 / 租户管理 / 菜单管理 / 合作关系监管 / 平台审计日志）
-  item({ id: 'menu-platform-dashboard', name: '平台工作台', type: 'page', parentId: null, pageId: 'dashboard', section: '', iconKey: 'layout-dashboard', sort: 1, workspace: 'platform' }),
+  // ── 系统管理后台（固定五项：系统工作台 / 租户管理 / 菜单管理 / 合作关系监管 / 系统审计日志）
+  item({ id: 'menu-platform-dashboard', name: '系统工作台', type: 'page', parentId: null, pageId: 'dashboard', section: '', iconKey: 'layout-dashboard', sort: 1, workspace: 'platform' }),
   item({ id: 'menu-tenant-management', name: '租户管理', type: 'page', parentId: null, pageId: 'tenant-management', section: '', iconKey: 'building-2', sort: 2, workspace: 'platform' }),
   item({ id: 'menu-menus-sys', name: '菜单管理', type: 'page', parentId: null, pageId: 'menus', section: '', iconKey: 'shield', sort: 3, workspace: 'platform' }),
   item({ id: 'menu-cooperation-supervision', name: '合作关系监管', type: 'page', parentId: null, pageId: 'cooperation-supervision', section: '', iconKey: 'handshake', sort: 4, workspace: 'platform' }),
-  item({ id: 'menu-platform-audit', name: '平台审计日志', type: 'page', parentId: null, pageId: 'platform-audit', section: '', iconKey: 'file-text', sort: 5, workspace: 'platform' }),
+  item({ id: 'menu-platform-audit', name: '系统审计日志', type: 'page', parentId: null, pageId: 'platform-audit', section: '', iconKey: 'file-text', sort: 5, workspace: 'platform' }),
 
   // ── 药厂 / 服务商共享：业务工作台 ──────────────────────────────────────────
-  // 业务工作台分属两个租户工作空间（平台侧只有平台工作台，两树互不串台）
+  // 业务工作台分属两个租户工作空间（软件服务方侧只有系统工作台，两树互不串台）
   item({ id: 'menu-dashboard', name: '业务工作台', type: 'page', parentId: null, pageId: 'dashboard', section: '', iconKey: 'layout-dashboard', sort: 1, badge: 8, workspace: 'pharma' }),
   item({ id: 'menu-p-dashboard', name: '业务工作台', type: 'page', parentId: null, pageId: 'dashboard', section: '', iconKey: 'layout-dashboard', sort: 1, workspace: 'provider' }),
 
@@ -144,7 +144,7 @@ export function seedMenuItemsAsMenuItems(): MenuItem[] {
   });
 }
 
-/** 按当前身份工作空间过滤：平台只见 platform/any；药厂只见 pharma/any；服务商只见 provider/any */
+/** 按当前身份工作空间过滤：软件服务方只见 platform/any；药厂只见 pharma/any；服务商只见 provider/any */
 export function workspaceOfPrincipal(realm: 'PLATFORM' | 'TENANT', tenantKind: 'pharma' | 'provider' | null): MenuWorkspace[] {
   if (realm === 'PLATFORM') return ['platform', 'any'];
   return [tenantKind ?? 'any', 'any'];
