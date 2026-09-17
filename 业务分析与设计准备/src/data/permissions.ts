@@ -3,9 +3,9 @@
  * 管理员只面对页面名称、按钮名称、数据范围和字段展示方式，不接触内部编码。
  *
  * 多租户权限域（2026-09 重构 · 2026-09-15 收敛版）：
- * - AccessRealm 区分「平台权限域」与「租户权限域」：平台仅保留「平台系统管理员」
- *   一个预置角色（租户开通、菜单管理、合作关系监管与平台审计），不进入任何
- *   租户内部配置；租户角色（TENANT_ROLES）只在药厂/服务商企业工作空间内生效。
+ * - AccessRealm 区分「系统权限域（软件服务方）」与「租户权限域」：软件服务方仅保留
+ *   「贝医系统管理员」一个预置角色（租户开通、菜单管理、合作关系监管与系统审计），
+ *   不进入任何租户内部配置；租户角色（TENANT_ROLES）只在药厂/服务商企业工作空间内生效。
  * - 角色只定义能力（页面/操作/字段 + 范围策略）；员工实际的角色授予、生效期
  *   与数据范围（含服务商成员可处理药厂/品种）统一在「角色与数据范围」页的
  *   「已授权成员」页签完成（UserRoleAssignment 为唯一数据源）。
@@ -15,12 +15,12 @@
 import type { Role } from "../types"
 import { REGION_OPTIONS } from "../constants"
 
-/** 权限域：平台 或 租户企业（药厂/服务商） */
+/** 权限域：系统管理后台（软件服务方） 或 租户企业（药厂/服务商） */
 export type AccessRealm = "PLATFORM" | "TENANT"
-/** 租户企业类型（平台不算一种企业租户） */
+/** 租户企业类型（软件服务方不算一种企业租户） */
 export type TenantKind = "pharma" | "provider"
 
-/** 租户角色的数据范围档位（平台侧不使用本枚举，平台职责范围见 PlatformRoleBinding.dutyScope） */
+/** 租户角色的数据范围档位（软件服务方侧不使用本枚举，系统职责范围见 PlatformRoleBinding.dutyScope） */
 export type ScopeType =
   | "PHARMA"
   | "PROVIDER"
@@ -141,7 +141,7 @@ export interface SysRole {
   description: string
   kind: SysRoleKind
   status: SysRoleStatus
-  /** 角色所属权限域：平台角色与租户角色永不混列 */
+  /** 角色所属权限域：系统角色与租户角色永不混列 */
   realm: AccessRealm
   /**
    * 自定义角色的所属租户（租户隔离）：缺省 = 预置角色（可按租户类型复用，
@@ -200,8 +200,8 @@ export interface TenantMembership {
 }
 
 /**
- * PlatformRoleBinding：平台账号 ↔ 平台角色的授予记录（平台权限域内，独立于租户授权）。
- * dutyScope 用职责摘要表达管理边界（如「全部租户的开通与企业码管理」），不再写「某企业（全平台）」。
+ * PlatformRoleBinding：软件服务方账号 ↔ 系统角色的授予记录（系统权限域内，独立于租户授权）。
+ * dutyScope 用职责摘要表达管理边界（如「全部租户的开通与企业码管理」），不再写「某企业（全部租户）」。
  */
 export interface PlatformRoleBinding {
   id: string
@@ -433,9 +433,9 @@ export const RESOURCE_PAGES: ResourcePage[] = [
   },
   {
     id: "menus",
-    module: "平台管理",
+    module: "系统服务",
     name: "菜单管理",
-    description: "平台侧维护左侧导航的目录、页面绑定、排序与启停（菜单对所有租户生效；租户无权维护）",
+    description: "软件服务方维护左侧导航的目录、页面绑定、排序与启停（菜单对所有租户生效；租户无权维护）",
     actions: acts("menus", ["view", "create", "edit"]),
     realms: ["PLATFORM"],
   },
@@ -482,17 +482,17 @@ export const RESOURCE_PAGES: ResourcePage[] = [
   },
   {
     id: "cooperation-supervision",
-    module: "平台管理",
+    module: "系统服务",
     name: "合作关系监管",
-    description: "平台侧只读监管各药厂—服务商合作关系与业务授权状态（不介入企业间授权决策）",
+    description: "软件服务方只读监管各药厂—服务商合作关系与业务授权状态（不介入企业间授权决策）",
     actions: acts("cooperation-supervision", ["view", "export"]),
     realms: ["PLATFORM"],
   },
   {
     id: "platform-audit",
-    module: "平台管理",
-    name: "平台审计日志",
-    description: "平台侧操作与租户高风险操作审计",
+    module: "系统服务",
+    name: "系统审计日志",
+    description: "软件服务方操作与租户高风险操作审计",
     actions: acts("platform-audit", ["view"]),
     realms: ["PLATFORM"],
   },
@@ -561,15 +561,15 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     module: "扩展能力",
     name: "业务搭建中心",
     description:
-      "低代码搭建自定义业务场景：表单字段、审批流程、权限与接口联动配置，发布成可用的业务模块（药厂管理员/合规/平台可用，服务商不可见）",
+      "低代码搭建自定义业务场景：表单字段、审批流程、权限与接口联动配置，发布成可用的业务模块（药厂管理员/合规/软件服务方可用，服务商不可见）",
     actions: acts("scenario-center", ["view", "create", "edit"]),
   },
   {
     id: "tenant-management",
-    module: "平台管理",
+    module: "系统服务",
     name: "租户管理",
     description:
-      "平台侧租户开户闭环：直接创建药厂/服务商租户并生成主企业码、首位管理员激活与租户生命周期管理（仅平台工作空间可见，平台人员不进入租户内部配置）",
+      "软件服务方租户开户闭环：直接创建药厂/服务商租户并生成主企业码、首位管理员激活与租户生命周期管理（仅系统管理后台可见，软件服务方人员不进入租户内部配置）",
     actions: acts("tenant-management", ["view", "create", "edit", "approve"]),
     realms: ["PLATFORM"],
   },
@@ -666,16 +666,16 @@ function role(
 
 
 /**
- * 平台角色（realm=PLATFORM）：仅保留「平台系统管理员」一个预置角色，
- * 负责租户开通与企业码、菜单管理、合作关系监管与平台审计。平台角色不得持有
+ * 系统角色（realm=PLATFORM，软件服务方域）：仅保留「贝医系统管理员」一个预置角色，
+ * 负责租户开通与企业码、菜单管理、合作关系监管与系统审计。系统角色不得持有
  * 任何租户内部页面（组织/用户/租户角色/数据范围/业务数据），也不得出现在
- * 企业角色页与企业菜单树中；平台认证成功后直接进入平台工作台，无角色确认页。
+ * 企业角色页与企业菜单树中；软件服务方认证成功后直接进入系统工作台，无角色确认页。
  */
 export const PLATFORM_ROLES: SysRole[] = [
   role({
     id: "role-sys-admin",
-    name: "平台系统管理员",
-    description: "租户开通与企业码、菜单管理、合作关系监管与平台审计（平台唯一预置角色，不属于任何企业租户）",
+    name: "贝医系统管理员",
+    description: "租户开通与企业码、菜单管理、合作关系监管与系统审计（软件服务方唯一预置角色，不属于任何企业租户）",
     kind: "preset",
     status: "enabled",
     realm: "PLATFORM",
@@ -877,10 +877,10 @@ export const seedCustomRoles: SysRole[] = [
 ]
 
 export const PERM_ORGS: PermOrg[] = [
-  // 平台工作空间根：仅表达平台组织（平台不是企业租户；登录/权限一律按 realm 判定）
-  { id: "org-platform", name: "百益健康科技", type: "platform" },
-  { id: "org-dept-platform-ops", name: "平台系统部", type: "department", parentId: "org-platform" },
-  { id: "org-dept-platform-account", name: "平台客户成功部", type: "department", parentId: "org-platform" },
+  // 系统管理后台根：仅表达软件服务方内部组织（软件服务方不是企业租户；登录/权限一律按 realm 判定）
+  { id: "org-platform", name: "贝医信息科技", type: "platform" },
+  { id: "org-dept-platform-ops", name: "系统服务部", type: "department", parentId: "org-platform" },
+  { id: "org-dept-platform-account", name: "客户成功部", type: "department", parentId: "org-platform" },
   // 药厂租户根：与其他药厂/服务商互为独立租户（合作关系不在组织树中表达）
   {
     id: "org-pharma",
@@ -1050,14 +1050,14 @@ export function resolveGrantAnchor(
 
 export const PERM_USERS: PermUser[] = [
   {
-    // 平台工作人员：不属于任何企业租户，平台唯一预置角色=平台系统管理员
+    // 软件服务方工作人员：不属于任何企业租户，软件服务方唯一预置角色=贝医系统管理员
     id: "u-wangmin",
     name: "王敏",
     account: "wangmin",
     phone: "13901350101",
     email: "wangmin@baiyee.com",
     orgId: "org-dept-platform-ops",
-    orgName: "平台系统部",
+    orgName: "系统服务部",
     accountStatus: "enabled",
     createdAt: "2026-01-01 09:00",
     lastLoginAt: "2026-09-01 08:42",
@@ -1235,14 +1235,14 @@ export const PERM_USERS: PermUser[] = [
 ]
 
 /**
- * 平台角色绑定（平台权限域；独立于租户授权）。平台人员不是任何企业的租户成员。
+ * 系统角色绑定（软件服务方权限域；独立于租户授权）。软件服务方人员不是任何企业的租户成员。
  */
 export const PLATFORM_BINDINGS: PlatformRoleBinding[] = [
   {
     id: "pb-01",
     userId: "u-wangmin",
     platformRoleId: "role-sys-admin",
-    dutyScope: "平台系统管理：租户开通与企业码、菜单管理、合作关系监管、平台审计",
+    dutyScope: "系统管理：租户开通与企业码、菜单管理、合作关系监管、系统审计",
     effectiveFrom: "2026-01-01",
     grantedBy: "系统预置",
     grantedAt: "2026-01-01 09:00",
@@ -1253,7 +1253,7 @@ export const PLATFORM_BINDINGS: PlatformRoleBinding[] = [
 /**
  * 企业成员身份（TenantMembership）：自然人 × 租户。同一手机号可在多个企业
  * 持有不同成员身份、组织归属与权限（陈伟/韩磊为双企业演示）。
- * 平台工作人员无租户成员身份；平台侧运行时租户的成员在登录链路按用户归属
+ * 软件服务方工作人员无租户成员身份；软件服务方侧运行时建租户的成员在登录链路按用户归属
  * 派生（见 cooperationModel.membershipsOfUser）。
  */
 export const TENANT_MEMBERSHIPS: TenantMembership[] = [
@@ -1649,8 +1649,8 @@ export const seedPermAudit: PermAuditEvent[] = [
     id: "PE00078",
     time: "2026-08-25 16:22",
     actor: "王敏",
-    actorRole: "平台系统管理员",
-    org: "百益健康科技",
+    actorRole: "贝医系统管理员",
+    org: "贝医信息科技",
     target: "李航 × 药厂区域销售经理",
     roleName: "药厂区域销售经理",
     module: "用户授权",
@@ -1720,8 +1720,8 @@ export const seedPermAudit: PermAuditEvent[] = [
     id: "PE00074",
     time: "2026-08-22 10:05",
     actor: "王敏",
-    actorRole: "平台系统管理员",
-    org: "百益健康科技",
+    actorRole: "贝医系统管理员",
+    org: "贝医信息科技",
     target: "角色预览 / 服务专员",
     roleName: "服务专员",
     module: "角色预览",
@@ -1797,7 +1797,7 @@ export const seedPermAudit: PermAuditEvent[] = [
  * 菜单显示与路由拦截已统一按「权限域 + 功能权限（pagePerms）」判定，
  * 不再使用本映射；此映射仅服务于尚未迁移的页面内「视角分支」
  * （如任务执行按销售/服务商渲染不同操作），属过渡层。
- * 平台角色没有业务视角：仅为工作台兼容渲染给中性值，不代表业务操作权。
+ * 系统角色没有业务视角：仅为工作台兼容渲染给中性值，不代表业务操作权。
  */
 export const PERSPECTIVE_BY_ROLE_ID: Record<string, Role> = {
   "role-custom-region-sales": "药厂销售部门",
@@ -1809,7 +1809,7 @@ export const PERSPECTIVE_BY_ROLE_ID: Record<string, Role> = {
 
 /**
  * 运行期新建的定制角色按数据范围与页面能力推导视角（无登记时兜底）。
- * 平台角色没有业务视角：返回 null。平台页面一律以 realm + platformRoleId 判断，
+ * 系统角色没有业务视角：返回 null。系统管理后台页面一律以 realm + platformRoleId 判断，
  * 旧视角兼容逻辑只允许在 TENANT 域的业务页面内使用。
  */
 export function perspectiveRoleOf(role: SysRole): Role | null {
@@ -1823,7 +1823,7 @@ export function perspectiveRoleOf(role: SysRole): Role | null {
   return "药厂销售部门"
 }
 
-/** 按权限域过滤角色（平台角色与租户角色永不混列） */
+/** 按权限域过滤角色（系统角色与租户角色永不混列） */
 export function rolesOfRealm(roles: SysRole[], realm: AccessRealm): SysRole[] {
   return roles.filter((r) => r.realm === realm)
 }
@@ -1842,12 +1842,12 @@ export function rolesOfTenant(
   )
 }
 
-/** 可授予某租户类型的角色（平台角色不出现在企业授权可选列表） */
+/** 可授予某租户类型的角色（系统角色不出现在企业授权可选列表） */
 export function tenantRolesForKind(roles: SysRole[], kind: TenantKind): SysRole[] {
   return roles.filter((r) => r.realm === "TENANT" && (!r.appliesTo || r.appliesTo.includes(kind)))
 }
 
-/** 企业租户根节点（药厂/服务商；平台不是租户） */
+/** 企业租户根节点（药厂/服务商；软件服务方不是租户） */
 export function tenantRoots(orgs: PermOrg[]): PermOrg[] {
   return orgs.filter((o) => o.type === "pharma" || o.type === "provider")
 }
@@ -1972,7 +1972,7 @@ export function hasHighRiskGrant(
 }
 
 export const ORG_TYPE_LABEL: Record<PermOrg["type"], string> = {
-  platform: "平台",
+  platform: "软件服务方",
   pharma: "药厂",
   provider: "服务商",
   group: "工作组",
@@ -2126,7 +2126,7 @@ export function latestAssignmentAt(
   }, mine[0].revokedAt ?? mine[0].grantedAt)
 }
 
-/** 向上找企业实体根节点（平台/药厂/服务商），用于「同企业」规则 */
+/** 向上找企业实体根节点（软件服务方/药厂/服务商），用于「同企业」规则 */
 export function enterpriseRootOf(
   orgs: PermOrg[],
   orgId: string,
@@ -2170,10 +2170,10 @@ export function validateDeptParent(
 ): { ok: boolean; error?: string } {
   const parent = orgs.find((o) => o.id === parentId)
   if (!parent) return { ok: false, error: "父节点不存在" }
-  // 平台工作空间根也可挂部门（平台内部组织）；服务商/工作组不挂部门（用工作组团队）
+  // 系统管理后台根也可挂部门（软件服务方内部组织）；服务商/工作组不挂部门（用工作组团队）
   const parentOk = isDeptParentType(parent.type) || parent.type === "platform"
   if (!parentOk) {
-    return { ok: false, error: "部门只能挂在药厂、平台或部门下，不能挂到服务商或工作组" }
+    return { ok: false, error: "部门只能挂在药厂、软件服务方或部门下，不能挂到服务商或工作组" }
   }
   if (movingId) {
     const moving = orgs.find((o) => o.id === movingId)

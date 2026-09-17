@@ -3,10 +3,10 @@
  * 无持久会话；刷新页面即重新登录。生产接入时本文件整体替换为真实接口适配层。
  *
  * 权限域口径（方案 §三/§六/§九）：
- * - 企业编码解析：平台工作空间编码复用同一登录形式，但解析为 realm=PLATFORM，
- *   不把平台伪装成普通企业租户；普通企业编码 → 租户工作空间。
- * - 平台人员通过 PlatformRoleBinding 获得平台角色（职责范围文本表达管理边界，
- *   不再出现「某企业（全平台）」）；租户人员通过 TenantMembership + RoleAssignment
+ * - 企业编码解析：系统管理后台编码复用同一登录形式，但解析为 realm=PLATFORM，
+ *   不把软件服务方伪装成普通企业租户；普通企业编码 → 租户工作空间。
+ * - 软件服务方人员通过 PlatformRoleBinding 获得系统角色（职责范围文本表达管理边界，
+ *   不再出现「某企业（全部租户）」）；租户人员通过 TenantMembership + RoleAssignment
  *   获得成员身份与角色数据范围（tenantId 稳定边界）。
  * - 同一角色多条有效授权 → 身份选项合并为一条（effectiveAssignmentIds 全量收集）。
  * - 防枚举：非成员统一成功态 + 假码；账号状态拦截在验证码校验成功之后才披露。
@@ -100,7 +100,7 @@ function maskPhone(phone: string): string {
   return phone.length === 11 ? `${phone.slice(0, 3)}****${phone.slice(7)}` : phone
 }
 
-/** 工作空间类型：平台根=platform；药厂/服务商根=对应租户类型 */
+/** 工作空间类型：系统管理后台根=platform；药厂/服务商根=对应租户类型 */
 function workspaceKindOf(enterpriseId: string): "platform" | "pharma" | "provider" | null {
   const root = allOrgs().find((o) => o.id === enterpriseId)
   if (!root) return null
@@ -178,7 +178,7 @@ function decideAssignments(userId: string, tenantId?: string): AssignmentDecisio
   }
 }
 
-/** 平台角色绑定判定（平台域；与租户授权完全分离） */
+/** 系统角色绑定判定（软件服务方域；与租户授权完全分离） */
 function decideBindings(userId: string): { active: PlatformRoleBinding[]; blocker?: LoginFailure } {
   const mine = getPlatformBindings().filter((b) => b.userId === userId)
   const today = todayIso()
@@ -189,18 +189,18 @@ function decideBindings(userId: string): { active: PlatformRoleBinding[]; blocke
   if (mine.length === 0) {
     return {
       active: [],
-      blocker: { code: "no-active-assignment", message: "该手机号不是平台工作人员，请改用所属企业编码登录" },
+      blocker: { code: "no-active-assignment", message: "该手机号不是软件服务方工作人员，请改用所属企业编码登录" },
     }
   }
   return {
     active: [],
-    blocker: { code: "assignment-revoked", message: "平台角色授权已失效，请联系平台管理员" },
+    blocker: { code: "assignment-revoked", message: "系统角色授权已失效，请联系贝医系统管理员" },
   }
 }
 
 /**
  * 生效授权/绑定 → 身份选项（按角色合并）。同一角色存在多条有效授权时只显示
- * 一条并合并展示可管理范围（方案 §六.2）；平台选项与租户选项不混列。
+ * 一条并合并展示可管理范围（方案 §六.2）；软件服务方选项与租户选项不混列。
  */
 function identityOptionsFor(
   user: (typeof PERM_USERS)[number],
@@ -440,7 +440,7 @@ function grantedPharmaUnion(userId: string, providerTenantId: string): string[] 
 
 /**
  * 租户域成员判定：在该租户内有成员身份（种子/运行时派生）或有租户内授权；
- * 平台域成员判定：有平台角色绑定。角色是否可登录由授权/绑定状态单独判定。
+ * 软件服务方域成员判定：有系统角色绑定。角色是否可登录由授权/绑定状态单独判定。
  */
 function isWorkspaceMember(user: (typeof PERM_USERS)[number], realm: AccessRealm, workspaceId: string): boolean {
   if (realm === "PLATFORM") {
@@ -707,7 +707,7 @@ function identityOf(id: string): QrIdentity | undefined {
   return QR_IDENTITIES.find((i) => i.id === id)
 }
 
-/** 扫码回归链路：按自然人主归属解析工作空间（平台人员=有平台绑定；否则=组织归属企业根） */
+/** 扫码回归链路：按自然人主归属解析工作空间（软件服务方人员=有系统角色绑定；否则=组织归属企业根） */
 function workspaceOfUser(userId: string): { realm: AccessRealm; workspaceId: string } {
   if (getPlatformBindings().some((b) => b.userId === userId && b.status === "active")) {
     return { realm: "PLATFORM", workspaceId: "org-platform" }
@@ -961,7 +961,7 @@ export const authGateway: AuthGateway = {
   },
 
   /**
-   * 工作空间编码解析（登录卡第 1 步）：平台编码 → 平台工作空间（realm=PLATFORM）；
+   * 工作空间编码解析（登录卡第 1 步）：后台编码 → 系统管理后台（realm=PLATFORM）；
    * 企业编码 → 租户工作空间。不存在/停用/租户暂停或终止统一失败文案，不区分（防探测）。
    */
   async resolveEnterprise({ code }) {
@@ -1303,7 +1303,7 @@ export const authGateway: AuthGateway = {
   async chooseServingPharma({ userId, pharmaId, principal, method, qrSource }) {
     await tick()
     if (principal.realm !== "TENANT") {
-      return { ok: false, failure: { code: "no-active-assignment", message: "平台工作空间不进入药厂业务" } }
+      return { ok: false, failure: { code: "no-active-assignment", message: "系统管理后台不进入药厂业务" } }
     }
     // 租户（所属服务商）暂停/终止时，认证类换发请求失效
     if (!tenantLoginAllowed(principal.tenantId)) {

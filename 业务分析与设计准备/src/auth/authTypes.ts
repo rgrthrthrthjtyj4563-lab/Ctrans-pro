@@ -2,8 +2,9 @@
  * 前端认证契约（多租户权限域重构版，由 Mock Gateway 实现）。
  *
  * 权限域分离（方案 §三.1）：
- * - realm=PLATFORM：平台工作空间。平台工作空间编码只复用同一登录形式，
- *   不把平台伪装成普通企业租户；平台身份不携带 tenantId/成员身份。
+ * - realm=PLATFORM：系统管理后台（软件服务方「贝医信息科技」的专属工作空间，非企业租户）。
+ *   后台编码只复用同一登录形式，不把软件服务方伪装成普通企业租户；
+ *   软件服务方身份不携带 tenantId/成员身份。
  * - realm=TENANT：药厂/服务商企业工作空间。登录身份 = 自然人 × 企业成员身份
  *   （TenantMembership）× 生效授权角色（activeRoleId）+ 实际数据范围
  *   （effectiveAssignmentIds 合并同一角色的多条授权）。
@@ -24,8 +25,8 @@ export type LoginMethod = "password" | "sms" | "qr"
 /** 扫码来源：企业微信 / 微信开放平台（个人微信）——本期登录入口隐藏，代码保留 */
 export type QrSource = "wecom" | "wechat"
 
-/** 平台工作空间名称（平台人员不显示为「某企业」） */
-export const PLATFORM_WORKSPACE_NAME = "药合作平台"
+/** 系统管理后台显示名（realm=PLATFORM = 软件服务方「贝医信息科技」专属域；软件服务方人员不显示为「某企业」） */
+export const PLATFORM_WORKSPACE_NAME = "系统管理后台"
 
 interface PrincipalPerson {
   /** 自然人（User） */
@@ -33,21 +34,21 @@ interface PrincipalPerson {
   name: string
   account: string
   phone: string
-  /** 人员主档归属组织（部门/工作组；调岗可变）——平台人员为平台组织节点 */
+  /** 人员主档归属组织（部门/工作组；调岗可变）——软件服务方人员为软件服务方组织节点 */
   orgId: string
   orgName: string
 }
 
-/** 平台权限域登录身份：平台角色 × 平台职责范围（无租户成员身份） */
+/** 系统权限域登录身份（软件服务方）：系统角色 × 职责范围（无租户成员身份） */
 export interface PlatformPrincipal extends PrincipalPerson {
   realm: "PLATFORM"
-  /** 平台工作空间根 id（编码解析带入，换发身份时回传） */
+  /** 系统管理后台根 id（编码解析带入，换发身份时回传） */
   workspaceId: string
-  /** 恒为「药合作平台」；页面顶部显示「当前工作空间」而非「认证企业」 */
+  /** 恒为「系统管理后台」；页面顶部显示「当前工作空间」而非「认证企业」 */
   workspaceName: string
   platformRoleId: string
   platformRoleName: string
-  /** 职责范围摘要（来自 PlatformRoleBinding.dutyScope），如「租户运营范围：全部租户的开通…」 */
+  /** 职责范围摘要（来自 PlatformRoleBinding.dutyScope），如「租户开通与企业码、菜单管理、合作关系监管…」 */
   dutyScope: string
 }
 
@@ -75,7 +76,7 @@ export interface TenantPrincipal extends PrincipalPerson {
   dataScopeSummary: string
   /**
    * 旧三类页面视角的兼容派生值：仅服务于 TENANT 域业务页面的渲染分支，
-   * 菜单/路由/平台页面一律不使用（平台身份无业务视角，不带此字段）。
+   * 菜单/路由/系统管理后台页面一律不使用（软件服务方身份无业务视角，不带此字段）。
    */
   perspective: Role
   /**
@@ -88,14 +89,14 @@ export interface TenantPrincipal extends PrincipalPerson {
   pharmaWarning?: WarningKind
 }
 
-/** 登录后的模拟身份：平台与租户两域判别联合（前端演示数据结构） */
+/** 登录后的模拟身份：软件服务方与租户两域判别联合（前端演示数据结构） */
 export type AuthPrincipal = PlatformPrincipal | TenantPrincipal
 
 export function isPlatformPrincipal(p: AuthPrincipal): p is PlatformPrincipal {
   return p.realm === "PLATFORM"
 }
 
-/** 两域统一取角色 id（平台角色 id / 租户生效角色 id） */
+/** 两域统一取角色 id（系统角色 id / 租户生效角色 id） */
 export function principalRoleId(p: AuthPrincipal): string {
   return p.realm === "PLATFORM" ? p.platformRoleId : p.activeRoleId
 }
@@ -104,7 +105,7 @@ export function principalRoleName(p: AuthPrincipal): string {
   return p.realm === "PLATFORM" ? p.platformRoleName : p.activeRoleName
 }
 
-/** 工作空间展示名：平台=药合作平台；租户=企业名 */
+/** 工作空间展示名：软件服务方=系统管理后台；租户=企业名 */
 export function principalWorkspaceName(p: AuthPrincipal): string {
   return p.realm === "PLATFORM" ? PLATFORM_WORKSPACE_NAME : p.tenantName
 }
@@ -161,11 +162,11 @@ export function enterablePharma(p: ServingPharma): boolean {
   return p.status === "active" && !p.blockedKind
 }
 
-/** 企业编码登记项（原型口径，生产由平台系统管理员在租户管理生成；平台/药厂/服务商共用编号空间；一个企业只有一个主码） */
+/** 企业编码登记项（原型口径，生产由贝医系统管理员在租户管理生成；系统管理后台/药厂/服务商共用编号空间；一个企业只有一个主码） */
 export interface EnterpriseCodeEntry {
   /** 8 位大写字母数字，排除易混字符（0/O、1/I），无业务语义 */
   code: string
-  /** 对应企业根节点 orgId（平台码对应平台工作空间根） */
+  /** 对应企业根节点 orgId（后台码对应系统管理后台根） */
   enterpriseId: string
   enabled: boolean
 }
@@ -173,13 +174,13 @@ export interface EnterpriseCodeEntry {
 /**
  * 手机号/验证码通过后解析出的一个可登录身份选项。
  * 同一角色存在多条有效授权时合并为一条（assignmentIds 收集全部），
- * 平台身份与租户身份不会混列（realm 由认证工作空间决定）。
+ * 软件服务方身份与租户身份不会混列（realm 由认证工作空间决定）。
  */
 export interface LoginIdentityOption {
   realm: AccessRealm
   /** 选项稳定键：TENANT=roleId@tenantId；PLATFORM=platformRoleId */
   key: string
-  /** 生效授权记录集合（租户=RoleAssignment.id 集合；平台=PlatformRoleBinding.id 集合） */
+  /** 生效授权记录集合（租户=RoleAssignment.id 集合；软件服务方=PlatformRoleBinding.id 集合） */
   assignmentIds: string[]
   roleId: string
   roleName: string
@@ -268,7 +269,7 @@ export type AuthResult =
  */
 export interface DefaultLoginRecord {
   userId: string
-  /** 记录指向的工作空间：平台根或租户企业根 */
+  /** 记录指向的工作空间：系统管理后台根或租户企业根 */
   workspaceKind: "platform" | "tenant"
   workspaceId: string
   /** 仅展示用；进入授权以 workspaceId 实时校验为准 */
@@ -345,12 +346,12 @@ export interface AuthGateway {
   }): Promise<
     | {
         ok: true
-        /** 平台码 = 平台工作空间根 id；企业码 = 租户企业根 id */
+        /** 后台码 = 系统管理后台根 id；企业码 = 租户企业根 id */
         enterpriseId: string
         enterpriseName: string
-        /** 解析出的权限域：平台编码不伪装成普通企业租户 */
+        /** 解析出的权限域：后台编码不伪装成普通企业租户 */
         realm: AccessRealm
-        /** 顶部提示文案：「药合作平台」或企业名 */
+        /** 顶部提示文案：「系统管理后台」或企业名 */
         workspaceLabel: string
       }
     | { ok: false; failure: LoginFailure }
@@ -402,7 +403,7 @@ export interface AuthGateway {
   chooseLoginIdentity(input: {
     userId: string
     roleId: string
-    /** 本次认证工作空间根 id（平台码即平台根） */
+    /** 本次认证工作空间根 id（后台码即系统管理后台根） */
     workspaceId: string
     /** 透传原登录方式，保持审计与会话口径连续 */
     method?: LoginMethod

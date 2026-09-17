@@ -632,7 +632,7 @@ function RoleDetail({
           <StatusTag status={statusWord(role.status)} />
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>版本 v{role.version}</span>
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
-            适用域 {role.realm === 'PLATFORM' ? '平台工作空间' : `企业租户${role.appliesTo ? `（${role.appliesTo.map(t => (t === 'pharma' ? '药厂' : '服务商')).join('/')}）` : ''}`}
+            适用域 {role.realm === 'PLATFORM' ? '系统管理后台' : `企业租户${role.appliesTo ? `（${role.appliesTo.map(t => (t === 'pharma' ? '药厂' : '服务商')).join('/')}）` : ''}`}
           </span>
           <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>已授权 {activeMemberCount} 人</span>
         </div>
@@ -805,7 +805,7 @@ function RoleDetail({
             </Field>
             <Field label="可授权对象范围">
               <input
-                value={role.realm === 'PLATFORM' ? '平台工作人员（平台权限域）' : role.appliesTo ? role.appliesTo.map(t => (t === 'pharma' ? '药厂' : '服务商')).map(t => `${t}企业成员`).join(' / ') : '本企业成员'}
+                value={role.realm === 'PLATFORM' ? '软件服务方工作人员（系统权限域）' : role.appliesTo ? role.appliesTo.map(t => (t === 'pharma' ? '药厂' : '服务商')).map(t => `${t}企业成员`).join(' / ') : '本企业成员'}
                 disabled
                 style={inputStyle}
               />
@@ -975,7 +975,7 @@ function RoleScopeTab({
       )}
       <div style={{ marginTop: 16, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
         数据范围不决定员工可见的合作药厂——成员的可处理药厂与品种在「已授权成员」页签按人授予（同一角色不同人可不同范围）。
-        {role.realm === 'PLATFORM' && ' 平台角色不使用数据范围。'}
+        {role.realm === 'PLATFORM' && ' 系统角色不使用数据范围。'}
       </div>
     </div>
   );

@@ -71,17 +71,17 @@ interface PermissionStore {
   orgs: PermOrg[];
   changeLogs: RoleChangeLog[];
   auditEvents: PermAuditEvent[];
-  /** 已认证主体（平台/租户判别联合） */
+  /** 已认证主体（软件服务方/租户判别联合） */
   principal: AuthPrincipal;
   /** 当前身份权限域 */
   realm: AccessRealm;
-  /** 当前是否平台身份（平台人员不进入租户内部配置） */
+  /** 当前是否软件服务方身份（软件服务方人员不进入租户内部配置） */
   isPlatform: boolean;
   /** 当前租户类型（仅租户身份） */
   tenantKind: TenantKind | null;
-  /** 当前身份所在权限域的角色（平台角色与租户角色永不混列） */
+  /** 当前身份所在权限域的角色（系统角色与租户角色永不混列） */
   realmRoles: SysRole[];
-  /** 旧三类页面视角的兼容派生值（仅 TENANT 域业务页面使用；平台身份为 null，平台页面用 realm+platformRoleId 判断） */
+  /** 旧三类页面视角的兼容派生值（仅 TENANT 域业务页面使用；软件服务方身份为 null，系统管理后台页面用 realm+platformRoleId 判断） */
   loginRole: Role | null;
   mappedRole: SysRole;
   preview: PreviewState | null;
@@ -176,7 +176,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   const tenantKind = principal.realm === "TENANT" ? principal.tenantKind : null;
   const principalTenantId = principal.realm === "TENANT" ? principal.tenantId : null;
   const principalTenantKind = principal.realm === "TENANT" ? principal.tenantKind : null;
-  /** 权限域角色：平台角色与租户角色永不混列（验收 §13.10） */
+  /** 权限域角色：系统角色与租户角色永不混列（验收 §13.10） */
   const realmRoles = useMemo(
     () => rolesOfTenant(roles, realm, realm === 'TENANT' ? principalTenantId : null),
     [roles, realm, principalTenantId],
@@ -278,7 +278,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     // 其他租户的自定义角色互不可见、互不冲突
     const tenantVisible = (r: SysRole) => realm === 'PLATFORM' || r.tenantId == null || r.tenantId === principalTenantId;
     if (roles.some(r => r.name === name && r.realm === realm && tenantVisible(r))) {
-      return { ok: false, error: realm === 'PLATFORM' ? '平台角色名称必须唯一' : '本企业内角色名称必须唯一（含预置角色）' };
+      return { ok: false, error: realm === 'PLATFORM' ? '系统角色名称必须唯一' : '本企业内角色名称必须唯一（含预置角色）' };
     }
     const created: SysRole = {
       id: nextId('role-custom'),
@@ -309,7 +309,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
     const current = roles.find(r => r.id === roleId);
     if (!current) return { ok: false, error: '角色不存在' };
-    // 跨权限域 / 跨租户修改拦截：平台角色只能在平台域改；其他租户的自定义角色不可改
+    // 跨权限域 / 跨租户修改拦截：系统角色只能在软件服务方域改；其他租户的自定义角色不可改
     if (current.realm !== realm) return { ok: false, error: '不可修改当前权限域之外的角色' };
     if (realm === 'TENANT' && current.tenantId != null && current.tenantId !== principalTenantId) {
       return { ok: false, error: '不可修改本企业之外的自定义角色' };
@@ -408,7 +408,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   }, [assignments, logAudit, preview, realm, roles, users]);
 
   /**
-   * 租户域唯一授权入口（「角色与数据范围」页 · 已授权成员页签）。平台人员
+   * 租户域唯一授权入口（「角色与数据范围」页 · 已授权成员页签）。软件服务方人员
    * 不得调用本方法管理任何租户内部授权；授予时写入稳定 tenantId 边界。
    * 服务商员工可处理药厂 = assignment.pharmaTenantIds，授予时强制不得超出
    * 「药厂对服务商的有效合作与业务授权」上限（内部权限只收窄、不扩大）。
@@ -426,7 +426,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
     if (realm !== 'TENANT' || !principalTenantId) {
-      return { ok: false, error: '平台身份不进入租户内部授权：请由企业管理员在租户工作空间内授予' };
+      return { ok: false, error: '软件服务方身份不进入租户内部授权：请由企业管理员在租户工作空间内授予' };
     }
     const user = usersRef.current.find(u => u.id === input.userId);
     if (!user) return { ok: false, error: '用户不存在' };
@@ -442,7 +442,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     const memberOrgId = membership.orgUnitId;
     const role = roles.find(r => r.id === input.roleId);
     if (!role) return { ok: false, error: '角色不存在' };
-    if (role.realm !== 'TENANT') return { ok: false, error: '平台角色不可授予企业成员（平台权限域分离）' };
+    if (role.realm !== 'TENANT') return { ok: false, error: '系统角色不可授予企业成员（软件服务方权限域分离）' };
     if (role.appliesTo && principalTenantKind && !role.appliesTo.includes(principalTenantKind)) {
       return { ok: false, error: `角色「${role.name}」不适用于当前企业类型` };
     }
@@ -536,7 +536,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     reason: string;
   }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
-    if (realm !== 'TENANT' || !principalTenantId) return { ok: false, error: '平台身份不进入租户内部授权' };
+    if (realm !== 'TENANT' || !principalTenantId) return { ok: false, error: '软件服务方身份不进入租户内部授权' };
     const current = assignments.find(a => a.id === assignmentId);
     if (!current) return { ok: false, error: '授权不存在' };
     if (current.tenantId !== principalTenantId) return { ok: false, error: '不能调整其他企业的授权记录' };
@@ -627,14 +627,14 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     if (users.some(u => u.phone === phone)) return { ok: false, error: '该手机号已绑定其他账号' };
     const target = orgs.find(o => o.id === input.orgId);
     if (!target) return { ok: false, error: '所属部门不存在' };
-    // 成员建档边界：租户管理员只能在本企业组织树内建号；平台人员只能建平台账号
+    // 成员建档边界：租户管理员只能在本企业组织树内建号；软件服务方人员只能建软件服务方账号
     const targetRoot = enterpriseRootOf(orgs, target.id);
     if (realm === 'TENANT') {
       if (!targetRoot || targetRoot.id !== principalTenantId) {
         return { ok: false, error: '只能在本企业组织内新建成员（租户边界）' };
       }
     } else if (targetRoot?.type !== 'platform') {
-      return { ok: false, error: '平台账号只能挂在平台组织下' };
+      return { ok: false, error: '软件服务方账号只能挂在软件服务方组织下' };
     }
     const user: PermUser = {
       id: nextId('u'),
@@ -704,7 +704,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       return { ok: false, error: '只能在本企业组织树内新建部门（租户边界）' };
     }
     if (realm === 'PLATFORM' && parentRoot.type !== 'platform') {
-      return { ok: false, error: '平台组织只能挂在平台工作空间下' };
+      return { ok: false, error: '软件服务方组织只能挂在系统管理后台下' };
     }
     const parentCheck = validateDeptParent(orgs, input.parentId);
     if (!parentCheck.ok) return parentCheck;
@@ -837,7 +837,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
     const user = users.find(u => u.id === input.userId);
     if (!user) return { ok: false, error: '用户不存在' };
-    if (realm !== 'TENANT' || !principalTenantId) return { ok: false, error: '平台工作人员归属由平台组织维护' };
+    if (realm !== 'TENANT' || !principalTenantId) return { ok: false, error: '软件服务方工作人员归属由软件服务方组织维护' };
     const membership = membershipOfUserInTenant(input.userId, principalTenantId);
     if (!membership) return { ok: false, error: '该用户不是本企业成员' };
     const target = orgs.find(o => o.id === input.orgId);

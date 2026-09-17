@@ -1,6 +1,6 @@
 /**
- * 合作关系监管（平台侧 · 只读）：跨租户的药厂—服务商合作关系与业务授权状态一览。
- * 平台只做监管与统计，不介入企业间授权决策；任何合作/授权操作都在药厂工作空间完成。
+ * 合作关系监管（软件服务方侧 · 只读）：跨租户的药厂—服务商合作关系与业务授权状态一览。
+ * 软件服务方只做监管与统计，不介入企业间授权决策；任何合作/授权操作都在药厂工作空间完成。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../components/PageHeader';
@@ -45,7 +45,7 @@ export function CooperationSupervision({ addToast }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="合作关系监管"
-        description={`平台只读监管各租户间的合作与业务授权状态（当前身份：${principal.realm === 'PLATFORM' ? principal.platformRoleName : principal.activeRoleName}）。操作权限归药厂工作空间。`}
+        description={`软件服务方只读监管各租户间的合作与业务授权状态（当前身份：${principal.realm === 'PLATFORM' ? principal.platformRoleName : principal.activeRoleName}）。操作权限归药厂工作空间。`}
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
@@ -82,7 +82,7 @@ export function CooperationSupervision({ addToast }: Props) {
           )}
         </div>
         <div style={{ marginTop: 12, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
-          平台不修改合作状态与业务授权：如需暂停合作或收回授权，由对应药厂在其工作空间「合作关系 / 业务授权」操作。
+          软件服务方不修改合作状态与业务授权：如需暂停合作或收回授权，由对应药厂在其工作空间「合作关系 / 业务授权」操作。
         </div>
       </div>
     </div>

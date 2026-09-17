@@ -1,7 +1,7 @@
 /**
- * 租户管理（平台侧 · 2026-09-15 深度审核整改版）。
+ * 租户管理（软件服务方侧 · 2026-09-15 深度审核整改版）。
  *
- * 平台系统管理员的开户闭环（直接创建、无申请审核流）：
+ * 贝医系统管理员的开户闭环（直接创建、无申请审核流）：
  * 新建药厂/服务商（三步向导：类型 → 企业资料 → 首位管理员）→ 确认创建即
  * 原子建租（自动生成全局唯一主企业码 + 首位管理员待激活）→ 管理员首次登录
  * 激活联动 → 租户暂停/恢复/终止（一律原因码 + 说明 + 审计）。
@@ -12,7 +12,7 @@
  *
  * 数据全部来自运行时注册表（mock，localStorage 演示），生产环境由服务端与
  * 数据库完成（见 tenantRegistry.ts 头注）。页面可见性由角色页面权限收敛：
- * 仅平台系统管理员可见可访问；本页操作走操作日志（标准原因码）。
+ * 仅贝医系统管理员可见可访问；本页操作走操作日志（标准原因码）。
  */
 import {
   useCallback,
@@ -299,7 +299,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <PageHeader
         title="租户管理"
-        description="平台侧开户闭环：直接创建药厂/服务商租户（自动生成全局唯一主企业码与待激活首位管理员）、管理员激活联动与租户生命周期管理。"
+        description="软件服务方开户闭环：直接创建药厂/服务商租户（自动生成全局唯一主企业码与待激活首位管理员）、管理员激活联动与租户生命周期管理。"
         actions={
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -1116,7 +1116,7 @@ function TenantDetailDrawer({
                     <UserCog size={14} aria-hidden />
                     变更首位管理员
                   </button>
-                  <span style={{ fontSize: "var(--fs-12)", color: "#667085" }}>仅待激活阶段可变更；租户激活后由该企业管理员自行维护企业成员，平台不代配企业内部权限。</span>
+                  <span style={{ fontSize: "var(--fs-12)", color: "#667085" }}>仅待激活阶段可变更；租户激活后由该企业管理员自行维护企业成员，软件服务方不代配企业内部权限。</span>
                 </div>
               )}
             </section>
@@ -1162,7 +1162,7 @@ function TenantDetailDrawer({
               </table>
             </div>
             <div className="tm-empty-inline">
-              正式租户首期仅预置首位管理员；后续成员由该管理员在本企业「用户与组织」中创建与授权，平台不代配企业内部权限。
+              正式租户首期仅预置首位管理员；后续成员由该管理员在本企业「用户与组织」中创建与授权，软件服务方不代配企业内部权限。
             </div>
           </div>
         )}

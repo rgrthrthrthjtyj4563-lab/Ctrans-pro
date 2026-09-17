@@ -105,7 +105,7 @@ const pageLabels: Record<string, string> = {
   "user-manage": "用户管理",
   "workgroup-manage": "工作组管理",
   "audit-log": "企业审计日志",
-  "platform-audit": "平台审计日志",
+  "platform-audit": "系统审计日志",
   "cooperation-supervision": "合作关系监管",
   "execution-chain": "执行链路配置",
   "performance-team": "团队工作质量评价",
@@ -115,7 +115,7 @@ const pageLabels: Record<string, string> = {
   "talk-script-variety": "品种话术维护",
   "baiyee-ai": "baiyee-AI",
   "scenario-center": "业务搭建中心",
-  "tenant-management": "平台管理",
+  "tenant-management": "系统服务",
 }
 
 const pageSections: Record<string, string> = {
@@ -142,19 +142,19 @@ const pageSections: Record<string, string> = {
   "business-switch": "基础数据",
   "price-config": "基础数据",
   roles: "企业管理",
-  menus: "平台管理",
+  menus: "系统服务",
   "role-preview": "企业管理",
   "org-structure": "企业管理",
   "user-manage": "企业管理",
   "workgroup-manage": "企业管理",
   "audit-log": "企业管理",
-  "platform-audit": "平台管理",
-  "cooperation-supervision": "平台管理",
+  "platform-audit": "系统服务",
+  "cooperation-supervision": "系统服务",
   "execution-chain": "基础数据",
   "biz-detail-export": "业务管理",
   "talk-script-variety": "业务管理",
   "scenario-center": "扩展能力",
-  "tenant-management": "平台管理",
+  "tenant-management": "系统服务",
 }
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
@@ -639,7 +639,7 @@ function Root() {
           const result = await authGateway.chooseLoginIdentity({
             userId: session.principal.userId,
             roleId,
-            // 工作空间上下文贯穿：仅在本次认证域内重解选项（平台域/租户域分离）
+            // 工作空间上下文贯穿：仅在本次认证域内重解选项（软件服务方域/租户域分离）
             workspaceId: session.principal.workspaceId,
             method: session.method,
             qrSource: session.qrSource,
@@ -725,7 +725,7 @@ function RestoreSplash() {
 }
 
 /**
- * 工作台变体：权限域直接决定平台工作台；租户域按当前身份所属租户类型
+ * 工作台变体：权限域直接决定系统工作台；租户域按当前身份所属租户类型
  * （tenantKind）决定药厂/服务商工作台——不再按旧视角或角色 id 集合推断。
  */
 function dashboardVariantOf(principal: AuthPrincipal): "pharma" | "provider" | "platform" {
@@ -782,7 +782,7 @@ function AppShell() {
   const principalRole = principal.realm === "PLATFORM" ? principal.platformRoleName : principal.activeRoleName
   const workspaceName = principal.realm === "PLATFORM" ? principal.workspaceName : principal.tenantName
   const workspaceKindLabel =
-    principal.realm === "PLATFORM" ? "平台工作空间" : principal.tenantKind === "provider" ? "服务商租户" : "药厂租户"
+    principal.realm === "PLATFORM" ? "系统管理后台" : principal.tenantKind === "provider" ? "服务商租户" : "药厂租户"
   const servingPharma = principal.realm === "TENANT" ? currentPharmaOf(principal) : undefined
   const dataScopeLabel = principal.realm === "PLATFORM" ? principal.dutyScope : principal.dataScopeSummary
   const [currentPage, setCurrentPage] = useState<PageId>("dashboard")
@@ -797,7 +797,7 @@ function AppShell() {
   const [menuItems, setMenuItems] = useState<MenuSeedItem[]>(() => seedMenuItems())
   /**
    * 菜单显示统一口径（不再按旧视角/角色名隐藏）：
-   *   ① 工作空间：platform 项只进平台树，pharma/provider 项只进对应租户树；
+   *   ① 工作空间：platform 项只进系统管理后台树，pharma/provider 项只进对应租户树；
    *   ② 功能权限：pagePerms 含该页 view（visiblePages）；
    *   ③ 页面权限域：ResourcePage.realms/tenantTypes 兜底（防菜单外入口）。
    * 同一页面可在不同工作空间各绑定一个菜单项（vendor-access 双入口），
@@ -1576,7 +1576,7 @@ function AppShell() {
                       </div>
                     )}
                   </div>
-                  {/* 切换企业（FR-04）：仅拥有 ≥2 家已激活且有效企业时展示；单企业/平台用户隐藏 */}
+                      {/* 切换企业（FR-04）：仅拥有 ≥2 家已激活且有效企业时展示；单企业/软件服务方用户隐藏 */}
                   {(switchableEnts?.length ?? 0) >= 2 && (
                     <button
                       type="button"
@@ -2152,11 +2152,11 @@ function AppShell() {
               >
                 {workspaceName}
               </span>
-              {/* 身份域文字标签（不只靠颜色区分平台/药厂/服务商） */}
+              {/* 身份域文字标签（不只靠颜色区分软件服务方/药厂/服务商） */}
               <span
                 title={
                   principal.realm === "PLATFORM"
-                    ? "平台工作空间：管理租户与企业码，不进入租户内部配置"
+                    ? "系统管理后台：管理租户与企业码，不进入租户内部配置"
                     : principal.tenantKind === "provider"
                       ? "服务商租户：本企业的组织、用户与授权管理"
                       : "药厂租户：本企业的组织、用户与授权管理"
