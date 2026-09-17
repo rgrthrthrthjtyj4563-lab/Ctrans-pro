@@ -45,6 +45,7 @@ import {
 import type { AccessRealm, LoginFailure, QrLoginState, QrSource } from "./authTypes"
 import { useAuth } from "./AuthProvider"
 import { LoginBackdrop } from "./LoginBackdrop"
+import { LoginBrandFlow, LoginFlowCanvas } from "./LoginBrandFlow"
 import "./loginShell.css"
 
 const RESEND_SECONDS = 60
@@ -259,8 +260,8 @@ export function LoginPage({
   /**
    * 解析企业编码（手输/快捷条目/演示速查共用）。快捷条目仅用于回填编码：
    * 每次点击都重新调用 resolveEnterprise，不信任缓存中的企业名/ID。
-   * 平台工作空间编码与普通企业编码复用同一形式，但解析为 realm=PLATFORM，
-   * 第 1 步文案显示「工作空间验证」，不把平台伪装成普通企业租户。
+   * 系统管理后台编码与普通企业编码复用同一形式，但解析为 realm=PLATFORM，
+   * 第 1 步文案显示「工作空间验证」，不把软件服务方伪装成普通企业租户。
    */
   const resolveEnterpriseCode = useCallback(
     async (codeRaw: string): Promise<boolean> => {
@@ -290,7 +291,7 @@ export function LoginPage({
         code,
         realm: result.realm,
       })
-      setEntStatus(result.realm === "PLATFORM" ? "已识别：药合作平台（平台工作空间）" : `已识别：${result.enterpriseName}`)
+      setEntStatus(result.realm === "PLATFORM" ? "已识别：系统管理后台（软件服务方）" : `已识别：${result.enterpriseName}`)
       setRemembered((prev) => {
         const next = [
           { code, name: result.workspaceLabel },
@@ -576,6 +577,7 @@ export function LoginPage({
   return (
     <div className="login-shell">
       <LoginBackdrop />
+      <LoginFlowCanvas />
 
       <div className="login-layout">
         {/* ── 左：品牌区（≥900px） ── */}
@@ -592,35 +594,50 @@ export function LoginPage({
             </div>
           </div>
 
-          <div style={{ maxWidth: 480 }}>
-            <h1
-              className="lg-anim-1"
-              style={{
-                margin: "0 0 20px",
-                fontSize: "clamp(32px, 3.2vw, 44px)",
-                fontWeight: 600,
-                color: "#1A2B42",
-                letterSpacing: "0",
-                lineHeight: 1.15,
-              }}
-            >
-              让医药协作，
-              <br />
-              更高效。
-            </h1>
-            <p
-              className="lg-anim-2"
-              style={{ margin: "0 0 28px", fontSize: "var(--fs-15)", color: "rgba(26,43,66,0.52)", lineHeight: 1.75, fontWeight: 400 }}
-            >
-              连接药企、服务商与专业人员，
-              <br />
-              让任务、执行、结算与数据洞察高效协同。
-            </p>
-            <div className="lg-anim-3" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="lg-dot" />
-              <span style={{ color: "rgba(26,43,66,0.35)", fontSize: "var(--fs-12)", letterSpacing: "0.04em" }}>
-                AI powered collaboration workspace
-              </span>
+          {/* 主视觉横排：文案与开放式协作流线，背景仍由 LoginBackdrop 提供 */}
+          <div className="lg-hero">
+            <div className="lg-hero-copy">
+              <h1
+                className="lg-anim-1"
+                style={{
+                  margin: "0 0 16px",
+                  fontSize: "clamp(32px, 3.2vw, 44px)",
+                  fontWeight: 600,
+                  color: "#1A2B42",
+                  letterSpacing: "0",
+                  lineHeight: 1.15,
+                }}
+              >
+                让医药协作，
+                <br />
+                更高效。
+              </h1>
+              <div className="lg-hero-rule lg-anim-2" aria-hidden="true" />
+              <p
+                className="lg-anim-2"
+                style={{ margin: "0 0 26px", fontSize: "var(--fs-15)", color: "rgba(26,43,66,0.52)", lineHeight: 1.75, fontWeight: 400 }}
+              >
+                连接药企、服务商与专业人员，
+                <br />
+                让任务、执行、结果与数据更紧密高效协同。
+              </p>
+              <div
+                className="lg-anim-3"
+                style={{
+                  color: "rgba(26,43,66,0.32)",
+                  fontSize: "var(--fs-11)",
+                  fontWeight: 500,
+                  letterSpacing: "0.22em",
+                  lineHeight: 2,
+                }}
+              >
+                BETTER COLLABORATION
+                <br />
+                BETTER HEALTHCARE
+              </div>
+            </div>
+            <div className="lg-hero-flow lg-anim-3">
+              <LoginBrandFlow />
             </div>
           </div>
 
@@ -730,7 +747,7 @@ export function LoginPage({
                       aria-current={enterprise ? "step" : undefined}
                       style={enterprise ? undefined : { background: "rgba(25,197,154,0.1)", color: "#0D9B7A", borderColor: "rgba(25,197,154,0.35)", fontWeight: 600 }}
                     >
-                      {/* 平台编码解析后第 1 步改称「工作空间验证」（平台不是企业租户） */}
+                      {/* 后台编码解析后第 1 步改称「工作空间验证」（软件服务方不是企业租户） */}
                       {enterprise?.realm === "PLATFORM" ? "1 工作空间验证" : "1 企业验证"}
                     </span>
                     <span aria-hidden style={{ color: "rgba(26,43,66,0.25)" }}>›</span>
@@ -1047,7 +1064,7 @@ export function LoginPage({
 
                       <div>
                         <label htmlFor="login-phone" className="lg-label">
-                          {enterprise.realm === "PLATFORM" ? "平台工作人员手机号" : `${enterprise.name}的手机号`}
+                          {enterprise.realm === "PLATFORM" ? "软件服务方工作人员手机号" : `${enterprise.name}的手机号`}
                         </label>
                         <div className="lg-field-row" style={{ display: "flex", gap: 10 }}>
                           <input
