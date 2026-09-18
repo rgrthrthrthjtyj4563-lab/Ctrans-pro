@@ -5,15 +5,9 @@ import {
   Menu,
   Bell,
   Search,
-  LogOut,
-  Building2,
   Archive,
   ChevronLeft,
-  Smartphone,
-  TabletSmartphone,
-  Repeat,
   Presentation,
-  ArrowLeftRight,
   type LucideIcon,
 } from "lucide-react"
 import { Dashboard } from "./pages/Dashboard"
@@ -45,6 +39,7 @@ import { BizDetailExport } from "./pages/BizDetailExport"
 import { TalkScriptVariety } from "./pages/TalkScriptVariety"
 import { ScenarioCenter } from "./pages/ScenarioCenter"
 import { TenantManagement } from "./pages/TenantManagement"
+import { TenantPackageManagement } from "./pages/TenantPackageManagement"
 import { OrgStructure } from "./pages/OrgStructure"
 import { UserManage } from "./pages/UserManage"
 import { WorkGroupManage } from "./pages/WorkGroupManage"
@@ -55,9 +50,11 @@ import { TalkScriptProvider } from "./context/TalkScriptContext"
 import { AICreditProvider } from "./context/AICreditContext"
 import { BrandLogo } from "./components/Brand"
 import { DisplaySettingsMenu } from "./components/DisplaySettingsMenu"
+import { UserMenu } from "./components/UserMenu"
+import { AccountSecurityModal } from "./components/AccountSecurityModal"
 import { ToastContainer } from "./components/Toast"
 import type { ToastMessage } from "./components/Toast"
-import { getRoleDashboardData, getPlatformWorkbenchData } from "./data/mockData"
+import { getRoleDashboardData } from "./data/mockData"
 import { TaskDataProvider } from "./context/TaskDataContext"
 import { DisplayPreferenceProvider } from "./context/DisplayPreferenceContext"
 import { PermissionProvider, usePermission } from "./context/PermissionContext"
@@ -68,12 +65,11 @@ import { buildNavGroups, seedMenuItems, workspaceOfPrincipal, type MenuSeedItem,
 import { AuthProvider, useAuth } from "./auth/AuthProvider"
 import { LoginPage } from "./auth/LoginPage"
 import { authGateway } from "./auth/mockGateway"
-import { DEMO_ACCOUNT_GROUPS, DEMO_ACCOUNT_HINTS, DEMO_PASSWORD } from "./auth/authProfiles"
-import { IdentityConfirmGate } from "./auth/IdentityConfirmGate"
+import { DEMO_PASSWORD } from "./auth/authProfiles"
 import { PharmaGate } from "./auth/PharmaGate"
 import { LoginBackdrop } from "./auth/LoginBackdrop"
-import { EnterpriseSwitchGate } from "./auth/EnterpriseSwitchGate"
-import { currentPharmaOf, principalWorkspaceName, type AuthPrincipal, type AuthSession, type ServingPharma, type SwitchableEnterprise, type TenantPrincipal } from "./auth/authTypes"
+// import { EnterpriseSwitchGate } from "./auth/EnterpriseSwitchGate" // 2026-09-18 切换企业入口已砍，组件沉睡可回滚
+import { currentPharmaOf, principalWorkspaceName, type AuthPrincipal, type AuthSession, type ServingPharma, type TenantPrincipal } from "./auth/authTypes"
 import { useCooperationRevision } from "./hooks/useServingBizScope"
 import type { MenuItem, NavFocus, NavigateFn, PageId } from "./types"
 
@@ -116,6 +112,7 @@ const pageLabels: Record<string, string> = {
   "baiyee-ai": "baiyee-AI",
   "scenario-center": "业务搭建中心",
   "tenant-management": "系统服务",
+  "tenant-package": "租户套餐管理",
 }
 
 const pageSections: Record<string, string> = {
@@ -155,6 +152,7 @@ const pageSections: Record<string, string> = {
   "talk-script-variety": "业务管理",
   "scenario-center": "扩展能力",
   "tenant-management": "系统服务",
+  "tenant-package": "系统服务",
 }
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
@@ -631,29 +629,6 @@ function Root() {
     content = (
       <LoginPage restoreNotice={restoreNotice} onDismissRestoreNotice={dismissRestoreNotice} />
     )
-  } else if (!session.identityConfirmed) {
-    content = (
-      <IdentityConfirmGate
-        session={session}
-        onConfirm={async (roleId) => {
-          const result = await authGateway.chooseLoginIdentity({
-            userId: session.principal.userId,
-            roleId,
-            // 工作空间上下文贯穿：仅在本次认证域内重解选项（软件服务方域/租户域分离）
-            workspaceId: session.principal.workspaceId,
-            method: session.method,
-            qrSource: session.qrSource,
-          })
-          if (result.ok) {
-            setSession(result.session)
-            return true
-          }
-          addToast({ type: "error", title: "身份确认失败", description: result.failure.message })
-          return false
-        }}
-        onChangeAccount={() => void signOut()}
-      />
-    )
   } else if (
     session.pendingPharmas &&
     session.pendingPharmas.length > 0 &&
@@ -725,12 +700,16 @@ function RestoreSplash() {
 }
 
 /**
- * 工作台变体：权限域直接决定系统工作台；租户域按当前身份所属租户类型
- * （tenantKind）决定药厂/服务商工作台——不再按旧视角或角色 id 集合推断。
+ * 工作台变体：租户域按当前身份所属租户类型（tenantKind）决定药厂/服务商工作台
+ * ——系统管理后台已无工作台首页（2026-09-18 移除），不再按旧视角或角色 id 集合推断。
  */
-function dashboardVariantOf(principal: AuthPrincipal): "pharma" | "provider" | "platform" {
-  if (principal.realm === "PLATFORM") return "platform"
-  return principal.tenantKind === "provider" ? "provider" : "pharma"
+function dashboardVariantOf(principal: AuthPrincipal): "pharma" | "provider" {
+  return principal.realm === "TENANT" && principal.tenantKind === "provider" ? "provider" : "pharma"
+}
+
+/** 登录后的默认首页：系统管理后台→租户管理（工作台已移除）；租户域→业务工作台 */
+function homePageOf(principal: AuthPrincipal): PageId {
+  return principal.realm === "PLATFORM" ? "tenant-management" : "dashboard"
 }
 
 /** 响应式断点（清单 §11.4 业务后台窄屏策略） */
@@ -778,14 +757,21 @@ function AppShell() {
   } = usePermission()
   const { session, setSession, signOut } = useAuth()
   const dashboardVariant = dashboardVariantOf(principal)
-  /** 两域统一显示量：角色名 / 工作空间名 / 当前服务药厂 / 组织标签 / 数据范围摘要 */
-  const principalRole = principal.realm === "PLATFORM" ? principal.platformRoleName : principal.activeRoleName
-  const workspaceName = principal.realm === "PLATFORM" ? principal.workspaceName : principal.tenantName
-  const workspaceKindLabel =
-    principal.realm === "PLATFORM" ? "系统管理后台" : principal.tenantKind === "provider" ? "服务商租户" : "药厂租户"
+  /** 两域统一显示量：角色名（多角色并集展示）/ 工作空间名 / 当前服务药厂 / 组织标签 / 数据范围摘要 */
+  const principalRole = principal.realm === "PLATFORM" ? principal.platformRoleName : principal.roleNames.join(" + ")
+  /**
+   * 身份行（2026-09-18 拍板：角色+企业，岗位不上身份展示位）：
+   * 租户域=角色并集 · 企业名（如「企业管理员 · 百益制药」）；
+   * 平台域无企业概念，对齐工作空间名（「贝医系统管理员 · 系统管理后台」）。
+   * 岗位（jobTitle）保留在成员档案与用户与组织页，不再进入顶栏/弹层/审计。
+   */
+  const identityTitle =
+    principal.realm === "PLATFORM"
+      ? identityLabel(principalRole, principal.workspaceName)
+      : identityLabel(principalRole, principal.tenantName)
   const servingPharma = principal.realm === "TENANT" ? currentPharmaOf(principal) : undefined
   const dataScopeLabel = principal.realm === "PLATFORM" ? principal.dutyScope : principal.dataScopeSummary
-  const [currentPage, setCurrentPage] = useState<PageId>("dashboard")
+  const [currentPage, setCurrentPage] = useState<PageId>(() => homePageOf(principal))
   // 响应式壳层（清单 §11.4）：≥1200 完整侧栏；768–1199 默认收起（图标模式）；<768 抽屉侧栏
   const viewport = useViewport()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1200)
@@ -835,6 +821,8 @@ function AppShell() {
   // Toast 走会话级容器（Root）：切换服务药厂重建业务树时提示不丢失
   const addToast = useContext(SessionToastContext)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  /** 账号与安全弹窗（修改密码，2026-09-18 第一期缺口批次） */
+  const [accountSecurityOpen, setAccountSecurityOpen] = useState(false)
   const [navFocus, setNavFocus] = useState<NavFocus>({})
   const [mobileDemoOpen, setMobileDemoOpen] = useState(false)
   const [mobileDemoShown, setMobileDemoShown] = useState(false)
@@ -908,56 +896,9 @@ function AppShell() {
     [addToast, setSession],
   )
 
-  // 切换企业（免重新认证，FR-04~07）：可切换企业 ≥2 才展示菜单入口；
-  // 列表随菜单展开实时刷新（合作/成员状态变化即时反映，FR-05）
-  const [entSwitchOpen, setEntSwitchOpen] = useState(false)
-  const [switchableEnts, setSwitchableEnts] = useState<SwitchableEnterprise[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    void (async () => {
-      const list = await authGateway.listSwitchableEnterprises({
-        userId: principal.userId,
-        currentWorkspaceId: principal.workspaceId,
-      })
-      if (alive) setSwitchableEnts(list)
-    })()
-    return () => {
-      alive = false
-    }
-  }, [principal.userId, principal.workspaceId, showUserMenu])
-  const openEnterpriseSwitch = useCallback(async () => {
-    setShowUserMenu(false)
-    const list = await authGateway.listSwitchableEnterprises({
-      userId: principal.userId,
-      currentWorkspaceId: principal.workspaceId,
-    })
-    setSwitchableEnts(list)
-    setEntSwitchOpen(true)
-  }, [principal.userId, principal.workspaceId])
-  const handleSwitchEnterprise = useCallback(
-    async (targetWorkspaceId: string) => {
-      if (!session) return false
-      const result = await authGateway.switchEnterprise({
-        userId: session.principal.userId,
-        targetWorkspaceId,
-        currentWorkspaceId: session.principal.workspaceId,
-        method: session.method,
-      })
-      if (result.ok) {
-        setEntSwitchOpen(false)
-        setSession(result.session)
-        addToast({
-          type: "success",
-          title: `已切换至${principalWorkspaceName(result.session.principal)}`,
-          description: "菜单、角色与数据范围已按目标企业重新加载。",
-        })
-        return true
-      }
-      addToast({ type: "error", title: "切换失败", description: result.failure.message })
-      return false
-    },
-    [session, setSession, addToast],
-  )
+  // 切换企业入口已砍（2026-09-18 拍板）：跨企业=退出登录后用另一家企业编码重新登录
+  //（与「企业编码+验证码唯一入口」一致）；网关 listSwitchableEnterprises/switchEnterprise
+  // 与 EnterpriseSwitchGate 组件保留沉睡可回滚，多企业成员身份场景仍由登录链路承载。
 
   const navigate: NavigateFn = (page, focus) => {
     const controlled = RESOURCE_PAGES.some((p) => p.id === page)
@@ -1133,6 +1074,8 @@ function AppShell() {
         return <ScenarioCenter addToast={addToast} />
       case "tenant-management":
         return <TenantManagement addToast={addToast} />
+      case "tenant-package":
+        return <TenantPackageManagement addToast={addToast} />
       case "baiyee-ai":
         return <BaiyeeAI navigate={navigate} />
       default:
@@ -1141,13 +1084,7 @@ function AppShell() {
   }
 
   const SIDEBAR_W = sidebarCollapsed ? 60 : 240
-  const notificationCount =
-    dashboardVariant === "platform"
-      ? getPlatformWorkbenchData(
-          principal.realm === "PLATFORM" ? principal.platformRoleId : "",
-          principal.realm === "PLATFORM" ? principal.platformRoleName : "",
-        ).unreadCount
-      : getRoleDashboardData(currentRole ?? '药厂销售部门').unreadCount
+  const notificationCount = getRoleDashboardData(currentRole ?? '药厂销售部门').unreadCount
 
   // 面包屑优先取当前身份可见的菜单项名称与所属目录（vendor-access 双域各有入口名）
   const menuMetaByPage = useMemo(() => {
@@ -1198,9 +1135,10 @@ function AppShell() {
       currentPage !== "dashboard" &&
       !visiblePages.has(currentPage)
     ) {
-      setCurrentPage("dashboard")
+      // 系统管理后台无工作台首页：越权/不可见页兜底回各自域的首页
+      setCurrentPage(homePageOf(principal))
     }
-  }, [visiblePages, currentPage])
+  }, [visiblePages, currentPage, principal])
 
   const previewOrgName = preview
     ? (orgs.find((o) => o.id === preview.orgId)?.name ?? "")
@@ -1298,7 +1236,7 @@ function AppShell() {
             overflow: "hidden",
             transition: "width 200ms cubic-bezier(0.25,0.46,0.45,0.94)",
             position: "relative",
-            zIndex: showUserMenu ? 60 : 10,
+            zIndex: 10,
             /* 窄屏抽屉形态：固定定位覆盖主内容 */
             ...(viewport.isNarrow
               ? { position: "fixed" as const, left: 0, top: 0, bottom: 0, height: "100vh" as const, zIndex: 1400 }
@@ -1430,484 +1368,6 @@ function AppShell() {
               </div>
             )}
 
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={() => setShowUserMenu((v) => !v)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  width: "100%",
-                  padding: "8px",
-                  background: "none",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => {
-                  ;(e.currentTarget as HTMLButtonElement).style.background =
-                    "rgba(255,255,255,0.04)"
-                }}
-                onMouseLeave={(e) => {
-                  ;(e.currentTarget as HTMLButtonElement).style.background =
-                    "none"
-                }}
-              >
-                <div
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: "8px",
-                    background:
-                      "linear-gradient(135deg, var(--color-brand), #2F6BCE)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "var(--fs-13)",
-                    fontWeight: 700,
-                    color: "#fff",
-                    flexShrink: 0,
-                  }}
-                >
-                  {principal.name.slice(0, 1)}
-                </div>
-                {!sidebarCollapsed && (
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: "var(--fs-13)",
-                        fontWeight: 500,
-                        color: "var(--color-sidebar-text)",
-                        lineHeight: 1,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {principal.name}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "var(--fs-11)",
-                        color: "var(--color-sidebar-accent)",
-                        marginTop: 2,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                      title={identityLabel(principalRole, principal.orgName)}
-                    >
-                      {identityLabel(principalRole, principal.orgName)}
-                    </div>
-                  </div>
-                )}
-              </button>
-
-              {showUserMenu && !sidebarCollapsed && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "100%",
-                    left: 0,
-                    right: 0,
-                    background: "var(--color-sidebar-elev)",
-                    border: "1px solid var(--color-sidebar-line)",
-                    borderRadius: "8px",
-                    padding: "8px",
-                    marginBottom: 4,
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.30)",
-                    zIndex: 100,
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: "6px 8px 8px",
-                      borderBottom: "1px solid var(--color-sidebar-line)",
-                      marginBottom: 6,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "var(--fs-13)",
-                        fontWeight: 600,
-                        color: "var(--color-sidebar-text)",
-                      }}
-                    >
-                      {principal.name}
-                      <span
-                        style={{
-                          marginLeft: 6,
-                          fontSize: "var(--fs-11)",
-                          fontWeight: 400,
-                          color: "#6B7280",
-                        }}
-                      >
-                        {principal.account}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "var(--fs-11)",
-                        color: "var(--color-sidebar-accent)",
-                        marginTop: 3,
-                      }}
-                    >
-                      {identityLabel(principalRole, principal.orgName)}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "var(--fs-11)",
-                        color: "#6B7280",
-                        marginTop: 2,
-                      }}
-                    >
-                      数据范围：{dataScopeLabel}
-                    </div>
-                    {servingPharma?.name && !viewport.isNarrow && (
-                      <div
-                        style={{
-                          fontSize: "var(--fs-11)",
-                          color: "var(--color-sidebar-accent)",
-                          marginTop: 2,
-                        }}
-                      >
-                        当前服务药厂：{servingPharma?.name}
-                      </div>
-                    )}
-                  </div>
-                      {/* 切换企业（FR-04）：仅拥有 ≥2 家已激活且有效企业时展示；单企业/软件服务方用户隐藏 */}
-                  {(switchableEnts?.length ?? 0) >= 2 && (
-                    <button
-                      type="button"
-                      onClick={() => void openEnterpriseSwitch()}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        padding: "7px 8px",
-                        fontSize: "var(--fs-13)",
-                        color: "var(--color-sidebar-text)",
-                        background: "none",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        gap: 8,
-                        marginBottom: 4,
-                      }}
-                      onMouseEnter={(e) => {
-                        ;(e.currentTarget as HTMLButtonElement).style.background =
-                          "rgba(255,255,255,0.04)"
-                      }}
-                      onMouseLeave={(e) => {
-                        ;(e.currentTarget as HTMLButtonElement).style.background =
-                          "none"
-                      }}
-                    >
-                      <ArrowLeftRight size={13} /> 切换企业
-                      <ChevronRight size={13} aria-hidden style={{ marginLeft: "auto", flexShrink: 0, opacity: 0.65 }} />
-                    </button>
-                  )}
-                  {servingPharma && principal.realm === "TENANT" && principal.tenantKind === "provider" && (
-                    <button
-                      type="button"
-                      onClick={() => void openPharmaSwitch()}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        padding: "7px 8px",
-                        fontSize: "var(--fs-13)",
-                        color: "var(--color-sidebar-text)",
-                        background: "none",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        gap: 8,
-                        marginBottom: 4,
-                      }}
-                      onMouseEnter={(e) => {
-                        ;(e.currentTarget as HTMLButtonElement).style.background =
-                          "rgba(255,255,255,0.04)"
-                      }}
-                      onMouseLeave={(e) => {
-                        ;(e.currentTarget as HTMLButtonElement).style.background =
-                          "none"
-                      }}
-                    >
-                      <Building2 size={13} /> 切换服务药厂 · {servingPharma?.name}
-                    </button>
-                  )}
-                  <div
-                    style={{
-                      fontSize: "var(--fs-11)",
-                      fontWeight: 600,
-                      color: "#4B5563",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      padding: "4px 8px",
-                      marginBottom: 4,
-                    }}
-                  >
-                    演示场景
-                  </div>
-                  <button
-                    type="button"
-                    onClick={openMobileDemo}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      width: "100%",
-                      padding: "7px 8px",
-                      fontSize: "var(--fs-13)",
-                      color: "var(--color-sidebar-text)",
-                      background: "none",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      gap: 8,
-                    }}
-                    onMouseEnter={(e) => {
-                      ;(e.currentTarget as HTMLButtonElement).style.background =
-                        "rgba(255,255,255,0.04)"
-                    }}
-                    onMouseLeave={(e) => {
-                      ;(e.currentTarget as HTMLButtonElement).style.background =
-                        "none"
-                    }}
-                  >
-                    <Smartphone size={13} /> 医药代表移动端
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openFullMobileDemo}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      width: "100%",
-                      padding: "7px 8px",
-                      fontSize: "var(--fs-13)",
-                      color: "var(--color-sidebar-text)",
-                      background: "none",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      gap: 8,
-                    }}
-                    onMouseEnter={(e) => {
-                      ;(e.currentTarget as HTMLButtonElement).style.background =
-                        "rgba(255,255,255,0.04)"
-                    }}
-                    onMouseLeave={(e) => {
-                      ;(e.currentTarget as HTMLButtonElement).style.background =
-                        "none"
-                    }}
-                  >
-                    <TabletSmartphone size={13} /> 完整移动端
-                  </button>
-                  <div
-                    style={{
-                      fontSize: "var(--fs-11)",
-                      fontWeight: 600,
-                      color: "#4B5563",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      padding: "4px 8px",
-                      marginTop: 6,
-                      marginBottom: 2,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 5,
-                    }}
-                  >
-                    <Repeat size={11} /> 切换角色
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "var(--fs-11)",
-                      color: "#6B7280",
-                      padding: "0 8px 4px",
-                    }}
-                  >
-                    切换后回到对应工作台，演示数据重置
-                  </div>
-                  <div
-                    style={{
-                      maxHeight: 288,
-                      overflowY: "auto",
-                      marginBottom: 2,
-                    }}
-                  >
-                    {DEMO_ACCOUNT_GROUPS.map((group) => {
-                      const items = DEMO_ACCOUNT_HINTS.filter(
-                        (hint) =>
-                          hint.group === group.key &&
-                          hint.userId !== principal.userId,
-                      )
-                      if (items.length === 0) return null
-                      return (
-                        <div key={group.key}>
-                          <div
-                            style={{
-                              fontSize: "var(--fs-11)",
-                              fontWeight: 600,
-                              color: "#9CA3AF",
-                              letterSpacing: "0.05em",
-                              padding: "7px 8px 3px",
-                            }}
-                          >
-                            {group.label}
-                          </div>
-                          {items.map((hint) => (
-                            <button
-                              key={hint.userId}
-                              type="button"
-                              disabled={switchingAccount !== null}
-                              onClick={() => void switchAccount(hint.account)}
-                              title={hint.scene}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                width: "100%",
-                                padding: "6px 8px",
-                                background: "none",
-                                border: "none",
-                                borderRadius: "4px",
-                                cursor:
-                                  switchingAccount !== null ? "wait" : "pointer",
-                                textAlign: "left",
-                                opacity: switchingAccount === hint.account ? 0.6 : 1,
-                              }}
-                              onMouseEnter={(e) => {
-                                ;(
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.background = "rgba(255,255,255,0.04)"
-                              }}
-                              onMouseLeave={(e) => {
-                                ;(e.currentTarget as HTMLButtonElement).style.background =
-                                  "none"
-                              }}
-                            >
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <div
-                                  style={{
-                                    fontSize: "var(--fs-13)",
-                                    color: "var(--color-sidebar-text)",
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                  }}
-                                >
-                                  {hint.name}
-                                  <span
-                                    style={{
-                                      marginLeft: 6,
-                                      fontSize: "var(--fs-11)",
-                                      color: "#6B7280",
-                                    }}
-                                  >
-                                    {hint.account}
-                                  </span>
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "var(--fs-11)",
-                                    color: "var(--color-sidebar-accent)",
-                                    marginTop: 2,
-                                  }}
-                                >
-                                  {hint.roleName} · {hint.orgName}
-                                </div>
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    gap: 4,
-                                    marginTop: 3,
-                                    flexWrap: "wrap",
-                                  }}
-                                >
-                                  {hint.tags.map((tag) => (
-                                    <span
-                                      key={tag}
-                                      style={{
-                                        display: "inline-flex",
-                                        padding: "1px 6px",
-                                        borderRadius: 5,
-                                        fontSize: 10,
-                                        lineHeight: 1.6,
-                                        color: "var(--color-sidebar-accent)",
-                                        border: "1px solid rgba(255,255,255,0.16)",
-                                        whiteSpace: "nowrap",
-                                      }}
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                              {switchingAccount === hint.account && (
-                                <span
-                                  style={{
-                                    marginLeft: "auto",
-                                    fontSize: "var(--fs-11)",
-                                    color: "#6B7280",
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  切换中…
-                                </span>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div
-                    style={{
-                      height: 1,
-                      background: "var(--color-sidebar-line)",
-                      margin: "8px 0",
-                    }}
-                  />
-                  <button
-                    onClick={() => {
-                      // 统一登出：销毁内存会话，业务壳整树卸载回到登录页
-                      setShowUserMenu(false)
-                      void signOut()
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      width: "100%",
-                      padding: "7px 8px",
-                      fontSize: "var(--fs-13)",
-                      color: "#C73A3A",
-                      background: "none",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      gap: 8,
-                    }}
-                    onMouseEnter={(e) => {
-                      ;(e.currentTarget as HTMLButtonElement).style.background =
-                        "rgba(199,58,58,0.08)"
-                    }}
-                    onMouseLeave={(e) => {
-                      ;(e.currentTarget as HTMLButtonElement).style.background =
-                        "none"
-                    }}
-                  >
-                    <LogOut size={13} /> 退出登录
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </aside>
       )}
@@ -1947,7 +1407,8 @@ function AppShell() {
               padding: viewport.isNarrow ? "0 12px" : "0 20px",
               gap: 12,
               flexShrink: 0,
-              zIndex: 5,
+              /* 个人中心弹层展开时抬高头部层级，压过页面遮罩（遮罩 z=50） */
+              zIndex: showUserMenu ? 60 : 5,
             }}
           >
             {/* 窄屏抽屉开关 */}
@@ -2000,6 +1461,10 @@ function AppShell() {
                           ? "var(--color-text-1)"
                           : "#9CA3AF",
                       fontWeight: i === breadcrumb.length - 1 ? 600 : 400,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      maxWidth: 220,
                     }}
                   >
                     {crumb}
@@ -2030,8 +1495,8 @@ function AppShell() {
               </button>
             </nav>
 
-            {/* Global search（窄屏隐藏静态占位，避免挤压身份区） */}
-            {!viewport.isNarrow && (
+            {/* Global search（<1200 隐藏静态占位，给面包屑与个人中心让位） */}
+            {!viewport.isNarrow && !viewport.isTablet && (
             <div
               style={{
                 display: "flex",
@@ -2121,100 +1586,49 @@ function AppShell() {
               </span>
             </button>
 
-            {/* Enterprise + role（窄屏收缩：名称省略，服务药厂徽章隐藏） */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: viewport.isNarrow ? "0 8px" : "0 12px",
-                height: 36,
-                border: "1px solid var(--color-border)",
-                borderRadius: "8px",
-                cursor: "pointer",
-                background: "#F9FAFB",
-                minWidth: 0,
-                flexShrink: 1,
+            {/* Enterprise + role pill 已砍（2026-09-18）：工作空间/身份/服务药厂信息
+                与个人中心触发器、弹层重复；当前服务药厂看弹层或各工作台页头 */}
+
+            {/* 个人中心：顶栏用户菜单（触发器+高保真弹层，样式见 components/UserMenu.css） */}
+            <UserMenu
+              principal={principal}
+              identityTitle={identityTitle}
+              dataScopeLabel={dataScopeLabel}
+              servingPharmaName={servingPharma?.name}
+              open={showUserMenu}
+              onToggle={() => setShowUserMenu((v) => !v)}
+              canSwitchPharma={
+                !!servingPharma &&
+                principal.realm === "TENANT" &&
+                principal.tenantKind === "provider"
+              }
+              onSwitchPharma={() => void openPharmaSwitch()}
+              onOpenRepMobileDemo={openMobileDemo}
+              onOpenFullMobileDemo={openFullMobileDemo}
+              fullMobileDemoActive={fullMobileDemoOpen || mobileDemoOpen}
+              switchingAccount={switchingAccount}
+              onSwitchAccount={(account) => void switchAccount(account)}
+              onSignOut={() => {
+                setShowUserMenu(false)
+                void signOut()
               }}
-            >
-              <Building2 size={14} style={{ color: "#9CA3AF" }} />
-              <span
-                style={{
-                  fontSize: "var(--fs-13)",
-                  color: "#374151",
-                  fontWeight: 500,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  maxWidth: viewport.isNarrow ? 96 : undefined,
-                }}
-                title={workspaceName}
-              >
-                {workspaceName}
-              </span>
-              {/* 身份域文字标签（不只靠颜色区分软件服务方/药厂/服务商） */}
-              <span
-                title={
-                  principal.realm === "PLATFORM"
-                    ? "系统管理后台：管理租户与企业码，不进入租户内部配置"
-                    : principal.tenantKind === "provider"
-                      ? "服务商租户：本企业的组织、用户与授权管理"
-                      : "药厂租户：本企业的组织、用户与授权管理"
-                }
-                style={{
-                  fontSize: "var(--fs-11)",
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  border: "1px solid var(--color-border)",
-                  color: "#667085",
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {workspaceKindLabel}
-              </span>
-              <span
-                title={identityLabel(principalRole, principal.orgName)}
-                style={{
-                  fontSize: "var(--fs-11)",
-                  padding: "2px 6px",
-                  borderRadius: "9999px",
-                  background: "var(--color-brand-subtle)",
-                  color: "var(--color-brand)",
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  maxWidth: viewport.isNarrow ? 120 : 220,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {identityLabel(principalRole, principal.orgName)}
-              </span>
-              {servingPharma?.name && (
-                <span
-                  title="当前服务药厂：本次业务数据范围（单次会话只操作一家药厂），可在用户菜单切换"
-                  style={{
-                    fontSize: "var(--fs-11)",
-                    padding: "2px 6px",
-                    borderRadius: "9999px",
-                    background: "var(--color-info-bg)",
-                    color: "var(--color-info-fg)",
-                    fontWeight: 600,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    whiteSpace: "nowrap",
-                    maxWidth: viewport.isNarrow ? 130 : undefined,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {!viewport.isNarrow && <Building2 size={11} aria-hidden />}
-                  服务药厂 · {servingPharma?.name}
-                </span>
-              )}
-            </div>
+              onNotice={(title) => addToast({ type: "info", title })}
+              onOpenAccountSecurity={() => {
+                setShowUserMenu(false)
+                setAccountSecurityOpen(true)
+              }}
+              narrow={viewport.isNarrow}
+            />
           </header>
+        )}
+
+        {/* 账号与安全：修改密码弹窗（2026-09-18 第一期缺口批次） */}
+        {accountSecurityOpen && (
+          <AccountSecurityModal
+            principal={principal}
+            onClose={() => setAccountSecurityOpen(false)}
+            onChanged={(message) => addToast({ type: "success", title: "密码已修改", description: message })}
+          />
         )}
 
         {/* Page content */}
@@ -2299,40 +1713,7 @@ function AppShell() {
         </div>
       )}
 
-      {/* 切换企业浮层（免重新认证；敏感目标先短信重认证，确认后换发会话整树重建） */}
-      {entSwitchOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1400,
-            background: "var(--color-canvas)",
-            overflow: "auto",
-          }}
-        >
-          {switchableEnts && switchableEnts.length >= 2 ? (
-            <EnterpriseSwitchGate
-              enterprises={switchableEnts}
-              principal={principal}
-              onSelect={handleSwitchEnterprise}
-              onClose={() => setEntSwitchOpen(false)}
-            />
-          ) : (
-            <div
-              style={{
-                minHeight: "100vh",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "var(--color-text-2)",
-                fontSize: "var(--fs-14)",
-              }}
-            >
-              正在加载可切换企业…
-            </div>
-          )}
-        </div>
-      )}
+      {/* 切换企业浮层已砍（2026-09-18）：入口与接线移除，EnterpriseSwitchGate 组件保留沉睡 */}
 
       {/* Toast 容器在 Root 层（SessionToastContext） */}
 

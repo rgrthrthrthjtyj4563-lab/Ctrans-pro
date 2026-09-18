@@ -6,8 +6,8 @@
  *   后台编码只复用同一登录形式，不把软件服务方伪装成普通企业租户；
  *   软件服务方身份不携带 tenantId/成员身份。
  * - realm=TENANT：药厂/服务商企业工作空间。登录身份 = 自然人 × 企业成员身份
- *   （TenantMembership）× 生效授权角色（activeRoleId）+ 实际数据范围
- *   （effectiveAssignmentIds 合并同一角色的多条授权）。
+ *   （TenantMembership）× 生效授权角色集（roleIds，同企业多角色自动合并）+
+ *   实际数据范围（effectiveAssignmentIds 合并全部角色的多条授权）。
  *
  * 生产接入时以下能力的校验全部移到服务端：短信发送/校验、企业编码解析、
  * 企业内成员与账号状态拦截（均在验证码校验成功之后披露）、短信票据管理
@@ -52,7 +52,12 @@ export interface PlatformPrincipal extends PrincipalPerson {
   dutyScope: string
 }
 
-/** 租户权限域登录身份：成员身份 × 生效角色 × 实际数据范围 */
+/**
+ * 租户权限域登录身份：成员身份 × 生效角色集 × 实际数据范围。
+ * 2026-09-18 起同企业多角色自动合并（登录不再选角色）：角色=权限集合，
+ * 会话携带该成员全部生效角色，功能权限按权限点取并集、数据范围按授权并集、
+ * 字段脱敏从严合并（见 PermissionContext 合并口径）。
+ */
 export interface TenantPrincipal extends PrincipalPerson {
   realm: "TENANT"
   /** 本次认证工作空间根 id（= tenantId，显式携带供换发回传） */
@@ -63,19 +68,20 @@ export interface TenantPrincipal extends PrincipalPerson {
   tenantKind: TenantKind
   /** 企业成员身份（TenantMembership.id） */
   membershipId: string
-  /** 本次生效的授权角色 */
-  activeRoleId: string
-  activeRoleName: string
-  /** 该角色名下全部生效授权记录（同角色多范围时合并进同一身份） */
+  /** 本次生效的全部角色（同企业多角色并集；顺序=授权种子顺序，仅影响展示） */
+  roleIds: string[]
+  roleNames: string[]
+  /** 岗位（成员身份上的纯展示字段，顶栏与审计使用；不参与权限判定） */
+  jobTitle?: string
+  /** 全部生效角色名下的授权记录并集（数据范围/业务范围按其计算） */
   effectiveAssignmentIds: string[]
-  /** 组织数据范围（合并展示时取主档位） */
-  scope: ScopeType
-  scopeOrgId: string
-  scopeOrgName: string
-  /** 数据范围摘要（含服务商员工可处理药厂清单），角色确认页展示 */
+  /** 各授权的数据范围明细（组织范围并集展示用） */
+  dataScopes: { scope: ScopeType; scopeOrgId: string; scopeOrgName: string }[]
+  /** 数据范围摘要（含服务商员工可处理药厂清单），用户菜单展示 */
   dataScopeSummary: string
   /**
-   * 旧三类页面视角的兼容派生值：仅服务于 TENANT 域业务页面的渲染分支，
+   * 旧三类页面视角的兼容派生值（多角色取首个非空；同租户内映射必然一致）：
+   * 仅服务于 TENANT 域业务页面的渲染分支，
    * 菜单/路由/系统管理后台页面一律不使用（软件服务方身份无业务视角，不带此字段）。
    */
   perspective: Role
@@ -96,13 +102,14 @@ export function isPlatformPrincipal(p: AuthPrincipal): p is PlatformPrincipal {
   return p.realm === "PLATFORM"
 }
 
-/** 两域统一取角色 id（系统角色 id / 租户生效角色 id） */
+/** 两域统一取角色 id（系统角色 id / 租户首个生效角色 id；权限判定请用 roleIds 全集） */
 export function principalRoleId(p: AuthPrincipal): string {
-  return p.realm === "PLATFORM" ? p.platformRoleId : p.activeRoleId
+  return p.realm === "PLATFORM" ? p.platformRoleId : p.roleIds[0]
 }
 
+/** 两域统一取角色名（系统角色名 / 租户全部生效角色名合并展示） */
 export function principalRoleName(p: AuthPrincipal): string {
-  return p.realm === "PLATFORM" ? p.platformRoleName : p.activeRoleName
+  return p.realm === "PLATFORM" ? p.platformRoleName : p.roleNames.join(" + ")
 }
 
 /** 工作空间展示名：软件服务方=系统管理后台；租户=企业名 */
@@ -172,13 +179,14 @@ export interface EnterpriseCodeEntry {
 }
 
 /**
- * 手机号/验证码通过后解析出的一个可登录身份选项。
+ * 手机号/验证码通过后解析出的「工作空间内授权概览」（2026-09-18 起不再用于登录选择：
+ * 同企业多角色自动合并进同一会话）。仅服务于切换企业列表等展示位。
  * 同一角色存在多条有效授权时合并为一条（assignmentIds 收集全部），
  * 软件服务方身份与租户身份不会混列（realm 由认证工作空间决定）。
  */
 export interface LoginIdentityOption {
   realm: AccessRealm
-  /** 选项稳定键：TENANT=roleId@tenantId；PLATFORM=platformRoleId */
+  /** 稳定键：TENANT=roleId@tenantId；PLATFORM=platformRoleId */
   key: string
   /** 生效授权记录集合（租户=RoleAssignment.id 集合；软件服务方=PlatformRoleBinding.id 集合） */
   assignmentIds: string[]
@@ -213,10 +221,6 @@ export interface AuthSession {
   method: LoginMethod
   qrSource?: QrSource
   loginAt: string
-  /** 第二步（角色/身份确认）是否完成；单角色由网关直签 true，多角色默认 false */
-  identityConfirmed?: boolean
-  /** 该账号在本次认证工作空间内的可登录身份列表（≥2 时展示选择器） */
-  identityOptions?: LoginIdentityOption[]
   /** 待选服务药厂：仅服务商业务身份未选择时由网关附带，选择后不再携带 */
   pendingPharmas?: ServingPharma[]
   /** 一次性提示（待激活账号首次登录激活成功）：由业务壳层挂载时消费并 toast */
@@ -232,8 +236,14 @@ export type LoginFailureCode =
   | "enterprise-invalid"
   | "user-not-found"
   | "password-wrong"
+  /** 密码连续错误达到上限，账号被临时锁定（2026-09-18 账号安全批次） */
+  | "account-locked"
   | "account-disabled"
   | "account-frozen"
+  /** 成员身份已被企业移除（自然人账号与其他企业身份不受影响） */
+  | "membership-removed"
+  /** 租户套餐开通期已到期（登录第一步拦截；此前实现缺契约，本批补齐） */
+  | "tenant-expired"
   | "no-active-assignment"
   | "assignment-expired"
   | "assignment-revoked"
@@ -274,8 +284,6 @@ export interface DefaultLoginRecord {
   workspaceId: string
   /** 仅展示用；进入授权以 workspaceId 实时校验为准 */
   workspaceName: string
-  /** 最近一次进入的生效角色（恢复时仍有效则沿用，失效回退身份确认页） */
-  activeRoleId?: string
   /** 服务商业务身份的最近服务药厂（恢复时仍可进入才沿用，否则重走选药厂） */
   currentPharmaTenantId?: string
   /** 本设备标识（审计用；首次保存时生成的稳定随机串） */
@@ -295,9 +303,9 @@ export interface SwitchableEnterprise {
   tenantName: string
   tenantKind: TenantKind
   membershipId: string
-  /** 该企业内可登录身份摘要（展示「角色 · 部门」；多身份合并提示） */
+  /** 该企业内全部生效角色摘要（多角色合并进同一会话，展示「角色1 · 角色2 · 部门」） */
   roleSummary: string
-  /** 可登录身份数（≥2 时切换后走角色确认页） */
+  /** 生效角色数（≥2 展示「多角色合并」标记） */
   identityCount: number
   isCurrent: boolean
   /**
@@ -339,7 +347,17 @@ export interface QrIdentity {
 }
 
 export interface AuthGateway {
-  loginPassword(input: { account: string; password: string }): Promise<AuthResult>
+  /**
+   * 账号密码登录。带 workspaceId（登录页第 2 步「密码登录」）时在该企业命名空间内
+   * 定位账号，成员状态/激活/暂停口径与 verifySms 完全一致；不带（用户菜单切换角色）
+   * 时按全库首个匹配解析主归属工作空间（演示账号账号名全局互异）。
+   */
+  loginPassword(input: {
+    account: string
+    password: string
+    workspaceId?: string
+    rememberDefaultLogin?: boolean
+  }): Promise<AuthResult>
   /** 工作空间编码解析（登录卡第 1 步）：返回非敏感展示信息；不存在/停用统一失败，不区分 */
   resolveEnterprise(input: {
     code: string
@@ -397,19 +415,6 @@ export interface AuthGateway {
    */
   listServingPharmas(userId: string, providerTenantId: string): Promise<ServingPharma[]>
   /**
-   * 第二步：角色确认——从本次认证工作空间内已解析的选项中按角色选定
-   * （同角色多授权合并生效；免重新认证）。
-   */
-  chooseLoginIdentity(input: {
-    userId: string
-    roleId: string
-    /** 本次认证工作空间根 id（后台码即系统管理后台根） */
-    workspaceId: string
-    /** 透传原登录方式，保持审计与会话口径连续 */
-    method?: LoginMethod
-    qrSource?: QrSource
-  }): Promise<AuthResult>
-  /**
    * 免重新认证选择/切换服务药厂：基于当前会话主体仅叠加 currentPharma 字段签发；
    * session.id 变化使业务树重建、数据按所选药厂重置。
    */
@@ -440,8 +445,8 @@ export interface AuthGateway {
   /**
    * 免重新认证切换企业（FR-06）：切换前再次校验目标成员关系/租户状态/可登录身份
    * （需求 §7），通过后换发目标企业上下文会话（session.id 变化使业务树整树重建，
-   * 菜单、角色与数据范围按目标企业重载）；目标企业多身份回退角色确认、服务商
-   * 业务身份附带待选药厂。成功且本设备存在默认登录记录时同步更新默认企业（FR-07）。
+   * 菜单、角色与数据范围按目标企业重载；目标企业多角色自动合并进同一会话）、
+   * 服务商业务身份附带待选药厂。成功且本设备存在默认登录记录时同步更新默认企业（FR-07）。
    */
   switchEnterprise(input: {
     userId: string

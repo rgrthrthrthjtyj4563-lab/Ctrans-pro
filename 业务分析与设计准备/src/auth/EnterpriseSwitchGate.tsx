@@ -3,7 +3,7 @@
  * 且有效的企业工作空间（需求 §3.3 / FR-04~07）。仅列出 listSwitchableEnterprises
  * 给出的有效企业；当前企业标记但不可选。成功后由调用方换发会话——session.id
  * 变化使业务树整树重建，菜单、角色与数据范围按目标企业重载（FR-06）；
- * 目标企业多身份时回退角色确认页、服务商业务身份附带选药厂门页（Root 衔接）。
+ * 目标企业多角色自动合并进同一会话、服务商业务身份附带选药厂门页（Root 衔接）。
  * 演示口径（AC-08，需求 §9 待业务确认最终清单）：目标企业内含企业管理员/
  * 服务商管理员等敏感身份时，切换前须短信重新认证（演示码与登录一致 123456）。
  */
@@ -175,7 +175,7 @@ export function EnterpriseSwitchGate({
                   <dd>
                     {principal.realm === "PLATFORM"
                       ? principal.platformRoleName
-                      : `${principal.activeRoleName} · ${principal.tenantName}`}
+                      : `${principal.roleNames.join(" + ")} · ${principal.tenantName}`}
                   </dd>
                 </div>
               </dl>
@@ -241,7 +241,7 @@ export function EnterpriseSwitchGate({
                             </span>
                           )}
                           {ent.identityCount > 1 && (
-                            <span className="auth-gate-tag auth-gate-tag--ok">{ent.identityCount} 个可登录身份</span>
+                            <span className="auth-gate-tag auth-gate-tag--ok">{ent.identityCount} 个角色自动合并</span>
                           )}
                         </span>
                         <span className="pharma-gate-card-meta">

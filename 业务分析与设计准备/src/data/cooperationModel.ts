@@ -16,8 +16,9 @@
  */
 
 import type { BlockedKind, ServingPharma, TenantPrincipal, WarningKind } from "../auth/authTypes"
-import type { PlatformRoleBinding, RoleAssignment, TenantKind, TenantMembership } from "./permissions"
-import { PLATFORM_BINDINGS, PRESET_ROLES, TENANT_MEMBERSHIPS, enterpriseRootOf, seedCustomRoles } from "./permissions"
+import { PLATFORM_WORKSPACE_NAME } from "../auth/authTypes"
+import type { PermAuditEvent, PlatformRoleBinding, RoleAssignment, TenantKind, TenantMembership } from "./permissions"
+import { PLATFORM_BINDINGS, PRESET_ROLES, TENANT_MEMBERSHIPS, enterpriseRootOf, nextId, nowStamp, seedCustomRoles } from "./permissions"
 import { allOrgs, allUsers, allAssignments, tenantLoginAllowed } from "./tenantRegistry"
 
 // ─── 系统角色绑定（运行期内存态；登录网关与软件服务方账号页共享同一事实源） ─────────
@@ -60,6 +61,14 @@ export function grantPlatformBinding(input: {
   }
   platformBindings = [binding, ...platformBindings]
   bindingListeners.forEach((cb) => cb())
+  pushBindingAudit({
+    actor: input.actor,
+    action: "授予系统角色绑定",
+    target: `${allUsers().find((u) => u.id === input.userId)?.name ?? input.userId} × ${input.platformRoleId}`,
+    resource: "platform-bindings.grant",
+    reason: input.reason.trim(),
+    afterSummary: `职责范围：${input.dutyScope.trim()} · 生效 ${binding.effectiveFrom}`,
+  })
   return { ok: true, binding }
 }
 
@@ -75,7 +84,58 @@ export function revokePlatformBinding(bindingId: string, actor: string, reason: 
     b.id === bindingId ? { ...b, status: "revoked" as const, revokedBy: actor, revokedAt: now, reason: reason.trim() } : b,
   )
   bindingListeners.forEach((cb) => cb())
+  pushBindingAudit({
+    actor,
+    action: "回收系统角色绑定",
+    target: `${allUsers().find((u) => u.id === cur.userId)?.name ?? cur.userId} × ${cur.platformRoleId}`,
+    resource: "platform-bindings.revoke",
+    reason: reason.trim(),
+    beforeSummary: `职责范围：${cur.dutyScope} · ${cur.grantedAt} 授予`,
+    afterSummary: "已回收 · 历史保留可查",
+  })
   return { ok: true }
+}
+
+// ─── 系统角色绑定审计缓冲（2026-09-18 审计盲区补全） ─────────────────────────
+// 绑定的授予/回收发生在纯数据层（无 React 上下文），与登录审计同构：写入模块级
+// 缓冲，PermissionProvider 挂载时一次性并入审计页（跨会话可查）。
+
+const pendingBindingAudits: PermAuditEvent[] = []
+
+function pushBindingAudit(input: {
+  actor: string
+  action: string
+  target: string
+  resource: string
+  reason: string
+  beforeSummary?: string
+  afterSummary?: string
+}): void {
+  pendingBindingAudits.unshift({
+    id: nextId("PE"),
+    time: nowStamp(),
+    actor: input.actor,
+    actorRole: "贝医系统管理员",
+    org: PLATFORM_WORKSPACE_NAME,
+    target: input.target,
+    module: "系统角色绑定",
+    action: input.action,
+    resource: input.resource,
+    decision: "允许",
+    reason: input.reason,
+    ...(input.beforeSummary ? { beforeSummary: input.beforeSummary } : {}),
+    ...(input.afterSummary ? { afterSummary: input.afterSummary } : {}),
+    requestId: nextId("req"),
+    ip: "10.4.21.8",
+    result: "成功",
+  })
+}
+
+/** PermissionProvider 挂载时一次性取出绑定审计（与 drainLoginAuditEvents 同构） */
+export function drainBindingAuditEvents(): PermAuditEvent[] {
+  const drained = [...pendingBindingAudits]
+  pendingBindingAudits.length = 0
+  return drained
 }
 
 // ─── 租户与成员身份聚合（种子 + 软件服务方侧运行时建租户） ─────────────────────
@@ -158,10 +218,87 @@ export function membershipsOfTenant(tenantId: string): TenantMembership[] {
 
 /**
  * 成员身份是否参与权限计算：冻结成员不得进入租户与选择合作药厂；
- * 待激活由登录激活流程单独拦截（激活后参与计算）。
+ * 待激活由登录激活流程单独拦截（激活后参与计算）；
+ * 已移除成员（2026-09-18）身份终止，不再出现在名单与授权入口。
  */
 export function membershipActive(m: TenantMembership | undefined): boolean {
-  return Boolean(m && m.status !== "frozen")
+  return Boolean(m && m.status !== "frozen" && m.status !== "removed")
+}
+
+/**
+ * 移除成员（2026-09-18 成员生命周期补全）：终止该用户在【本企业】的成员身份。
+ * 口径：只动 membership，不动 PermUser——自然人账号、其他企业身份、历史授权
+ * 记录全部保留；登录链路经 memberStatusOf 感知 removed 拒绝进入本企业。
+ * 运行时派生成员（如建租首位管理员）没有显式记录：补写一条显式 removed 记录，
+ * 防止 getTenantMemberships 的派生逻辑把移除状态重新生成为 active。
+ */
+export function removeMembership(input: {
+  userId: string
+  tenantId: string
+  actor: string
+  /** 原因分类：离职 / 误建 / 其他 */
+  kind: string
+  note?: string
+}): { ok: boolean; error?: string } {
+  const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
+  if (idx >= 0) {
+    if (tenantMembershipState[idx].status === "removed") return { ok: false, error: "该成员已处于移除状态" }
+    tenantMembershipState = tenantMembershipState.map((m, i) =>
+      i === idx
+        ? {
+            ...m,
+            status: "removed" as const,
+            removedAt: nowStamp(),
+            removedBy: input.actor,
+            removedKind: input.kind,
+            ...(input.note?.trim() ? { removedNote: input.note.trim() } : {}),
+          }
+        : m,
+    )
+  } else {
+    const root = allOrgs().find((o) => o.id === input.tenantId)
+    tenantMembershipState = [
+      {
+        id: `mb-rt-${input.userId}-${input.tenantId}`,
+        userId: input.userId,
+        tenantId: input.tenantId,
+        tenantName: root?.name ?? input.tenantId,
+        orgUnitId: allUsers().find((u) => u.id === input.userId)?.orgId ?? input.tenantId,
+        status: "removed",
+        joinedAt: todayIso(),
+        removedAt: nowStamp(),
+        removedBy: input.actor,
+        removedKind: input.kind,
+        ...(input.note?.trim() ? { removedNote: input.note.trim() } : {}),
+      },
+      ...tenantMembershipState,
+    ]
+  }
+  notifyMembershipChange()
+  return { ok: true }
+}
+
+/**
+ * 重新加入（移除后恢复）：仅 removed 成员可恢复；恢复为 active 并更新部门，
+ * 移除留痕字段保留（removedAt/By/Kind 供追溯），rejoinedAt 记录恢复时间。
+ */
+export function rejoinMembership(input: {
+  userId: string
+  tenantId: string
+  orgUnitId: string
+}): { ok: boolean; error?: string; membership?: TenantMembership } {
+  const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
+  if (idx < 0) return { ok: false, error: "该用户在本企业没有可恢复的成员记录，请直接新建用户" }
+  if (tenantMembershipState[idx].status !== "removed") return { ok: false, error: "仅已移除的成员可重新加入" }
+  const next: TenantMembership = {
+    ...tenantMembershipState[idx],
+    orgUnitId: input.orgUnitId,
+    status: "active",
+    rejoinedAt: nowStamp(),
+  }
+  tenantMembershipState = tenantMembershipState.map((m, i) => (i === idx ? next : m))
+  notifyMembershipChange()
+  return { ok: true, membership: next }
 }
 
 /** 新建成员（用户建档时写入当前租户的成员身份）或调整成员部门（调岗） */

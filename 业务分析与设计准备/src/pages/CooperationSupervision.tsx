@@ -45,7 +45,7 @@ export function CooperationSupervision({ addToast }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="合作关系监管"
-        description={`软件服务方只读监管各租户间的合作与业务授权状态（当前身份：${principal.realm === 'PLATFORM' ? principal.platformRoleName : principal.activeRoleName}）。操作权限归药厂工作空间。`}
+        description={`软件服务方只读监管各租户间的合作与业务授权状态（当前身份：${principal.realm === 'PLATFORM' ? principal.platformRoleName : principal.roleNames.join(" + ")}）。操作权限归药厂工作空间。`}
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>

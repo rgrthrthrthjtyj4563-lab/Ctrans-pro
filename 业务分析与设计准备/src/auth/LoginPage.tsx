@@ -1,8 +1,9 @@
 /**
  * 登录页（多租户口径 · 批次①）：企业编码 + 手机号 + 短信验证码两段式。
  * 第 1 段解析企业编码（「本设备记住的企业」快捷条目仅回填编码、点击重新解析），
- * 第 2 段企业内短信验证。密码/扫码入口本期隐藏（LOGIN_METHODS_EXPOSED 开关，
- * 组件与契约全部保留，置 true 恢复旧面板做回归验证，非本期口径）。
+ * 第 2 段企业内身份验证，支持「短信登录 | 密码登录」两种方式切换（2026-09-18）：
+ * 密码登录的账号在已验证企业的命名空间内定位（账号企业内唯一）。
+ * 扫码入口本期隐藏（LOGIN_METHODS_EXPOSED 开关，组件与契约保留）。
  * 演示环境说明：认证由内存 Mock Gateway 模拟，不调用真实短信与 OAuth；
  * 登录态仅存在于当前页面，刷新即失效。
  *
@@ -35,6 +36,7 @@ import {
 import { BrandMark } from "../components/Brand"
 import { Modal } from "../components/Modal"
 import { authGateway } from "./mockGateway"
+import { ForgotPasswordModal } from "./ForgotPasswordModal"
 import {
   DEMO_ACCOUNT_GROUPS,
   DEMO_ACCOUNT_HINTS,
@@ -52,13 +54,14 @@ const RESEND_SECONDS = 60
 const QR_POLL_MS = 700
 
 /**
- * 登录方式露出开关（本期口径：仅短信验证）。
- * 密码/扫码的组件、契约方法、QR_IDENTITIES 与演示二维码全部保留；
- * 置 true 即恢复旧面板（非本期口径，仅回归验证，不接企业编码前置链路）。
+ * 扫码登录露出开关（本期口径：隐藏）。
+ * 扫码的组件、契约方法、QR_IDENTITIES 与演示二维码全部保留；
+ * 置 true 即恢复旧扫码页签（非本期口径，仅回归验证）。
  * 开关关闭时不只是不渲染入口：不创建二维码票据、不启动轮询定时器，
  * 不产生任何隐藏方式的副作用（createQrTicket 的 useEffect 用同一开关门控）。
+ * 密码登录已于 2026-09-18 以「步骤 2 方式切换」形态正式回归，不再走本开关。
  */
-export const LOGIN_METHODS_EXPOSED = { password: false, qr: false }
+export const LOGIN_METHODS_EXPOSED = { qr: false }
 
 // ─── 本设备记住的企业（localStorage 容错读写） ───────────────────────────────
 
@@ -97,7 +100,9 @@ function saveRememberedEnterprises(list: RememberedEnterprise[]): void {
   }
 }
 
-type MethodTab = "password" | "sms" | "qr"
+type MethodTab = "sms" | "qr"
+/** 第 2 段身份验证方式（企业已验证后的子方式） */
+type VerifMethod = "sms" | "password"
 type FieldKey = "entcode" | "account" | "password" | "phone" | "code" | "qr"
 
 // ─── 演示二维码图形（确定性伪随机点阵，不可被真实扫描） ─────────────────────
@@ -162,6 +167,120 @@ function DemoQrGraphic({ seed, dimmed }: { seed: string; dimmed: boolean }) {
 
 
 
+// ─── 记住默认登录开关（短信/密码两种验证方式共用；FR-01） ────────────────────
+/** 安全卡片 + iOS 质感开关：默认不勾选；勾选且验证成功后才在本设备保存长期会话 */
+function RememberDefaultSwitch({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <label
+      htmlFor="lg-remember-default"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        padding: "13px 14px",
+        borderRadius: 16,
+        background: checked ? "rgba(25,197,154,0.07)" : "rgba(255,255,255,0.72)",
+        border: `1px solid ${checked ? "rgba(25,197,154,0.4)" : "rgba(200,215,235,0.85)"}`,
+        cursor: "pointer",
+        userSelect: "none",
+        transition: "background 160ms ease, border-color 160ms ease",
+      }}
+    >
+      <input
+        id="lg-remember-default"
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+      />
+      <span style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+        <span
+          aria-hidden
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: checked ? "linear-gradient(135deg, #0E8F76, #19C59A)" : "rgba(25,197,154,0.1)",
+            border: `1px solid ${checked ? "transparent" : "rgba(25,197,154,0.22)"}`,
+            color: checked ? "#FFFFFF" : "#0D9B7A",
+            transition: "background 160ms ease, color 160ms ease",
+          }}
+        >
+          <ShieldCheck size={20} />
+        </span>
+        <span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: "var(--fs-13)", fontWeight: 700, color: "var(--lg-text-1)", lineHeight: 1.4, whiteSpace: "nowrap" }}>
+              记住默认登录
+            </span>
+            <span
+              aria-hidden
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "2px 6px",
+                borderRadius: 6,
+                background: "rgba(25,197,154,0.1)",
+                color: "#0D9B7A",
+                fontSize: "10px",
+                fontWeight: 600,
+                lineHeight: 1.4,
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#19C59A" }} />
+              本机安全
+            </span>
+          </span>
+          <span style={{ display: "block", fontSize: "var(--fs-12)", color: "var(--lg-text-3)", marginTop: 2, whiteSpace: "nowrap" }}>
+            仅限当前设备有效，退出后自动失效
+          </span>
+        </span>
+      </span>
+      {/* iOS 质感开关：轨道随勾选换薄荷渐变，滑块位移 20px */}
+      <span
+        aria-hidden
+        style={{
+          width: 48,
+          height: 28,
+          borderRadius: 999,
+          flexShrink: 0,
+          padding: 2,
+          display: "flex",
+          alignItems: "center",
+          background: checked ? "linear-gradient(135deg, #0D9B7A, #19C59A)" : "rgba(26,43,66,0.16)",
+          transition: "background 160ms ease",
+        }}
+      >
+        <span
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: "50%",
+            background: "#FFFFFF",
+            boxShadow: "0 1px 3px rgba(15,23,42,0.25)",
+            transform: checked ? "translateX(20px)" : "translateX(0)",
+            transition: "transform 160ms ease",
+          }}
+        />
+      </span>
+    </label>
+  )
+}
+
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 /** restoreNotice：默认登录恢复失败回退标准登录时的一次性提示（AC-06/AC-07 可见） */
 export function LoginPage({
@@ -172,10 +291,10 @@ export function LoginPage({
   onDismissRestoreNotice?: () => void
 }) {
   const { setSession } = useAuth()
-  // 回归模式（开关打开）恢复旧默认页签「账号登录」；本期默认即短信
-  const [method, setMethod] = useState<MethodTab>(
-    LOGIN_METHODS_EXPOSED.password ? "password" : "sms",
-  )
+  // 顶层方式：仅短信（扫码为隐藏回归通道）；密码不再占用顶层页签
+  const [method, setMethod] = useState<MethodTab>("sms")
+  /** 第 2 段身份验证方式：短信（默认）| 账号密码（2026-09-18 回归） */
+  const [verifMethod, setVerifMethod] = useState<VerifMethod>("sms")
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({})
@@ -192,7 +311,7 @@ export function LoginPage({
   const smsSeq = useRef(0)
   const entCodeRef = useRef<HTMLInputElement>(null)
 
-  // 密码登录（回归保留）
+  // 密码登录（第 2 段「密码登录」子方式；账号企业内唯一，联合企业编码定位）
   const [account, setAccount] = useState("")
   const [password, setPassword] = useState("")
   const [showPwd, setShowPwd] = useState(false)
@@ -212,6 +331,8 @@ export function LoginPage({
 
   // 演示账号速查弹框开关
   const [hintsOpen, setHintsOpen] = useState(false)
+  /** 找回密码弹框（密码登录子方式的「忘记密码？」入口，2026-09-18 第一期缺口批次） */
+  const [forgotOpen, setForgotOpen] = useState(false)
   /** 已展开完整场景说明的账号（ⓘ 切换；折叠态单行截断） */
   const [expandedHints, setExpandedHints] = useState<ReadonlySet<string>>(new Set())
 
@@ -244,7 +365,7 @@ export function LoginPage({
     }
   }, [])
 
-  /** 清空第 2 段全部短信状态并作废在途请求（切换企业/重选企业时必须执行） */
+  /** 清空第 2 段全部验证状态（短信+密码）并作废在途请求（切换企业/重新解析时必须执行） */
   const resetSmsState = useCallback(() => {
     smsSeq.current += 1
     setPhone("")
@@ -252,6 +373,8 @@ export function LoginPage({
     setSmsDevCode(null)
     setResendLeft(0)
     setSmsNotice(null)
+    setAccount("")
+    setPassword("")
     setFieldErrors({})
     setFormError(null)
     setBusy(false)
@@ -306,7 +429,7 @@ export function LoginPage({
     [resetSmsState],
   )
 
-  /** 返回第 1 段重新选企业：清空手机号/验证码/倒计时/回显，并作废所有旧请求结果 */
+  /** 返回第 1 段重新选企业：清空短信/密码全部状态与回显，并作废所有旧请求结果 */
   const switchEnterprise = useCallback(() => {
     resolveSeq.current += 1
     smsSeq.current += 1
@@ -315,11 +438,14 @@ export function LoginPage({
     setFieldErrors({})
     setFormError(null)
     setBusy(false)
+    setForgotOpen(false)
     setPhone("")
     setCodeDigits(["", "", "", "", "", ""])
     setSmsDevCode(null)
     setResendLeft(0)
     setSmsNotice(null)
+    setAccount("")
+    setPassword("")
     window.setTimeout(() => entCodeRef.current?.focus(), 30)
   }, [])
 
@@ -350,13 +476,29 @@ export function LoginPage({
   /** 待确认删除的记住企业：点 × 只打开确认弹框，重点提示删除后果（用户 2026-09-15 要求） */
   const [memoDeleteTarget, setMemoDeleteTarget] = useState<RememberedEnterprise | null>(null)
 
-  // ─── 密码方式 ─────────────────────────────────────────────────────────────
+  // ─── 密码方式（第 2 段「密码登录」：企业内账号 + 密码） ───────────────────
   const submitPassword = useCallback(
     async (e?: { preventDefault: () => void }) => {
       e?.preventDefault()
+      if (!enterprise) return
       clearErrors()
+      if (!account.trim()) {
+        setFieldErrors({ account: "请输入登录账号" })
+        accountRef.current?.focus()
+        return
+      }
+      if (!password) {
+        setFieldErrors({ password: "请输入密码" })
+        passwordRef.current?.focus()
+        return
+      }
       setBusy(true)
-      const result = await authGateway.loginPassword({ account, password })
+      const result = await authGateway.loginPassword({
+        account,
+        password,
+        workspaceId: enterprise.id,
+        rememberDefaultLogin: rememberDefault,
+      })
       setBusy(false)
       if (result.ok) {
         setSession(result.session)
@@ -366,8 +508,19 @@ export function LoginPage({
       if (result.failure.field === "account") accountRef.current?.focus()
       if (result.failure.field === "password") passwordRef.current?.focus()
     },
-    [account, password, clearErrors, applyFailure, setSession],
+    [enterprise, account, password, rememberDefault, clearErrors, applyFailure, setSession],
   )
+
+  /** 第 2 段子方式切换：清空双方临时错误，聚焦对应首字段 */
+  const switchVerifMethod = useCallback((next: VerifMethod) => {
+    setVerifMethod(next)
+    setFieldErrors({})
+    setFormError(null)
+    window.setTimeout(() => {
+      if (next === "password") accountRef.current?.focus()
+      else window.setTimeout(() => codeRefs.current[0]?.focus(), 30)
+    }, 30)
+  }, [])
 
   // ─── 短信方式（第 2 段：企业内短信验证） ─────────────────────────────────
   useEffect(() => {
@@ -552,27 +705,30 @@ export function LoginPage({
     methodTabRefs.current[next]?.focus()
   }
 
-  /** 演示速查：填好企业编码并解析出企业名、填好手机号，停留在短信段待发送；随即关闭速查弹框 */
+  /** 演示速查：填好企业编码并解析出企业名、填好手机号（密码方式切换后同企业则预填账号）；
+      停留在短信段待发送；随即关闭速查弹框 */
   const applyDemoHint = useCallback(
     async (h: DemoAccountHint) => {
       setHintsOpen(false)
-      if (LOGIN_METHODS_EXPOSED.password || LOGIN_METHODS_EXPOSED.qr) setMethod("sms")
+      setMethod("sms")
       resetSmsState()
       setEntCode(h.enterpriseCode)
       const ok = await resolveEnterpriseCode(h.enterpriseCode)
-      // 解析成功的回调里会重置短信段，手机号必须在解析完成后回填
-      if (ok) setPhone(h.phone)
+      // 解析成功的回调里会重置第 2 段，手机号/账号必须在解析完成后回填
+      if (ok) {
+        setPhone(h.phone)
+        setAccount(h.account)
+      }
     },
     [resetSmsState, resolveEnterpriseCode],
   )
 
-  /** 页签按开关过滤；本期（全关）不渲染页签，短信面板为默认且唯一面板 */
+  /** 页签按开关过滤；本期（关）不渲染页签，短信面板为默认面板（扫码回归用） */
   const tabDefs = [
-    ...(LOGIN_METHODS_EXPOSED.password ? [{ key: "password" as const, label: "账号登录" }] : []),
     { key: "sms" as const, label: "短信验证" },
     ...(LOGIN_METHODS_EXPOSED.qr ? [{ key: "qr" as const, label: "扫码登录" }] : []),
   ]
-  const showTabs = LOGIN_METHODS_EXPOSED.password || LOGIN_METHODS_EXPOSED.qr
+  const showTabs = LOGIN_METHODS_EXPOSED.qr
 
   return (
     <div className="login-shell">
@@ -756,7 +912,7 @@ export function LoginPage({
                       aria-current={enterprise ? "step" : undefined}
                       style={enterprise ? { background: "rgba(25,197,154,0.1)", color: "#0D9B7A", borderColor: "rgba(25,197,154,0.35)", fontWeight: 600 } : undefined}
                     >
-                      2 短信验证
+                      2 {verifMethod === "sms" ? "短信验证" : "账号密码"}
                     </span>
                   </div>
                 )
@@ -809,109 +965,6 @@ export function LoginPage({
                   </div>
                 )}
               </div>
-
-              {/* ── 账号密码 ── */}
-              {method === "password" && (
-                <form
-                  key="password"
-                  role="tabpanel"
-                  id="login-panel-password"
-                  aria-labelledby="login-tab-password"
-                  onSubmit={submitPassword}
-                  className="lg-panel"
-                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
-                >
-                  <div>
-                    <label htmlFor="login-account" className="lg-label">
-                      用户名或手机号
-                    </label>
-                    <input
-                      id="login-account"
-                      ref={accountRef}
-                      className="lg-field"
-                      autoComplete="username"
-                      value={account}
-                      onChange={(e) => setAccount(e.target.value)}
-                      aria-invalid={Boolean(fieldErrors.account)}
-                      aria-describedby={fieldErrors.account ? "err-account" : undefined}
-                      placeholder="请输入用户名或手机号"
-                    />
-                    {fieldErrors.account && (
-                      <div id="err-account" className="lg-error-pill" style={{ marginTop: 8 }}>
-                        <TriangleAlert size={14} aria-hidden />
-                        {fieldErrors.account}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label htmlFor="login-password" className="lg-label">
-                      密码
-                    </label>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        id="login-password"
-                        ref={passwordRef}
-                        className="lg-field"
-                        autoComplete="current-password"
-                        type={showPwd ? "text" : "password"}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        aria-invalid={Boolean(fieldErrors.password)}
-                        aria-describedby={fieldErrors.password ? "err-password" : "pwd-hint"}
-                        style={{ paddingRight: 44 }}
-                        placeholder="请输入密码"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPwd((v) => !v)}
-                        aria-label={showPwd ? "隐藏密码" : "显示密码"}
-                        title={showPwd ? "隐藏密码" : "显示密码"}
-                        style={{
-                          position: "absolute",
-                          right: 13,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "rgba(26,43,66,0.32)",
-                          padding: 0,
-                          display: "flex",
-                          alignItems: "center",
-                          transition: "color 150ms ease",
-                        }}
-                        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "rgba(26,43,66,0.65)")}
-                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "rgba(26,43,66,0.32)")}
-                      >
-                        {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-                    {fieldErrors.password ? (
-                      <div id="err-password" className="lg-error-pill" style={{ marginTop: 8 }}>
-                        <TriangleAlert size={14} aria-hidden />
-                        {fieldErrors.password}
-                      </div>
-                    ) : (
-                      <div id="pwd-hint" style={{ fontSize: "var(--fs-12)", color: "rgba(26,43,66,0.35)", marginTop: 7 }}>
-                        演示环境统一固定密码{" "}
-                        <code className="font-mono-nums" style={{ fontWeight: 700, color: "#0D9B7A" }}>
-                          {DEMO_PASSWORD}
-                        </code>
-                      </div>
-                    )}
-                  </div>
-                  <button type="submit" className="lg-submit" disabled={busy} style={{ marginTop: 8 }}>
-                    {busy ? (
-                      <>
-                        <LoaderCircle size={18} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden />
-                        <span>正在登录…</span>
-                      </>
-                    ) : (
-                      <span>登录</span>
-                    )}
-                  </button>
-                </form>
-              )}
 
               {/* ── 短信验证（企业编码两段式：1 企业验证 → 2 短信验证） ── */}
               {method === "sms" && (
@@ -1056,6 +1109,40 @@ export function LoginPage({
                         </button>
                       </div>
 
+                      {/* 身份验证子方式：短信登录 | 密码登录（账号企业内唯一） */}
+                      <div
+                        role="group"
+                        aria-label="身份验证方式"
+                        style={{ display: "flex", gap: 2, padding: 3, borderRadius: 12, background: "rgba(26,43,66,0.045)" }}
+                      >
+                        {(["sms", "password"] as const).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            aria-pressed={verifMethod === m}
+                            onClick={() => switchVerifMethod(m)}
+                            style={{
+                              flex: 1,
+                              height: 34,
+                              borderRadius: 9,
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "var(--fs-12)",
+                              fontWeight: verifMethod === m ? 700 : 500,
+                              fontFamily: "inherit",
+                              background: verifMethod === m ? "#FFFFFF" : "transparent",
+                              color: verifMethod === m ? "#0D9B7A" : "rgba(26,43,66,0.45)",
+                              boxShadow: verifMethod === m ? "0 1px 3px rgba(26,43,66,0.1)" : "none",
+                              transition: "background 150ms ease, color 150ms ease",
+                            }}
+                          >
+                            {m === "sms" ? "短信登录" : "密码登录"}
+                          </button>
+                        ))}
+                      </div>
+
+                      {verifMethod === "sms" ? (
+                        <>
                       <div aria-live="polite" role="status">
                         {smsNotice && (
                           <div className="lg-ok-note">✓ {smsNotice}</div>
@@ -1183,109 +1270,7 @@ export function LoginPage({
                           </div>
                         </div>
                       )}
-                      {/* 记住默认登录（FR-01）：安全卡片 + iOS 质感开关（参考稿 A 方案，品牌色对齐登录链路薄荷绿）。
-                          默认不勾选；勾选且验证码验证成功后才在本设备保存长期会话。 */}
-                      <label
-                        htmlFor="lg-remember-default"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 12,
-                          padding: "13px 14px",
-                          borderRadius: 16,
-                          background: rememberDefault ? "rgba(25,197,154,0.07)" : "rgba(255,255,255,0.72)",
-                          border: `1px solid ${rememberDefault ? "rgba(25,197,154,0.4)" : "rgba(200,215,235,0.85)"}`,
-                          cursor: "pointer",
-                          userSelect: "none",
-                          transition: "background 160ms ease, border-color 160ms ease",
-                        }}
-                      >
-                        <input
-                          id="lg-remember-default"
-                          type="checkbox"
-                          role="switch"
-                          checked={rememberDefault}
-                          onChange={(e) => setRememberDefault(e.target.checked)}
-                          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
-                        />
-                        <span style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                          <span
-                            aria-hidden
-                            style={{
-                              width: 40,
-                              height: 40,
-                              borderRadius: 12,
-                              flexShrink: 0,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              background: rememberDefault ? "linear-gradient(135deg, #0E8F76, #19C59A)" : "rgba(25,197,154,0.1)",
-                              border: `1px solid ${rememberDefault ? "transparent" : "rgba(25,197,154,0.22)"}`,
-                              color: rememberDefault ? "#FFFFFF" : "#0D9B7A",
-                              transition: "background 160ms ease, color 160ms ease",
-                            }}
-                          >
-                            <ShieldCheck size={20} />
-                          </span>
-                          <span style={{ minWidth: 0 }}>
-                            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: "var(--fs-13)", fontWeight: 700, color: "var(--lg-text-1)", lineHeight: 1.4 }}>
-                                记住默认登录
-                              </span>
-                              <span
-                                aria-hidden
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 4,
-                                  padding: "2px 6px",
-                                  borderRadius: 6,
-                                  background: "rgba(25,197,154,0.1)",
-                                  color: "#0D9B7A",
-                                  fontSize: "10px",
-                                  fontWeight: 600,
-                                  lineHeight: 1.4,
-                                  flexShrink: 0,
-                                }}
-                              >
-                                <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#19C59A" }} />
-                                本机安全
-                              </span>
-                            </span>
-                            <span style={{ display: "block", fontSize: "var(--fs-12)", color: "var(--lg-text-3)", marginTop: 2, whiteSpace: "nowrap" }}>
-                              仅限当前设备有效，退出后自动失效
-                            </span>
-                          </span>
-                        </span>
-                        {/* iOS 质感开关：轨道随勾选换薄荷渐变，滑块位移 20px */}
-                        <span
-                          aria-hidden
-                          style={{
-                            width: 48,
-                            height: 28,
-                            borderRadius: 999,
-                            flexShrink: 0,
-                            padding: 2,
-                            display: "flex",
-                            alignItems: "center",
-                            background: rememberDefault ? "linear-gradient(135deg, #0D9B7A, #19C59A)" : "rgba(26,43,66,0.16)",
-                            transition: "background 160ms ease",
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: "50%",
-                              background: "#FFFFFF",
-                              boxShadow: "0 1px 3px rgba(15,23,42,0.25)",
-                              transform: rememberDefault ? "translateX(20px)" : "translateX(0)",
-                              transition: "transform 160ms ease",
-                            }}
-                          />
-                        </span>
-                      </label>
+                      <RememberDefaultSwitch checked={rememberDefault} onChange={setRememberDefault} />
                       <button
                         type="button"
                         className="lg-submit"
@@ -1302,6 +1287,122 @@ export function LoginPage({
                           <span>验证并登录</span>
                         )}
                       </button>
+                        </>
+                      ) : (
+                        <form
+                          key="password"
+                          onSubmit={submitPassword}
+                          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                        >
+                          <div>
+                            <label htmlFor="login-account" className="lg-label">
+                              登录账号
+                            </label>
+                            <input
+                              id="login-account"
+                              ref={accountRef}
+                              className="lg-field"
+                              autoComplete="username"
+                              value={account}
+                              onChange={(e) => setAccount(e.target.value.toLowerCase())}
+                              aria-invalid={Boolean(fieldErrors.account)}
+                              aria-describedby={fieldErrors.account ? "err-account" : "account-hint"}
+                              placeholder="登录账号或手机号"
+                            />
+                            {fieldErrors.account ? (
+                              <div id="err-account" className="lg-error-pill" style={{ marginTop: 8 }}>
+                                <TriangleAlert size={14} aria-hidden />
+                                {fieldErrors.account}
+                              </div>
+                            ) : (
+                              <div id="account-hint" style={{ fontSize: "var(--fs-12)", color: "rgba(26,43,66,0.35)", marginTop: 7 }}>
+                                企业内唯一，支持登录账号或手机号
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <label htmlFor="login-password" className="lg-label">
+                                密码
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => setForgotOpen(true)}
+                                style={{
+                                  background: "none", border: "none", cursor: "pointer", padding: 0,
+                                  fontSize: "var(--fs-12)", fontWeight: 600, fontFamily: "inherit", color: "#0D9B7A",
+                                }}
+                              >
+                                忘记密码？
+                              </button>
+                            </div>
+                            <div style={{ position: "relative" }}>
+                              <input
+                                id="login-password"
+                                ref={passwordRef}
+                                className="lg-field"
+                                autoComplete="current-password"
+                                type={showPwd ? "text" : "password"}
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                aria-invalid={Boolean(fieldErrors.password)}
+                                aria-describedby={fieldErrors.password ? "err-password" : "pwd-hint"}
+                                style={{ paddingRight: 44 }}
+                                placeholder="请输入密码"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPwd((v) => !v)}
+                                aria-label={showPwd ? "隐藏密码" : "显示密码"}
+                                title={showPwd ? "隐藏密码" : "显示密码"}
+                                style={{
+                                  position: "absolute",
+                                  right: 13,
+                                  top: "50%",
+                                  transform: "translateY(-50%)",
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  color: "rgba(26,43,66,0.32)",
+                                  padding: 0,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  transition: "color 150ms ease",
+                                }}
+                                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "rgba(26,43,66,0.65)")}
+                                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "rgba(26,43,66,0.32)")}
+                              >
+                                {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+                              </button>
+                            </div>
+                            {fieldErrors.password ? (
+                              <div id="err-password" className="lg-error-pill" style={{ marginTop: 8 }}>
+                                <TriangleAlert size={14} aria-hidden />
+                                {fieldErrors.password}
+                              </div>
+                            ) : (
+                              <div id="pwd-hint" style={{ fontSize: "var(--fs-12)", color: "rgba(26,43,66,0.35)", marginTop: 7 }}>
+                                初始密码统一{" "}
+                                <code className="font-mono-nums" style={{ fontWeight: 700, color: "#0D9B7A" }}>
+                                  {DEMO_PASSWORD}
+                                </code>
+                                ，修改后以新密码为准
+                              </div>
+                            )}
+                          </div>
+                          <RememberDefaultSwitch checked={rememberDefault} onChange={setRememberDefault} />
+                          <button type="submit" className="lg-submit" disabled={busy} style={{ marginTop: 8 }}>
+                            {busy ? (
+                              <>
+                                <LoaderCircle size={18} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden />
+                                <span>正在登录…</span>
+                              </>
+                            ) : (
+                              <span>登录</span>
+                            )}
+                          </button>
+                        </form>
+                      )}
                     </>
                   )}
                 </div>
@@ -1655,6 +1756,22 @@ export function LoginPage({
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* 找回密码：密码登录子方式「忘记密码？」入口；成功后回填登录账号并聚焦密码框 */}
+      {forgotOpen && enterprise && (
+        <ForgotPasswordModal
+          enterprise={{ id: enterprise.id, name: enterprise.name, code: enterprise.code }}
+          onClose={() => setForgotOpen(false)}
+          onDone={(account) => {
+            setForgotOpen(false)
+            setVerifMethod("password")
+            setFieldErrors({})
+            setFormError(null)
+            if (account) setAccount(account)
+            window.setTimeout(() => passwordRef.current?.focus(), 60)
+          }}
+        />
       )}
     </div>
   )

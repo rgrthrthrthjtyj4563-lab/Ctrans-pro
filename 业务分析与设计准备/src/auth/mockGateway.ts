@@ -15,8 +15,10 @@
 
 import type {
   PermAuditEvent,
+  PermUser,
   PlatformRoleBinding,
   RoleAssignment,
+  ScopeType,
   SysRole,
 } from "../data/permissions"
 import {
@@ -38,11 +40,14 @@ import {
   resolveEnterpriseByCode,
   runtimeMemberStatus,
   completeRuntimeActivation,
+  tenantByEnterpriseOrgId,
+  tenantExpired,
   tenantLoginAllowed,
 } from "../data/tenantRegistry"
 import {
   getPlatformBindings,
   grantedPharmasForUser,
+  membershipOfUserInTenant,
   membershipsOfUser,
   tenantNameOf,
   visiblePharmasForUser,
@@ -279,39 +284,52 @@ function identityOptionsFor(
   return opts
 }
 
-/** 选项 → 认证主体（租户域：成员身份定位 + 合并授权范围摘要） */
+/** 全部身份选项 → 认证主体（租户域：成员身份 + 多角色权限并集 + 合并数据范围摘要） */
 function buildTenantPrincipal(
   user: (typeof PERM_USERS)[number],
-  opt: LoginIdentityOption,
+  opts: LoginIdentityOption[],
 ): TenantPrincipal | null {
-  const assignments = allAssignments().filter((a) => opt.assignmentIds.includes(a.id))
-  const rep = assignments[0]
-  const role = roleOf(opt.roleId)
-  if (!rep || !role) return null
-  const membership = membershipsOfUser(user.id).find((m) => m.tenantId === opt.tenantId)
+  const workspaceId = opts[0].tenantId
+  if (!workspaceId) return null
+  const roles = opts.map((o) => roleOf(o.roleId)).filter((r): r is SysRole => Boolean(r))
+  if (roles.length === 0) return null
+  const membership = membershipsOfUser(user.id).find((m) => m.tenantId === workspaceId)
   const orgUnitId = membership?.orgUnitId ?? user.orgId
   const orgUnit = allOrgs().find((o) => o.id === orgUnitId)
+  const allIds = new Set(opts.flatMap((o) => o.assignmentIds))
+  const assignments = allAssignments().filter((a) => allIds.has(a.id))
+  // 数据范围明细：按「范围根 × 档位」去重后的并集（展示用；行级过滤按授权全集计算）
+  const scopeSeen = new Set<string>()
+  const dataScopes = assignments.reduce<{ scope: ScopeType; scopeOrgId: string; scopeOrgName: string }[]>((acc, a) => {
+    const key = `${a.scopeOrgId}|${a.scope}`
+    if (scopeSeen.has(key)) return acc
+    scopeSeen.add(key)
+    acc.push({ scope: a.scope, scopeOrgId: a.scopeOrgId, scopeOrgName: a.scopeOrgName })
+    return acc
+  }, [])
+  const perspective =
+    roles.map((r) => perspectiveRoleOf(r)).find((p): p is NonNullable<ReturnType<typeof perspectiveRoleOf>> => Boolean(p)) ??
+    "药厂销售部门"
   return {
     realm: "TENANT",
     userId: user.id,
     name: user.name,
     account: user.account,
     phone: user.phone,
-    workspaceId: opt.tenantId ?? rep.tenantId,
+    workspaceId,
     orgId: orgUnitId,
     orgName: orgUnit?.name ?? user.orgName,
-    tenantId: opt.tenantId ?? rep.tenantId,
-    tenantName: opt.tenantName ?? tenantNameOf(opt.tenantId ?? rep.tenantId),
-    tenantKind: opt.tenantKind ?? tenantKindOfRoot(allOrgs().find((o) => o.id === opt.tenantId)) ?? "pharma",
+    tenantId: workspaceId,
+    tenantName: opts[0].tenantName ?? tenantNameOf(workspaceId),
+    tenantKind: opts[0].tenantKind ?? tenantKindOfRoot(allOrgs().find((o) => o.id === workspaceId)) ?? "pharma",
     membershipId: membership?.id ?? "",
-    activeRoleId: role.id,
-    activeRoleName: role.name,
-    effectiveAssignmentIds: opt.assignmentIds,
-    scope: rep.scope,
-    scopeOrgId: rep.scopeOrgId,
-    scopeOrgName: rep.scopeOrgName,
-    dataScopeSummary: opt.scopeSummary,
-    perspective: perspectiveRoleOf(role) ?? "药厂销售部门",
+    roleIds: roles.map((r) => r.id),
+    roleNames: roles.map((r) => r.name),
+    jobTitle: membership?.jobTitle,
+    effectiveAssignmentIds: [...allIds],
+    dataScopes,
+    dataScopeSummary: opts.map((o) => o.scopeSummary).join("；"),
+    perspective,
   }
 }
 
@@ -347,12 +365,15 @@ function pendingPharmasFor(user: (typeof PERM_USERS)[number], realm: AccessRealm
   return pharmas.length > 0 ? pharmas : undefined
 }
 
-/** 认证主体解析：工作空间 → 身份选项 → 选定角色 → 主体（+ 业务身份的药厂待选） */
+/**
+ * 认证主体解析：工作空间 → 全部生效身份（按角色分组的授权概览）→ 多角色自动合并
+ * 签发主体（+ 业务身份的药厂待选）。2026-09-18 起登录不再选择角色：同企业多角色
+ * 权限取并集进同一会话；identityOptions 仅作为授权概览返回（切换企业列表等展示位用）。
+ */
 function resolvePrincipal(
   userId: string,
   realm: AccessRealm,
   workspaceId: string,
-  preferredRoleId?: string,
 ): {
   ok: true
   principal: AuthPrincipal
@@ -378,29 +399,14 @@ function resolvePrincipal(
     return { ok: false, failure: { code: "no-active-assignment", message: "当前账号在该工作空间没有可用角色，请联系管理员" } }
   }
 
-  let chosen = identityOptions[0]
-  if (preferredRoleId) {
-    const hit = identityOptions.find((o) => o.roleId === preferredRoleId)
-    if (!hit) {
-      return {
-        ok: false,
-        failure: { code: "no-active-assignment", field: "account", message: "该扫码身份指定的角色当前没有生效授权，请联系管理员" },
-      }
-    }
-    chosen = hit
-  } else {
-    const profile = AUTH_PROFILES[user.id]
-    if (profile) {
-      chosen = identityOptions.find((o) => o.roleId === profile.defaultRoleId) ?? chosen
-    }
-  }
-
-  // 服务商业务身份（服务专员/工作组组长）需有名下的服务药厂记录；
-  // 完全未分配 → 登录拦截给出配置提示（服务商管理员默认覆盖全部有效授权药厂）
-  if (realm === "TENANT" && chosen.tenantKind === "provider") {
-    const role = roleOf(chosen.roleId)
-    const isProviderBusinessRole = role?.appliesTo?.includes("provider") && role.defaultScope !== "PROVIDER"
-    if (isProviderBusinessRole) {
+  // 服务商业务角色（服务专员/工作组组长）需有名下的服务药厂记录；
+  // 仅当【全部】身份都是业务角色且药厂范围为空才拦截（服务商管理员默认覆盖全部有效授权药厂）
+  if (realm === "TENANT" && identityOptions[0].tenantKind === "provider") {
+    const anyNonBusiness = identityOptions.some((o) => {
+      const role = roleOf(o.roleId)
+      return !role?.appliesTo?.includes("provider") || role.defaultScope === "PROVIDER"
+    })
+    if (!anyNonBusiness) {
       const grantedEmpty = grantedPharmaUnion(user.id, workspaceId).length === 0
       if (grantedEmpty) {
         return {
@@ -417,8 +423,8 @@ function resolvePrincipal(
 
   const principal: AuthPrincipal | null =
     realm === "PLATFORM"
-      ? buildPlatformPrincipal(user, chosen, workspaceId)
-      : buildTenantPrincipal(user, chosen)
+      ? buildPlatformPrincipal(user, identityOptions[0], workspaceId)
+      : buildTenantPrincipal(user, identityOptions)
   if (!principal) {
     return { ok: false, failure: { code: "no-active-assignment", message: "当前账号没有可用角色，请联系管理员" } }
   }
@@ -456,7 +462,9 @@ const activatedMemberKeys = new Set<string>()
 function memberStatusOf(
   userId: string,
   enterpriseId: string,
-): "pending_activation" | "frozen" | undefined {
+): "pending_activation" | "frozen" | "removed" | undefined {
+  // 成员身份已被移除：最高优先级（终止态，覆盖种子冻结/待激活口径）
+  if (membershipOfUserInTenant(userId, enterpriseId)?.status === "removed") return "removed"
   if (activatedMemberKeys.has(`${userId}:${enterpriseId}`)) return undefined
   const seedStatus = AUTH_PROFILES[userId]?.memberStatusByEnterprise?.[enterpriseId]
   if (seedStatus) return seedStatus
@@ -471,8 +479,11 @@ function auditCodeOf(failure: LoginFailure): string {
     "enterprise-invalid": "ENT_CODE_INVALID",
     "user-not-found": "USER_NOT_FOUND",
     "password-wrong": "PASSWORD_WRONG",
+    "account-locked": "ACCOUNT_LOCKED",
     "account-disabled": "ACCOUNT_DISABLED",
     "account-frozen": "ACCOUNT_FROZEN",
+    "membership-removed": "MEMBERSHIP_REMOVED",
+    "tenant-expired": "TENANT_EXPIRED",
     "no-active-assignment": "NO_ACTIVE_ASSIGNMENT",
     "assignment-expired": "ASSIGNMENT_EXPIRED",
     "assignment-revoked": "ASSIGNMENT_REVOKED",
@@ -510,6 +521,8 @@ interface AuthAuditContext {
   phone?: string
   /** 默认登录/企业切换事件的本设备标识（需求 §6 审计要求） */
   device?: string
+  /** 租户套餐开通到期日（TENANT_EXPIRED 事件附注） */
+  expireAt?: string
 }
 
 interface AuthAuditInput {
@@ -538,15 +551,21 @@ function pushAuthAudit(input: AuthAuditInput): void {
   if (context.pharmaId) ctxParts.push(`pharmaId=${context.pharmaId}`)
   if (context.phone) ctxParts.push(`phone=${maskPhone(context.phone)}`)
   if (context.device) ctxParts.push(`device=${context.device}`)
+  if (context.expireAt) ctxParts.push(`expireAt=${context.expireAt}`)
   const p = input.principal
+  const actorRoleText = p
+    ? p.realm === "PLATFORM"
+      ? p.platformRoleName
+      : p.roleNames.join("+")
+    : "未认证"
   const event: PermAuditEvent = {
     id: nextId("PE"),
     time: nowStamp(),
     actor: p?.name ?? input.actorLabel,
-    actorRole: p ? (p.realm === "PLATFORM" ? p.platformRoleName : p.activeRoleName) : "未认证",
+    actorRole: actorRoleText,
     org: p ? (p.realm === "PLATFORM" ? PLATFORM_WORKSPACE_NAME : p.tenantName) : "—",
     target: input.target ?? p?.account ?? input.actorLabel,
-    roleName: p ? (p.realm === "PLATFORM" ? p.platformRoleName : p.activeRoleName) : undefined,
+    roleName: actorRoleText === "未认证" ? undefined : actorRoleText,
     module: "登录认证",
     action: input.action,
     resource: input.resource ?? "auth.login",
@@ -576,9 +595,8 @@ function newSession(
   qrSource?: QrSource,
   opts?: {
     pendingPharmas?: ServingPharma[]
-    identityOptions?: LoginIdentityOption[]
-    identityConfirmed?: boolean
     activationNotice?: string
+    restoredFrom?: "default-login"
   },
 ): AuthSession {
   return {
@@ -587,10 +605,9 @@ function newSession(
     method,
     qrSource,
     loginAt: nowStamp(),
-    ...(opts?.identityConfirmed !== undefined ? { identityConfirmed: opts.identityConfirmed } : {}),
-    ...(opts?.identityOptions ? { identityOptions: opts.identityOptions } : {}),
     ...(opts?.pendingPharmas ? { pendingPharmas: opts.pendingPharmas } : {}),
     ...(opts?.activationNotice ? { activationNotice: opts.activationNotice } : {}),
+    ...(opts?.restoredFrom ? { restoredFrom: opts.restoredFrom } : {}),
   }
 }
 
@@ -619,9 +636,8 @@ function succeedWith(
   qrSource?: QrSource,
   opts?: {
     pendingPharmas?: ServingPharma[]
-    identityOptions?: LoginIdentityOption[]
-    identityConfirmed?: boolean
     activationNotice?: string
+    restoredFrom?: "default-login"
   },
 ): AuthResult {
   pushAuthAudit({
@@ -806,7 +822,6 @@ function upsertDefaultLoginFromSession(session: AuthSession, create?: boolean): 
       workspaceKind: p.realm === "PLATFORM" ? "platform" : "tenant",
       workspaceId: p.workspaceId,
       workspaceName: p.realm === "PLATFORM" ? PLATFORM_WORKSPACE_NAME : p.tenantName,
-      activeRoleId: p.realm === "PLATFORM" ? p.platformRoleId : p.activeRoleId,
       ...(p.realm === "TENANT" && p.currentPharmaTenantId ? { currentPharmaTenantId: p.currentPharmaTenantId } : {}),
       deviceId,
       savedAt: Date.now(),
@@ -830,7 +845,6 @@ function upsertDefaultLoginFromSession(session: AuthSession, create?: boolean): 
     workspaceKind: p.realm === "PLATFORM" ? "platform" : "tenant",
     workspaceId: p.workspaceId,
     workspaceName: p.realm === "PLATFORM" ? PLATFORM_WORKSPACE_NAME : p.tenantName,
-    activeRoleId: p.realm === "PLATFORM" ? p.platformRoleId : p.activeRoleId,
     ...(p.realm === "TENANT" && p.currentPharmaTenantId ? { currentPharmaTenantId: p.currentPharmaTenantId } : { currentPharmaTenantId: undefined }),
     savedAt: Date.now(),
   })
@@ -872,12 +886,7 @@ async function doRestoreDefaultLogin(): Promise<DefaultLoginRestoreResult> {
   if (options.length === 0) {
     return fail("ROLE_INVALID", "你在默认企业已没有可用角色，请重新登录或联系管理员。")
   }
-  // 记录的角色仍有效则沿用（免确认直进）；失效回退默认解析（多身份走角色确认页）
-  const preferredRoleId =
-    record.activeRoleId && options.some((o) => o.roleId === record.activeRoleId)
-      ? record.activeRoleId
-      : undefined
-  const resolved = resolvePrincipal(user.id, realm, record.workspaceId, preferredRoleId)
+  const resolved = resolvePrincipal(user.id, realm, record.workspaceId)
   if (!resolved.ok) {
     return fail("ROLE_INVALID", "你在默认企业已没有可用角色，请重新登录或联系管理员。")
   }
@@ -898,8 +907,6 @@ async function doRestoreDefaultLogin(): Promise<DefaultLoginRestoreResult> {
   }
   const hasPharma = principal.realm === "TENANT" && Boolean(principal.currentPharmaTenantId)
   const session = newSession(principal, "sms", undefined, {
-    identityConfirmed: preferredRoleId ? true : resolved.identityOptions.length === 1,
-    identityOptions: resolved.identityOptions,
     pendingPharmas: hasPharma ? undefined : resolved.pendingPharmas,
   })
   session.restoredFrom = "default-login"
@@ -919,44 +926,414 @@ async function doRestoreDefaultLogin(): Promise<DefaultLoginRestoreResult> {
 /** 一次页面加载只恢复一次（StrictMode 双挂载复用同一结果，审计不重复） */
 let restoreInFlight: Promise<DefaultLoginRestoreResult> | null = null
 
-/**
- * 切换增强认证的敏感角色（AC-08 演示口径，需求 §9 待业务确认最终清单）：
+/** 切换增强认证的敏感角色（AC-08 演示口径，需求 §9 待业务确认最终清单）：
  * 企业管理员 / 服务商管理员（管理类岗位涉及成员、凭证与关键配置变更）。
  */
 const SENSITIVE_SWITCH_ROLE_IDS = new Set(["role-pharma-admin", "role-provider-admin"])
 
+// ─── 账号安全（2026-09-18 第一期缺口批次：修改密码 / 找回密码 / 账号锁定） ───
+
+/** 密码规则：8-20 位，须同时包含字母与数字（页面校验与网关落库校验共用） */
+export const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)\S{8,20}$/
+export const PASSWORD_RULE_TEXT = "8-20 位，须同时包含字母和数字"
+
+/**
+ * 密码覆盖存储（演示口径）：初始密码统一 demo123（authProfiles）；
+ * 修改/找回成功后按 userId 覆盖。生产为服务端加盐哈希，原型仅演示流转。
+ */
+const SECRETS_KEY = "baiyee-account-secrets-v1"
+
+function loadSecretOverrides(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(SECRETS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, string>
+    }
+  } catch {
+    /* 损坏视为无覆盖 */
+  }
+  return {}
+}
+
+function saveSecretOverride(userId: string, password: string): void {
+  const next = { ...loadSecretOverrides(), [userId]: password }
+  try {
+    window.localStorage.setItem(SECRETS_KEY, JSON.stringify(next))
+  } catch {
+    /* 隐私模式降级为仅本会话生效 */
+  }
+}
+
+/** 登录与改密/找回共用的期望密码：覆盖值 > 账号资料 > 演示统一密码 */
+function expectedPasswordOf(userId: string): string {
+  return loadSecretOverrides()[userId] ?? AUTH_PROFILES[userId]?.password ?? DEMO_PASSWORD
+}
+
+export type PasswordChangeResult =
+  | { ok: true }
+  | { ok: false; error: string; field?: "old" | "new" | "confirm" }
+
+/** 修改密码（登录态「账号与安全」入口）：旧密码验证 + 新密码规则校验，成功写审计 */
+export async function changeLoginPassword(input: {
+  principal: AuthPrincipal
+  oldPassword: string
+  newPassword: string
+}): Promise<PasswordChangeResult> {
+  await tick(200)
+  const { principal, oldPassword, newPassword } = input
+  if (!oldPassword) return { ok: false, error: "请输入当前密码", field: "old" }
+  if (oldPassword !== expectedPasswordOf(principal.userId)) {
+    pushAuthAudit({
+      action: "修改密码",
+      outcome: "失败",
+      actorLabel: principal.account,
+      reason: "PASSWORD_OLD_WRONG",
+      resource: "auth.account-security",
+      principal,
+    })
+    return { ok: false, error: "当前密码不正确", field: "old" }
+  }
+  if (!PASSWORD_PATTERN.test(newPassword)) {
+    return { ok: false, error: `新密码不符合规则（${PASSWORD_RULE_TEXT}）`, field: "new" }
+  }
+  if (newPassword === oldPassword) {
+    return { ok: false, error: "新密码不能与当前密码相同", field: "new" }
+  }
+  saveSecretOverride(principal.userId, newPassword)
+  pushAuthAudit({
+    action: "修改密码",
+    outcome: "成功",
+    actorLabel: principal.account,
+    reason: "PASSWORD_CHANGED",
+    resource: "auth.account-security",
+    principal,
+  })
+  return { ok: true }
+}
+
+/**
+ * 密码连续错误锁定：同一天然人账号（userId 维度，跨企业命名空间生效）
+ * 连续错 5 次锁 15 分钟；成功登录 / 管理员解锁 / 找回密码重置均清零。
+ * localStorage 持久化使刷新后锁定仍生效（演示可信度）；生产为服务端计数。
+ */
+const LOGIN_GUARD_KEY = "baiyee-login-guard-v1"
+const PASSWORD_FAIL_LIMIT = 5
+const PASSWORD_LOCK_MS = 15 * 60_000
+
+interface LoginGuardEntry {
+  count: number
+  lockedUntil?: number
+}
+
+function loadLoginGuards(): Record<string, LoginGuardEntry> {
+  try {
+    const raw = window.localStorage.getItem(LOGIN_GUARD_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, LoginGuardEntry>
+    }
+  } catch {
+    /* 损坏视为无记录 */
+  }
+  return {}
+}
+
+function saveLoginGuards(next: Record<string, LoginGuardEntry>): void {
+  try {
+    window.localStorage.setItem(LOGIN_GUARD_KEY, JSON.stringify(next))
+  } catch {
+    /* 静默降级 */
+  }
+}
+
+export interface LoginGuardInfo {
+  locked: boolean
+  /** 锁定剩余毫秒（locked=true 时有效） */
+  remainMs: number
+  /** 剩余可尝试次数（locked=false 时有效） */
+  remainingAttempts: number
+}
+
+/** 登录守卫状态查询（用户管理「解锁登录」入口与登录链路共用） */
+export function loginGuardOf(userId: string): LoginGuardInfo {
+  const entry = loadLoginGuards()[userId]
+  if (!entry) return { locked: false, remainMs: 0, remainingAttempts: PASSWORD_FAIL_LIMIT }
+  if (entry.lockedUntil && entry.lockedUntil > Date.now()) {
+    return { locked: true, remainMs: entry.lockedUntil - Date.now(), remainingAttempts: 0 }
+  }
+  return { locked: false, remainMs: 0, remainingAttempts: Math.max(0, PASSWORD_FAIL_LIMIT - entry.count) }
+}
+
+function lockRemainText(remainMs: number): string {
+  const minutes = Math.ceil(remainMs / 60_000)
+  return minutes >= 1 ? `${minutes} 分钟` : "不足 1 分钟"
+}
+
+function registerPasswordFail(userId: string): LoginGuardInfo {
+  const guards = loadLoginGuards()
+  const entry = guards[userId] ?? { count: 0 }
+  const count = entry.count + 1
+  if (count >= PASSWORD_FAIL_LIMIT) {
+    guards[userId] = { count, lockedUntil: Date.now() + PASSWORD_LOCK_MS }
+  } else {
+    guards[userId] = { count }
+  }
+  saveLoginGuards(guards)
+  return loginGuardOf(userId)
+}
+
+function clearLoginGuard(userId: string): void {
+  const guards = loadLoginGuards()
+  if (!guards[userId]) return
+  delete guards[userId]
+  saveLoginGuards(guards)
+}
+
+/** 管理员解锁（用户管理入口）：清空失败计数与锁定，写登录审计 */
+export async function unlockLoginGuard(
+  userId: string,
+  operatorLabel: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await tick(160)
+  const info = loginGuardOf(userId)
+  if (!info.locked) return { ok: false, error: "该账号当前未处于锁定状态" }
+  clearLoginGuard(userId)
+  pushAuthAudit({
+    action: "解锁登录",
+    outcome: "成功",
+    actorLabel: operatorLabel,
+    reason: "LOGIN_UNLOCKED",
+    resource: "auth.account-security",
+    target: allUsers().find((u) => u.id === userId)?.account ?? userId,
+  })
+  return { ok: true }
+}
+
+// ─── 找回密码（登录页「忘记密码」入口，短信验证码重置） ──────────────────────
+
+export type ResetTargetResolution =
+  | { ok: true; phone: string; account: string; userId: string }
+  | { ok: false; error: string }
+
+/**
+ * 找回密码第 1 步：在本企业命名空间内定位重置目标（登录账号或手机号）。
+ * 账号停用（自然人 disabled）不可自助找回；定位成功后由调用方对目标手机号
+ * 发送短信验证码（复用 requestSms 票据与防枚举假码机制）。
+ */
+export function resolveResetTarget(workspaceId: string, accountOrPhone: string): ResetTargetResolution {
+  const raw = accountOrPhone.trim()
+  if (!raw) return { ok: false, error: "请输入登录账号或手机号" }
+  const orgs = allOrgs()
+  const inWorkspace = (u: PermUser) => enterpriseRootOf(orgs, u.orgId)?.id === workspaceId
+  let user: PermUser | undefined
+  if (/^1\d{10}$/.test(raw)) {
+    user = allUsers().find((u) => u.phone === raw && inWorkspace(u))
+  } else {
+    const lower = raw.toLowerCase()
+    user = allUsers().find((u) => u.account.toLowerCase() === lower && inWorkspace(u))
+  }
+  if (!user) {
+    return { ok: false, error: "本企业内未找到该账号，请核对后重试" }
+  }
+  if (user.accountStatus !== "enabled") {
+    pushAuthAudit({
+      action: "忘记密码重置",
+      outcome: "失败",
+      actorLabel: user.account,
+      reason: "ACCOUNT_DISABLED",
+      resource: "auth.account-security",
+      context: { workspaceId },
+    })
+    return { ok: false, error: "该账号已停用，无法自助找回密码，请联系企业管理员" }
+  }
+  return { ok: true, phone: user.phone, account: user.account, userId: user.id }
+}
+
+/**
+ * 找回密码第 2 步：消费短信票据 → 覆盖密码 + 清除登录锁定。
+ * 票据校验与登录共用 checkSmsTicket（过期/超次/错码口径一致）。
+ */
+export async function resetLoginPassword(input: {
+  workspaceId: string
+  phone: string
+  code: string
+  newPassword: string
+}): Promise<{ ok: true; account: string } | { ok: false; failure: LoginFailure }> {
+  await tick(220)
+  const trimmed = input.phone.trim()
+  const key = smsTicketKey(input.workspaceId, trimmed)
+  const ticket = smsTickets.get(key)
+  const ctx: AuthAuditContext = { workspaceId: input.workspaceId, phone: trimmed }
+  if (!ticket) {
+    return { ok: false, failure: { code: "sms-not-requested", field: "code", message: "请先获取短信验证码" } }
+  }
+  const ticketFailure = checkSmsTicket(ticket, input.code)
+  if (ticketFailure) {
+    if (ticketFailure.code === "sms-code-expired" || ticketFailure.code === "sms-attempts-exceeded") {
+      smsTickets.delete(key)
+    }
+    return { ok: false, failure: ticketFailure }
+  }
+  smsTickets.delete(key)
+  const user = allUsers().find((u) => u.phone === trimmed)
+  if (!user || !isWorkspaceMember(user, "TENANT", input.workspaceId) || user.accountStatus !== "enabled") {
+    pushAuthAudit({
+      action: "忘记密码重置",
+      outcome: "失败",
+      actorLabel: maskPhone(trimmed),
+      reason: "RESET_TARGET_INVALID",
+      resource: "auth.account-security",
+      context: ctx,
+    })
+    return { ok: false, failure: { code: "sms-code-wrong", field: "code", message: "验证码不正确，请重新获取" } }
+  }
+  if (!PASSWORD_PATTERN.test(input.newPassword)) {
+    return {
+      ok: false,
+      failure: { code: "password-wrong", field: "password", message: `新密码不符合规则（${PASSWORD_RULE_TEXT}），请重新获取验证码后再试` },
+    }
+  }
+  saveSecretOverride(user.id, input.newPassword)
+  clearLoginGuard(user.id)
+  pushAuthAudit({
+    action: "忘记密码重置",
+    outcome: "成功",
+    actorLabel: user.account,
+    reason: "PASSWORD_RESET",
+    resource: "auth.account-security",
+    target: user.account,
+    context: ctx,
+  })
+  return { ok: true, account: user.account }
+}
+
 // ─── 网关实现 ────────────────────────────────────────────────────────────────
 
 export const authGateway: AuthGateway = {
-  async loginPassword({ account, password }) {
+  /**
+   * 账号密码登录（2026-09-18 整改：企业内唯一账号口径）。
+   * - 带 workspaceId（登录页步骤 2「密码登录」）：账号在该企业命名空间内定位，
+   *   成员状态/首登激活/冻结/租户暂停口径与 verifySms 完全一致；
+   * - 不带（用户菜单切换角色，无企业上下文）：全库首个匹配按主归属解析
+   *   （演示账号账号名全局互异；数据源=allUsers，rt- 运行时账号可切）。
+   * 防枚举：不存在/密码错/不属于当前企业统一「账号或密码不正确」，
+   * 冻结与租户停用在凭据验证通过后才披露。
+   */
+  async loginPassword({ account, password, workspaceId, rememberDefaultLogin }) {
     await tick()
     const trimmed = account.trim()
     if (!trimmed) {
-      return failWith("password", "", { code: "account-empty", field: "account", message: "请输入用户名或手机号" })
+      return failWith("password", "", { code: "account-empty", field: "account", message: "请输入登录账号" })
     }
     if (!password) {
       return failWith("password", trimmed, { code: "password-empty", field: "password", message: "请输入密码" })
     }
-    const user = PERM_USERS.find(
-      (u) => u.account === trimmed.toLowerCase() || u.phone === trimmed,
+    const lower = trimmed.toLowerCase()
+    const candidates = allUsers().filter(
+      (u) => u.account.toLowerCase() === lower || u.phone === trimmed,
     )
+    const orgs = allOrgs()
+    const user = workspaceId
+      ? candidates.find((u) => enterpriseRootOf(orgs, u.orgId)?.id === workspaceId)
+      : candidates[0]
     if (!user) {
-      return failWith("password", trimmed, { code: "user-not-found", field: "account", message: "账号不存在，请输入用户名或已绑定手机号" })
+      return failWith("password", trimmed, { code: "user-not-found", field: "account", message: "账号或密码不正确" })
     }
-    const profile = AUTH_PROFILES[user.id]
-    const expected = profile?.password ?? DEMO_PASSWORD
+    // 密码连续错误锁定：锁定期内密码正确也拒绝（userId 维度，跨企业命名空间生效）
+    const guard = loginGuardOf(user.id)
+    if (guard.locked) {
+      return failWith(
+        "password",
+        user.account,
+        {
+          code: "account-locked",
+          field: "password",
+          message: `密码连续输错次数过多，账号已锁定，请 ${lockRemainText(guard.remainMs)} 后重试，或改用短信验证码登录 / 找回密码`,
+        },
+      )
+    }
+    const expected = expectedPasswordOf(user.id)
     if (password !== expected) {
-      return failWith("password", user.account, { code: "password-wrong", field: "password", message: "密码不正确（演示环境固定密码见左侧提示）" })
+      const after = registerPasswordFail(user.id)
+      if (after.locked) {
+        pushAuthAudit({
+          action: "账号锁定",
+          outcome: "成功",
+          actorLabel: user.account,
+          reason: "PASSWORD_LOCK_TRIGGERED",
+          resource: "auth.account-security",
+          target: user.account,
+        })
+      }
+      const message = after.locked
+        ? `密码连续输错 ${PASSWORD_FAIL_LIMIT} 次，账号已锁定 15 分钟；可改用短信验证码登录或找回密码`
+        : after.remainingAttempts <= 2
+          ? `账号或密码不正确，还可尝试 ${after.remainingAttempts} 次`
+          : "账号或密码不正确"
+      return failWith("password", user.account, { code: "password-wrong", field: "password", message })
     }
-    const ws = workspaceOfUser(user.id)
+    clearLoginGuard(user.id)
+    const ws = workspaceId
+      ? { realm: realmOfWorkspace(workspaceId) ?? ("TENANT" as const), workspaceId }
+      : workspaceOfUser(user.id)
+    // 租户暂停/终止：与短信路径同口径，按企业码停用统一文案拒绝
+    if (ws.realm === "TENANT" && !tenantLoginAllowed(ws.workspaceId)) {
+      return failWith(
+        "password",
+        user.account,
+        { code: "enterprise-invalid", field: "entcode", message: "企业编码不存在或已停用，请核对后重试" },
+      )
+    }
+    if (workspaceId && !isWorkspaceMember(user, ws.realm, ws.workspaceId)) {
+      return failWith("password", user.account, { code: "user-not-found", field: "account", message: "账号或密码不正确" })
+    }
+    const memberStatus = memberStatusOf(user.id, ws.workspaceId)
+    if (memberStatus === "frozen") {
+      return failWith(
+        "password",
+        user.account,
+        { code: "account-frozen", message: "该账号在本企业已被冻结，请联系企业管理员" },
+      )
+    }
+    if (memberStatus === "removed") {
+      return failWith(
+        "password",
+        user.account,
+        { code: "membership-removed", message: "你在本企业的成员身份已被移除，如需恢复请联系企业管理员" },
+      )
+    }
+    let activationNotice: string | undefined
+    if (memberStatus === "pending_activation") {
+      activatedMemberKeys.add(`${user.id}:${ws.workspaceId}`)
+      activationNotice = "账号已激活，欢迎加入"
+      pushAuthAudit({
+        action: "首次登录激活",
+        outcome: "成功",
+        actorLabel: user.account,
+        reason: "ACCOUNT_ACTIVATED",
+        resource: "auth.account",
+        context: { workspaceId: ws.workspaceId },
+      })
+      if (completeRuntimeActivation(user.id, ws.workspaceId)) {
+        pushAuthAudit({
+          action: "租户激活",
+          outcome: "成功",
+          actorLabel: user.account,
+          reason: "TENANT_ACTIVATED",
+          resource: "auth.tenant",
+          context: { workspaceId: ws.workspaceId },
+        })
+      }
+    }
     const resolved = resolvePrincipal(user.id, ws.realm, ws.workspaceId)
     if (!resolved.ok) return failWith("password", user.account, resolved.failure)
     const result = succeedWith("password", resolved.principal, undefined, {
       pendingPharmas: resolved.pendingPharmas,
-      identityOptions: resolved.identityOptions,
+      ...(activationNotice ? { activationNotice } : {}),
     })
-    // 本设备已有该用户默认登录记录时同步最近上下文（不新建）
-    if (result.ok) upsertDefaultLoginFromSession(result.session)
+    if (result.ok && rememberDefaultLogin) upsertDefaultLoginFromSession(result.session, true)
+    else if (result.ok) upsertDefaultLoginFromSession(result.session)
     return result
   },
 
@@ -983,6 +1360,27 @@ export const authGateway: AuthGateway = {
           code: "enterprise-invalid",
           field: "entcode",
           message: "企业编码不存在或已停用，请核对后重试",
+        },
+      }
+    }
+    // 套餐开通期校验（2026-09-18 套餐模型）：过期租户在第一步即拦截，给明确续期指引
+    const expiredTenant = tenantByEnterpriseOrgId(resolved.enterpriseId)
+    if (expiredTenant && tenantExpired(expiredTenant)) {
+      pushAuthAudit({
+        action: "企业编码解析",
+        outcome: "失败",
+        actorLabel: "未认证",
+        reason: "TENANT_EXPIRED",
+        resource: "auth.enterprise",
+        target: normalized,
+        context: { workspaceId: resolved.enterpriseId, expireAt: expiredTenant.expireAt },
+      })
+      return {
+        ok: false,
+        failure: {
+          code: "tenant-expired",
+          field: "entcode",
+          message: `该企业的系统开通已于 ${expiredTenant.expireAt} 到期，登录已停止；请联系软件服务方续期。`,
         },
       }
     }
@@ -1086,6 +1484,15 @@ export const authGateway: AuthGateway = {
         smsCtx,
       )
     }
+    if (memberStatus === "removed") {
+      return failWith(
+        "sms",
+        user.account,
+        { code: "membership-removed", message: "你在本企业的成员身份已被移除，如需恢复请联系企业管理员" },
+        undefined,
+        smsCtx,
+      )
+    }
     let activationNotice: string | undefined
     if (memberStatus === "pending_activation") {
       activatedMemberKeys.add(`${user.id}:${enterpriseId}`)
@@ -1115,9 +1522,6 @@ export const authGateway: AuthGateway = {
     }
     const result = succeedWith("sms", resolved.principal, undefined, {
       pendingPharmas: resolved.pendingPharmas,
-      identityOptions: resolved.identityOptions,
-      // 单角色（合并选项唯一）由网关直签完成，不闪现角色确认页
-      ...(resolved.identityOptions.length === 1 ? { identityConfirmed: true } : {}),
       ...(activationNotice ? { activationNotice } : {}),
     })
     // FR-01/02：勾选「记住默认登录」且验证成功 → 本设备保存默认登录（不含验证码本体）
@@ -1211,11 +1615,10 @@ export const authGateway: AuthGateway = {
         qr.result = { ok: false, failure }
       } else {
         const ws = workspaceOfUser(identity.userId)
-        const resolved = resolvePrincipal(identity.userId, ws.realm, ws.workspaceId, identity.roleId)
+        const resolved = resolvePrincipal(identity.userId, ws.realm, ws.workspaceId)
         qr.result = resolved.ok
           ? succeedWith("qr", resolved.principal, identity.source, {
               pendingPharmas: resolved.pendingPharmas,
-              identityOptions: resolved.identityOptions,
             })
           : failWith("qr", identity.label, resolved.failure, identity.source)
       }
@@ -1228,72 +1631,6 @@ export const authGateway: AuthGateway = {
   async listServingPharmas(userId, providerTenantId) {
     await tick(60)
     return visiblePharmasForUser(userId, providerTenantId).map((p) => ({ ...p }))
-  },
-
-  /**
-   * 角色确认：同角色多条授权合并生效（effectiveAssignmentIds 全量收集）；
-   * 所选角色已无生效授权时返回 ROLE_STALE。
-   */
-  async chooseLoginIdentity({ userId, roleId, workspaceId, method, qrSource }) {
-    await tick()
-    const user = allUsers().find((u) => u.id === userId)
-    if (!user) {
-      return { ok: false, failure: { code: "user-not-found", field: "account", message: "该角色已失效，请重新登录" } }
-    }
-    const realm = realmOfWorkspace(workspaceId)
-    if (!realm) {
-      return failWith(method ?? "sms", user.account, { code: "enterprise-invalid", field: "entcode", message: "企业编码不存在或已停用，请核对后重试" })
-    }
-    if (realm === "TENANT" && !tenantLoginAllowed(workspaceId)) {
-      return failWith(method ?? "sms", user.account, {
-        code: "enterprise-invalid",
-        field: "entcode",
-        message: "企业编码不存在或已停用，请核对后重试",
-      })
-    }
-    const options = identityOptionsFor(user, realm, workspaceId)
-    const chosen = options.find((o) => o.roleId === roleId)
-    if (!chosen) {
-      pushAuthAudit({
-        action: "选择登录角色",
-        outcome: "失败",
-        actorLabel: user.account,
-        reason: "ROLE_STALE",
-        resource: "auth.identity",
-        context: { workspaceId, roleId },
-      })
-      return { ok: false, failure: { code: "no-active-assignment", message: "该角色已失效，请重新登录" } }
-    }
-    const principal: AuthPrincipal | null =
-      realm === "PLATFORM" ? buildPlatformPrincipal(user, chosen, workspaceId) : buildTenantPrincipal(user, chosen)
-    if (!principal) {
-      pushAuthAudit({
-        action: "选择登录角色",
-        outcome: "失败",
-        actorLabel: user.account,
-        reason: "ROLE_STALE",
-        resource: "auth.identity",
-        context: { workspaceId, roleId },
-      })
-      return { ok: false, failure: { code: "no-active-assignment", message: "该角色已失效，请重新登录" } }
-    }
-    const pendingPharmas = pendingPharmasFor(user, realm, workspaceId)
-    const session = newSession(principal, method ?? "sms", qrSource, {
-      identityConfirmed: true,
-      ...(pendingPharmas ? { pendingPharmas } : {}),
-    })
-    pushAuthAudit({
-      action: "选择登录角色",
-      outcome: "成功",
-      actorLabel: principal.account,
-      reason: "ROLE_SELECTED",
-      resource: "auth.identity",
-      principal,
-      context: { workspaceId, roleId },
-    })
-    // 默认登录已启用时同步所选角色（最近工作上下文）
-    upsertDefaultLoginFromSession(session)
-    return { ok: true, session }
   },
 
   /**
@@ -1341,9 +1678,7 @@ export const authGateway: AuthGateway = {
       currentPharmaName: target.name,
       ...(target.warningKind ? { pharmaWarning: target.warningKind } : { pharmaWarning: undefined }),
     }
-    const session = newSession(nextPrincipal, method ?? "sms", qrSource, {
-      identityConfirmed: true,
-    })
+    const session = newSession(nextPrincipal, method ?? "sms", qrSource)
     pushAuthAudit({
       action,
       outcome: "成功",
@@ -1386,10 +1721,8 @@ export const authGateway: AuthGateway = {
         tenantName: primary.tenantName ?? m.tenantName,
         tenantKind: primary.tenantKind ?? "pharma",
         membershipId: primary.membershipId ?? m.id,
-        roleSummary:
-          opts.length === 1
-            ? `${primary.roleName}${primary.orgName ? ` · ${primary.orgName}` : ""}`
-            : `${primary.roleName} 等 ${opts.length} 个身份`,
+        // 多角色合并进同一会话：摘要列全部角色 + 组织
+        roleSummary: `${opts.map((o) => o.roleName).join(" · ")}${primary.orgName ? ` · ${primary.orgName}` : ""}`,
         identityCount: opts.length,
         isCurrent: m.tenantId === currentWorkspaceId,
         requiresReauth: opts.some((o) => SENSITIVE_SWITCH_ROLE_IDS.has(o.roleId)),
@@ -1400,8 +1733,8 @@ export const authGateway: AuthGateway = {
 
   /**
    * 免重认证切换企业（FR-06）：切换前再次校验（需求 §7「切换期间目标企业权限变化」），
-   * 失败停留当前企业并给出原因；成功换发目标企业上下文会话（业务树整树重建），
-   * 目标企业多身份回退角色确认页、服务商业务身份附带待选药厂；
+   * 失败停留当前企业并给出原因；成功换发目标企业上下文会话（业务树整树重建，
+   * 目标企业多角色自动合并进同一会话）、服务商业务身份附带待选药厂；
    * 本设备默认登录已启用时同步更新默认企业（FR-07）。
    */
   async switchEnterprise({ userId, targetWorkspaceId, currentWorkspaceId, method }) {
@@ -1439,8 +1772,6 @@ export const authGateway: AuthGateway = {
       return switchFail(resolved.failure.message, auditCodeOf(resolved.failure))
     }
     const session = newSession(resolved.principal, method ?? "sms", undefined, {
-      identityConfirmed: resolved.identityOptions.length === 1,
-      identityOptions: resolved.identityOptions,
       pendingPharmas: resolved.pendingPharmas,
     })
     upsertDefaultLoginFromSession(session)
@@ -1506,14 +1837,16 @@ export const authGateway: AuthGateway = {
   async logout(session) {
     await tick(60)
     const p = session.principal
+    const roleText =
+      p.realm === "PLATFORM" ? p.platformRoleName : p.roleNames.join("+")
     const event: PermAuditEvent = {
       id: nextId("PE"),
       time: nowStamp(),
       actor: p.name,
-      actorRole: p.realm === "PLATFORM" ? p.platformRoleName : p.activeRoleName,
+      actorRole: roleText,
       org: p.realm === "PLATFORM" ? PLATFORM_WORKSPACE_NAME : p.tenantName,
       target: p.account,
-      roleName: p.realm === "PLATFORM" ? p.platformRoleName : p.activeRoleName,
+      roleName: roleText,
       module: "登录认证",
       action: "退出登录",
       resource: "auth.logout",

@@ -65,10 +65,10 @@ function pharmaStateMeta(p: ServingPharma): {
   return { tag: "服务中", tone: "ok", tip: "" };
 }
 
-/** 四步口径步数条：企业验证 → 短信验证 → 角色确认 → 选择服务药厂 */
+/** 三步口径步数条：企业验证 → 短信验证 → 选择服务药厂（多角色自动合并，不再选角色） */
 function PharmaGateSteps() {
-  const steps = ["企业验证", "短信验证", "角色确认", "选择服务药厂"];
-  const current = 3;
+  const steps = ["企业验证", "短信验证", "选择服务药厂"];
+  const current = 2;
   return (
     <ol className="auth-gate-steps" aria-label="登录步骤">
       {steps.map((label, i) => (
@@ -195,7 +195,7 @@ export function PharmaGate({
                 <div className="pharma-gate-idrow">
                   <dt>当前身份</dt>
                   <dd>
-                    {principal.name} · {principal.activeRoleName}
+                    {principal.name} · {principal.roleNames.join(" + ")}
                   </dd>
                 </div>
               </dl>
@@ -418,7 +418,7 @@ export function PharmaGate({
       {mode === "first" && activationNotice && celebrationOpen && !autoEnter && (
         <ActivationCelebration
           name={principal.name}
-          roleName={principal.activeRoleName}
+          roleName={principal.roleNames.join(" + ")}
           orgName={principal.tenantName}
           pharmaCount={pharmas.length}
           onDone={() => setCelebrationOpen(false)}
@@ -433,7 +433,7 @@ export function PharmaGate({
             <dt>所属企业</dt>
             <dd>{principal.tenantName}</dd>
             <dt>当前身份</dt>
-            <dd>{principal.activeRoleName}</dd>
+            <dd>{principal.roleNames.join(" + ")}</dd>
             <dt>服务药厂</dt>
             <dd>{selected.name}</dd>
             <dt>数据范围</dt>

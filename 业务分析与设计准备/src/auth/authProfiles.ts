@@ -33,8 +33,6 @@ export const ENTERPRISE_CODES: EnterpriseCodeEntry[] = [
 
 export interface AuthProfile {
   userId: string
-  /** 登录成功后默认进入的主角色（SysRole.id）；无生效授权时按账号状态拒绝 */
-  defaultRoleId: string
   password: string
   /**
    * 企业级成员状态（原型口径，不改 PERM_USERS.accountStatus 枚举）：
@@ -48,33 +46,32 @@ export interface AuthProfile {
 /**
  * 仅覆盖「预期可登录演示」的账号；未列出的账号登录时走通用校验：
  * 停用 / 无生效授权 / 过期 / 已回收 —— 拒绝并给出原因。
+ * 2026-09-18 起不再维护 defaultRoleId：同企业多角色自动合并进同一会话（角色=权限集合）。
  */
 export const AUTH_PROFILES: Record<string, AuthProfile> = {
-  "u-wangmin": { userId: "u-wangmin", defaultRoleId: "role-sys-admin", password: DEMO_PASSWORD },
-  "u-shenyue": { userId: "u-shenyue", defaultRoleId: "role-pharma-admin", password: DEMO_PASSWORD },
-  "u-lihang": { userId: "u-lihang", defaultRoleId: "role-pharma-admin", password: DEMO_PASSWORD },
-  "u-zhaoning": { userId: "u-zhaoning", defaultRoleId: "role-pharma-admin", password: DEMO_PASSWORD },
-  "u-chenwei": { userId: "u-chenwei", defaultRoleId: "role-provider-admin", password: DEMO_PASSWORD },
-  "u-liuyang": { userId: "u-liuyang", defaultRoleId: "role-group-lead", password: DEMO_PASSWORD },
-  "u-yangming": { userId: "u-yangming", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
-  "u-huangfeng": { userId: "u-huangfeng", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
-  "u-lichen": { userId: "u-lichen", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
+  "u-wangmin": { userId: "u-wangmin", password: DEMO_PASSWORD },
+  "u-shenyue": { userId: "u-shenyue", password: DEMO_PASSWORD },
+  "u-lihang": { userId: "u-lihang", password: DEMO_PASSWORD },
+  "u-zhaoning": { userId: "u-zhaoning", password: DEMO_PASSWORD },
+  "u-chenwei": { userId: "u-chenwei", password: DEMO_PASSWORD },
+  "u-liuyang": { userId: "u-liuyang", password: DEMO_PASSWORD },
+  "u-yangming": { userId: "u-yangming", password: DEMO_PASSWORD },
+  "u-huangfeng": { userId: "u-huangfeng", password: DEMO_PASSWORD },
+  "u-lichen": { userId: "u-lichen", password: DEMO_PASSWORD },
   // 待激活新成员（东方恒业）：首次短信登录自动激活并 toast「账号已激活」
   "u-hejing": {
     userId: "u-hejing",
-    defaultRoleId: "role-group-lead",
     password: DEMO_PASSWORD,
     memberStatusByEnterprise: { "org-provider-east": "pending_activation" },
   },
   // 企业级冻结演示：在东方恒业被冻结，百益制药身份不受影响
   "u-hanlei": {
     userId: "u-hanlei",
-    defaultRoleId: "role-provider-admin",
     password: DEMO_PASSWORD,
     memberStatusByEnterprise: { "org-provider-east": "frozen" },
   },
   // 全不可用药厂的服务专员：认证通过进门页空态
-  "u-sunqi": { userId: "u-sunqi", defaultRoleId: "role-specialist", password: DEMO_PASSWORD },
+  "u-sunqi": { userId: "u-sunqi", password: DEMO_PASSWORD },
 }
 
 /**
@@ -118,12 +115,12 @@ export interface DemoAccountHint {
 
 export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
   // ── 软件服务方（贝医） ──
-  { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "贝医系统管理员", orgName: "系统服务部", group: "platform", tags: ["系统工作台", "免角色确认"], enterpriseCode: "M8QT3ZRN", phone: "13901350101", scene: "软件服务方唯一预置角色：认证成功直接进入系统工作台（无角色确认页），管理租户/菜单/合作监管/系统审计" },
+  { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "贝医系统管理员", orgName: "系统服务部", group: "platform", tags: ["直入租户管理", "免角色确认"], enterpriseCode: "M8QT3ZRN", phone: "13901350101", scene: "软件服务方唯一预置角色：认证成功直接进入租户管理（2026-09-18 起系统管理后台无工作台首页，无角色确认页），管理租户/租户套餐/菜单/合作监管/系统审计" },
   // 软件服务方运行时建租户的待激活管理员（种子租户：云杏生物/泰合医学推广；「恢复演示数据」可复位重演）
   { userId: "u-rt-zhouting", account: "rt-zhouting", name: "周婷", roleName: "企业管理员", orgName: "云杏生物医药有限公司", group: "platform", tags: ["软件服务方开户·首登激活", "药厂租户"], enterpriseCode: "R8NV3KQ2", phone: "13809120116", scene: "待激活药厂管理员：验证码通过即激活并提示「账号已激活，欢迎加入」，单角色直入药厂工作台，租户转「正常」（配套王敏的建租户动作；服务商租户同类场景同理）" },
   // ── 药厂侧（百益制药） ──
   { userId: "u-shenyue", account: "shenyue", name: "沈悦", roleName: "企业管理员", orgName: "信息技术部", group: "pharma", tags: ["组织/用户/角色授权主线"], enterpriseCode: "E9K4P7X2", phone: "13901350121", scene: "药厂企业管理主线：本药厂组织架构、用户、角色与数据范围（唯一授权入口）" },
-  { userId: "u-lihang", account: "lihang", name: "李航", roleName: "企业管理员", orgName: "西北大区", group: "pharma", tags: ["角色确认双选"], enterpriseCode: "E9K4P7X2", phone: "13901350102", scene: "「企业管理员 · 西北大区」；另持有定制角色「药厂区域销售经理」→ 角色确认页双选项" },
+  { userId: "u-lihang", account: "lihang", name: "李航", roleName: "企业管理员 + 药厂区域销售经理", orgName: "西北大区", group: "pharma", tags: ["多角色权限合并"], enterpriseCode: "E9K4P7X2", phone: "13901350102", scene: "同企业多角色自动合并：登录不选角色，直接获得「企业管理员」+「药厂区域销售经理」权限并集（顶栏身份行显示双角色并集 · 企业，如「企业管理员 + 药厂区域销售经理 · 百益制药」）" },
   { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "企业管理员", orgName: "合规部", group: "pharma", tags: ["备案/准入审核"], enterpriseCode: "E9K4P7X2", phone: "13901350103", scene: "「企业管理员 · 合规部」：备案审核、服务商准入审核（通过即创建合作关系）与合作关系暂停" },
   // ── 服务商侧 ──
   { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", group: "provider", tags: ["双企业身份", "配药厂范围"], enterpriseCode: "W6HK2T9V", phone: "13809120104", scene: "双企业身份：东方恒业编码登录=服务商管理员（可演示给员工配不同药厂范围）；百益制药编码（E9K4P7X2）登录=企业管理员 · 合规部" },

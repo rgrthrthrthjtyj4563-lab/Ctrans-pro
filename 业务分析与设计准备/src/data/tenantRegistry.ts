@@ -18,7 +18,7 @@
  */
 
 import type { PermOrg, PermUser, RoleAssignment } from "./permissions"
-import { PERM_ORGS, PERM_USERS, seedAssignments, nextId, nowStamp } from "./permissions"
+import { PERM_ORGS, PERM_USERS, seedAssignments, nextId, nowStamp, enterpriseRootOf } from "./permissions"
 import { ENTERPRISE_CODES } from "../auth/authProfiles"
 
 // ─── 模型 ────────────────────────────────────────────────────────────────────
@@ -52,7 +52,6 @@ export interface TenantSubjectProfile {
   mahHolderFlag?: boolean
   licenseNo?: string
   licenseValidTo?: string
-  complianceContact?: string
   // 服务商扩展（服务类型/经营范围已按 2026-09-15 拍板删除）
   bizOwner?: string
   complianceOwner?: string
@@ -63,6 +62,8 @@ export interface TenantSubjectProfile {
 export interface TenantAdminDesignee {
   name: string
   phone: string
+  /** 登录账号（企业内唯一，2026-09-18 起由向导/弹窗填写；缺省回落 rt-手机后4位） */
+  account?: string
   department: string
   /** 展示用角色名（实际授权角色由租户类型推导） */
   roleLabel: string
@@ -104,6 +105,12 @@ export interface TenantRecord {
   /** 最近一次状态操作的原因码与说明（暂停/恢复/终止均必填，写审计） */
   statusReasonCode?: string
   statusNote?: string
+  /** 绑定的租户套餐 id（2026-09-18 移植套餐模型）；缺省回落默认套餐（tenantPackages 解析） */
+  packageId?: string
+  /** 开通截止日期（YYYY-MM-DD；缺省=永久有效，过期后登录被拒） */
+  expireAt?: string
+  /** 用户数量限额（-1 或缺省=不限制；建号入口按租户用户数校验） */
+  userQuota?: number
   createdAt: string
   createdBy: string
 }
@@ -214,7 +221,6 @@ function buildSeedState(): TenantRegistryState {
           mahHolderFlag: true,
           licenseNo: "苏药监械生产许 20260001",
           licenseValidTo: "2030-06-30",
-          complianceContact: "赵宁",
         },
         initialAdmin: {
           userId: "u-shenyue",
@@ -322,7 +328,6 @@ function buildSeedState(): TenantRegistryState {
           mahHolderFlag: true,
           licenseNo: "苏药监械生产许 20260115",
           licenseValidTo: "2030-12-31",
-          complianceContact: "许倩",
         },
         initialAdmin: {
           userId: "u-rt-fengnan",
@@ -360,7 +365,6 @@ function buildSeedState(): TenantRegistryState {
           mahHolderFlag: true,
           licenseNo: "苏药监械生产许 20260088",
           licenseValidTo: "2031-03-31",
-          complianceContact: "沈玉兰",
         },
         initialAdmin: {
           userId: "u-rt-zhouting",
@@ -834,6 +838,10 @@ export interface CreateTenantInput {
   type: TenantType
   profile: TenantSubjectProfile
   admin: TenantAdminDesignee
+  /** 套餐与开通限制（2026-09-18 套餐模型；packageId 缺省回落默认套餐） */
+  packageId?: string
+  expireAt?: string
+  userQuota?: number
   actor: string
 }
 
@@ -884,11 +892,15 @@ export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
   const enterpriseOrgId = `org-rt-${nextId("en").toLowerCase()}`
   const userId = `u-rt-${nextId("ua").toLowerCase()}`
   const tenantId = `tenant-${nextId("tn").toLowerCase()}`
+  // 登录账号：企业内唯一口径。新租户命名空间全新不存在撞号，格式不合法时回落 rt-手机后4位
+  const adminAccount = ACCOUNT_PATTERN.test(input.admin.account?.trim() ?? "")
+    ? (input.admin.account as string).trim()
+    : defaultRuntimeAccount(input.admin.phone)
   const org: PermOrg = { id: enterpriseOrgId, name: input.profile.legalName, type: input.type }
   const user: PermUser = {
     id: userId,
     name: input.admin.name,
-    account: `rt-${input.admin.phone.slice(-4)}`,
+    account: adminAccount,
     phone: input.admin.phone,
     email: "",
     orgId: enterpriseOrgId,
@@ -930,6 +942,9 @@ export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
     },
     status: "pending_activation",
     statusChangedAt: stamp,
+    packageId: input.packageId,
+    expireAt: input.expireAt || undefined,
+    userQuota: input.userQuota,
     createdAt: stamp,
     createdBy: input.actor,
   }
@@ -940,6 +955,9 @@ export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
     audit("ENT_CODE_PRIMARY_GENERATED", shortName, input.actor, { code }),
     ...(collisions > 0 ? [audit("ENT_CODE_COLLISION_RETRIED", shortName, input.actor, { code, detail: `冲突重试 ${collisions} 次后生成唯一码` })] : []),
     audit("INITIAL_ADMIN_CREATED", shortName, input.actor, { detail: `${input.admin.name} · ${maskPhoneLocal(input.admin.phone)}` }),
+    audit("TENANT_PACKAGE_BOUND", shortName, input.actor, {
+      detail: `${input.packageId ? "绑定套餐" : "按默认套餐开通"}${input.expireAt ? ` · 有效期至 ${input.expireAt}` : " · 永久有效"}${input.userQuota != null && input.userQuota >= 0 ? ` · 用户限额 ${input.userQuota}` : ""}`,
+    }),
   ]
 
   commit({
@@ -1024,6 +1042,14 @@ export function changeInitialAdmin(tenantId: string, admin: TenantAdminDesignee,
   const tenant = state.tenants.find((t) => t.id === tenantId)
   if (!tenant || tenant.status !== "pending_activation") return { ok: false, error: "仅待激活租户可变更首位管理员", audits: [] }
   if (admin.phone === tenant.initialAdmin.phone) return { ok: false, error: "新管理员手机号与当前一致", audits: [] }
+  // 登录账号（企业内唯一）：不得与本企业任何在册账号冲突——旧管理员虽将停用，
+  // 其账号记录仍保留（历史授权可查），允许重名会造成密码登录定位歧义
+  const adminAccount = ACCOUNT_PATTERN.test(admin.account?.trim() ?? "")
+    ? (admin.account as string).trim()
+    : defaultRuntimeAccount(admin.phone)
+  if (isAccountTakenInWorkspace(adminAccount, tenant.enterpriseOrgId)) {
+    return { ok: false, error: "该登录账号在本企业已存在，请更换", audits: [] }
+  }
   const stamp = nowStamp()
   const adminRole = ADMIN_ROLE_BY_TYPE[tenant.type]
   const newUserId = `u-rt-${nextId("ua").toLowerCase()}`
@@ -1055,7 +1081,7 @@ export function changeInitialAdmin(tenantId: string, admin: TenantAdminDesignee,
       {
         id: newUserId,
         name: admin.name,
-        account: `rt-${admin.phone.slice(-4)}`,
+        account: adminAccount,
         phone: admin.phone,
         email: "",
         orgId: tenant.enterpriseOrgId,
@@ -1092,6 +1118,106 @@ export function changeInitialAdmin(tenantId: string, admin: TenantAdminDesignee,
 export function isUsccTaken(uscc: string): boolean {
   const target = uscc.trim().toUpperCase()
   return state.tenants.some((t) => t.uscc.toUpperCase() === target)
+}
+
+// ─── 套餐与开通限制（2026-09-18 移植 RuoYi 租户套餐模型） ─────────────────────
+
+/**
+ * 更换租户套餐（详情页操作）：套餐存在性/启用态由调用方（页面）经 tenantPackages
+ * 校验，本函数只落字段与审计；换绑即时生效（visiblePages 实时按套餐求交）。
+ */
+export function changeTenantPackage(tenantId: string, packageId: string, packageLabel: string, actor: string): OpResult {
+  const tenant = state.tenants.find((t) => t.id === tenantId)
+  if (!tenant || tenant.status === "terminated") return { ok: false, error: "已终止租户不可更换套餐", audits: [] }
+  const line = audit("TENANT_PACKAGE_CHANGED", tenant.shortName, actor, {
+    detail: `套餐换绑为「${packageLabel}」，即时生效`,
+  })
+  commit({
+    tenants: state.tenants.map((t) => (t.id === tenantId ? { ...t, packageId } : t)),
+    activityLog: [line, ...state.activityLog],
+  })
+  return { ok: true, audits: [line] }
+}
+
+/** 按企业组织根 id 取租户记录（登录链路的过期/状态校验消费） */
+export function tenantByEnterpriseOrgId(enterpriseOrgId: string): TenantRecord | undefined {
+  return state.tenants.find((t) => t.enterpriseOrgId === enterpriseOrgId)
+}
+
+/** 租户开通是否已过期（expireAt 早于今天；缺省=永久） */
+export function tenantExpired(tenant: TenantRecord): boolean {
+  if (!tenant.expireAt) return false
+  const today = new Date()
+  const p = (n: number) => String(n).padStart(2, "0")
+  const todayStr = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`
+  return tenant.expireAt < todayStr
+}
+
+/** 租户当前在册用户数（限额校验口径：种子 + 运行时用户，按企业组织根归集） */
+export function tenantUserCount(enterpriseOrgId: string): number {
+  return allUsers().filter((u) => u.orgId === enterpriseOrgId && u.accountStatus !== "disabled").length
+}
+
+/**
+ * 建号限额信息（企业侧新建用户入口消费）：
+ * quota=null 表示不限制；used=注册中心口径的在册用户数（调用方需自行加上
+ * 本地会话新建、尚未落入注册中心的用户数后再与 quota 比较）。
+ */
+export function tenantQuotaInfo(enterpriseOrgId: string): { quota: number | null; used: number } {
+  const tenant = state.tenants.find((t) => t.enterpriseOrgId === enterpriseOrgId)
+  if (!tenant || tenant.status === "terminated") return { quota: null, used: 0 }
+  const quota = tenant.userQuota
+  if (quota == null || quota < 0) return { quota: null, used: 0 }
+  return { quota, used: tenantUserCount(enterpriseOrgId) }
+}
+
+// ─── 登录账号（account）共享校验（2026-09-18 账号密码登录整改） ──────────────
+// 口径拍板：账号在企业内唯一——登录=企业编码+账号+密码联合定位；
+// 同一账号可在不同企业重复。数据源恒为 allUsers()（种子 + 运行时，含 rt- 管理员）。
+
+/** 登录账号格式：3-20 位小写字母/数字，可含 - 与 _（创建入口输入过滤与校验共用） */
+export const ACCOUNT_PATTERN = /^[a-z0-9][a-z0-9_-]{2,19}$/
+
+/** 运行时账号默认形态：rt- + 手机后 4 位（建租户首位管理员预填值，可改） */
+export function defaultRuntimeAccount(phone: string): string {
+  return `rt-${phone.slice(-4)}`
+}
+
+/**
+ * 账号在本工作空间（企业）内是否已被占用。工作空间 id 即企业组织根 id
+ * （平台=org-platform），用户按 orgId 上溯到企业根后比对；
+ * 用户管理 / 建租户向导 / 变更首位管理员的实时校验与 PermissionContext.createUser
+ * 落库兜底共用本函数，避免各自为政漏查 rt- 运行时账号。
+ */
+export function isAccountTakenInWorkspace(
+  account: string,
+  workspaceId: string,
+  excludeUserId?: string,
+): boolean {
+  const target = account.trim().toLowerCase()
+  if (!target) return false
+  const orgs = allOrgs()
+  return allUsers().some((u) => {
+    if (u.id === excludeUserId) return false
+    if (u.account.toLowerCase() !== target) return false
+    return enterpriseRootOf(orgs, u.orgId)?.id === workspaceId
+  })
+}
+
+/** 手机号在本工作空间内是否已被占用（与账号同口径：企业内唯一，跨企业允许分别建档） */
+export function isPhoneTakenInWorkspace(
+  phone: string,
+  workspaceId: string,
+  excludeUserId?: string,
+): boolean {
+  const target = phone.trim()
+  if (!target) return false
+  const orgs = allOrgs()
+  return allUsers().some((u) => {
+    if (u.id === excludeUserId) return false
+    if (u.phone !== target) return false
+    return enterpriseRootOf(orgs, u.orgId)?.id === workspaceId
+  })
 }
 
 function maskPhoneLocal(phone: string): string {

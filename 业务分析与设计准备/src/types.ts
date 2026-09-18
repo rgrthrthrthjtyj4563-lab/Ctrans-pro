@@ -616,7 +616,7 @@ export interface AuditLogEntry {
  * - 系统管理后台新增 菜单管理 / 合作关系监管 / 系统审计日志（软件服务方唯一预置角色=贝医系统管理员）。
  * 菜单显示统一由 ResourcePage.realms/tenantTypes + 角色 pagePerms 判定，不再按旧视角隐藏。
  */
-export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "cooperation-supervision" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management"
+export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "cooperation-supervision" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management" | "tenant-package"
 
 // ===== 话术管理（品种话术维护 + baiyee-AI 生成场景） =====
 
@@ -901,23 +901,6 @@ export interface SalesWorkbenchData {
   tasks: WorkbenchTask[]
   ai: WorkbenchAIAnalysis
   quickActions: DashboardQuickAction[]
-}
-
-/**
- * 系统工作台（软件服务方唯一预置角色=贝医系统管理员，以及未来软件服务方侧定制角色）。
- * 登录改造后工作台不再只有药厂/服务商两类视角；软件服务方侧角色需要中性的管理与监控视角。
- */
-export interface PlatformWorkbenchData {
-  roleLabel: string
-  headline: string
-  subtitle: string
-  unreadCount: number
-  metrics: DashboardMetric[]
-  insights: DashboardInsight[]
-  queue: DashboardQueueItem[]
-  quickActions: DashboardQuickAction[]
-  recentOperations: DashboardRecentOperation[]
-  spotlight: { title: string; items: DashboardStatItem[] }
 }
 
 export interface DashboardRoleData {

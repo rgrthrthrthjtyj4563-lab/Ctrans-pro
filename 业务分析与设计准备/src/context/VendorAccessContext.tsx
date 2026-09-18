@@ -164,7 +164,7 @@ function missingFieldsOf(input: VendorAccessInput): string[] {
 }
 
 export function VendorAccessProvider({ children }: { children: ReactNode }) {
-  const { principal, can } = usePermission();
+  const { principal, can, logAudit } = usePermission();
   const [records, setRecords] = useState<VendorAccessRecord[]>(() => SEED_RECORDS.map((r) => ({ ...r })));
 
   const myRecord = useMemo(
@@ -172,10 +172,27 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
     [records],
   );
 
+  // 准入全流程审计（2026-09-18 审计盲区补全）：此前只写记录内 history（VH-*），
+  // 不进「操作日志/系统审计」；现在每个动作同步写 PermAuditEvent。
+  const auditAccess = useCallback(
+    (action: string, target: string, reason: string, afterSummary?: string, beforeSummary?: string) => {
+      logAudit({
+        module: '服务商准入',
+        action,
+        target,
+        resource: 'vendor-access',
+        reason,
+        ...(afterSummary ? { afterSummary } : {}),
+        ...(beforeSummary ? { beforeSummary } : {}),
+      });
+    },
+    [logAudit],
+  );
+
   // 操作人取已认证主体；历史条目的角色标签按准入双角色口径映射（服务商侧 / 药厂合规侧）
   const operator = { name: principal.name };
   const principalRoleLabel: VendorAccessHistory['role'] =
-    principal.realm === 'TENANT' && principal.tenantKind === 'pharma' && principal.activeRoleName.includes('合规')
+    principal.realm === 'TENANT' && principal.tenantKind === 'pharma' && principal.roleNames.some(n => n.includes('合规'))
       ? '企业管理员 · 合规部'
       : '服务提供商';
   const isVendorSide = can('vendor-access', 'submit');
@@ -226,6 +243,7 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: '该统一社会信用代码已存在' };
       }
       const now = stamp();
+      const targetName = input.vendorName.trim() || myRecord?.vendorName || '准入资料';
       if (myRecord) {
         setRecords((prev) =>
           prev.map((r) =>
@@ -247,9 +265,10 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
         };
         setRecords((prev) => [created, ...prev]);
       }
+      auditAccess('保存准入草稿', targetName, '草稿保存', `状态：草稿 · ${now}`);
       return { ok: true };
     },
-    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principalRoleLabel, pushHistory],
+    [auditAccess, can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principalRoleLabel, pushHistory],
   );
 
   const submit = useCallback(
@@ -265,6 +284,7 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: '该统一社会信用代码已存在' };
       }
       const now = stamp();
+      const targetName = input.vendorName.trim() || myRecord?.vendorName || '准入资料';
       if (myRecord) {
         setRecords((prev) =>
           prev.map((r) =>
@@ -297,9 +317,10 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
         };
         setRecords((prev) => [created, ...prev]);
       }
+      auditAccess('提交准入申请', targetName, '提交审核', `状态：草稿/已驳回 → 待提交 · ${now}`);
       return { ok: true };
     },
-    [can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principalRoleLabel, pushHistory],
+    [auditAccess, can, creditCodeTaken, myRecord, nextHistoryId, nextRecordId, operator.name, principalRoleLabel, pushHistory],
   );
 
   const approve = useCallback(
@@ -346,9 +367,19 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
             : r,
         ),
       );
+      auditAccess('准入审核通过', target.vendorName, '审核通过', `状态：待提交 → 已通过 · ${now}`);
+      if (coop.created) {
+        // 准入联动建合作的独立审计事件（2026-09-18 审计盲区补全：此前该事件被丢弃）
+        auditAccess(
+          '创建合作关系（准入联动）',
+          `${allTenants().find((t) => t.id === pharmaTenantId)?.name ?? pharmaTenantId} × ${target.vendorName}`,
+          'COOPERATION_CREATED_BY_ACCESS',
+          `合作关系生效 · 生效起点 ${now}`,
+        );
+      }
       return { ok: true };
     },
-    [isReviewer, operator.name, principal, pushHistory, records],
+    [auditAccess, isReviewer, operator.name, principal, pushHistory, records],
   );
 
   const reject = useCallback(
@@ -374,17 +405,20 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
             : r,
         ),
       );
+      auditAccess('准入审核驳回', target.vendorName, trimmed, `状态：待提交 → 已驳回 · ${now}`);
       return { ok: true };
     },
-    [isReviewer, operator.name, pushHistory, records],
+    [auditAccess, isReviewer, operator.name, pushHistory, records],
   );
 
   const deleteDraft = useCallback((): VendorAccessOpResult => {
     if (!isVendorSide) return { ok: false, error: '当前角色无删除草稿权限' };
     if (!myRecord || myRecord.status !== '草稿') return { ok: false, error: '仅草稿可删除' };
+    const targetName = myRecord.vendorName;
     setRecords((prev) => prev.filter((r) => r.id !== myRecord.id));
+    auditAccess('删除准入草稿', targetName, '草稿删除', `已删除草稿（信用代码 ${myRecord.creditCode || '—'}）`);
     return { ok: true };
-  }, [isVendorSide, myRecord]);
+  }, [auditAccess, isVendorSide, myRecord]);
 
   const value: VendorAccessStore = {
     records,

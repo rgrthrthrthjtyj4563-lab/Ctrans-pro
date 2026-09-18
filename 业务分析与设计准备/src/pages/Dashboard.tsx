@@ -31,7 +31,7 @@ import { AIInsightCard } from '../components/AIInsightCard';
 import { Button } from '../components/Button';
 import { RiskTag, Tag } from '../components/StatusTag';
 import type { ToastMessage } from '../components/Toast';
-import { getRoleDashboardData, getPlatformWorkbenchData, repFilingAnalysis } from '../data/mockData';
+import { getRoleDashboardData, repFilingAnalysis } from '../data/mockData';
 import { reconStatusDisplay, taskStatusDisplay } from '../constants';
 import { useDashboardLayout } from '../hooks/useDashboardLayout';
 import { usePermission } from '../context/PermissionContext';
@@ -1118,28 +1118,6 @@ const PROVIDER_SECTION_IDS = [
 ];
 const PROVIDER_DEFAULT_HIDDEN = ['recent-operations', 'audit-tip'];
 
-// 系统管理角色工作台板块（无业务趋势/排名语义，聚焦管理事项）
-const PLATFORM_SIZE_SPECS: Record<string, SectionSizeSpec> = {
-  metrics: sizeSpec(12, 2, 6, 2, 12, 8),
-  queue: sizeSpec(7, 6, 5, 4, 12, 16),
-  ai: sizeSpec(5, 6, 4, 4, 12, 16),
-  'quick-actions': sizeSpec(12, 3, 4, 2, 12, 8),
-  spotlight: sizeSpec(12, 4, 6, 3, 12, 16),
-  'recent-operations': sizeSpec(6, 4, 4, 3, 12, 16),
-  'audit-tip': sizeSpec(12, 2, 6, 1, 12, 6),
-};
-
-const PLATFORM_SECTION_IDS = [
-  'metrics',
-  'queue',
-  'ai',
-  'quick-actions',
-  'spotlight',
-  'recent-operations',
-  'audit-tip',
-];
-const PLATFORM_DEFAULT_HIDDEN = ['recent-operations', 'audit-tip'];
-
 function LayoutCustomizeButton({ editing, onToggle }: { editing: boolean; onToggle: () => void }) {
   return (
     <Button variant={editing ? 'primary' : 'outline'} size="sm" icon={<LayoutGrid size={14} />} onClick={onToggle}>
@@ -2192,7 +2170,6 @@ function RepFilingAnalysisPanel() {
 
 
 function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
-  const { principal } = usePermission();
   const data = useMemo(() => getRoleDashboardData('服务提供商'), []);
   const layout = useDashboardLayout('provider', PROVIDER_SECTION_IDS, PROVIDER_DEFAULT_HIDDEN, PROVIDER_SIZE_SPECS);
   const [editing, setEditing] = useState(false);
@@ -2340,42 +2317,13 @@ function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
       {editing && <LayoutEditBanner onReset={layout.resetLayout} />}
 
-      <section
-        style={{
-          ...sectionCardStyle(),
-          padding: 20,
-          background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FBFA 100%)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-              <Tag label={data.role} color="brand" />
-              {principal.realm === 'TENANT' && principal.currentPharmaName && (
-                <Tag label={`当前服务药厂：${principal.currentPharmaName}`} color="info" />
-              )}
-            </div>
-            <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
-            <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-14)', color: '#667085', lineHeight: 1.7 }}>{data.subtitle}</p>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end', flexShrink: 0 }}>
-            <LayoutCustomizeButton editing={editing} onToggle={() => setEditing(prev => !prev)} />
-            <div
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                background: '#F9FAFB',
-                border: '1px solid var(--color-border)',
-                minWidth: 280,
-              }}
-            >
-              <div style={{ fontSize: 'var(--fs-12)', fontWeight: 700, color: 'var(--color-brand)', marginBottom: 6 }}>AI 呈现规范</div>
-              <div style={{ fontSize: 'var(--fs-12)', color: '#667085', lineHeight: 1.7 }}>
-                AI 仅提供参考，所有动作都需要人工确认；AI 不会自动改变任何单据状态。
-              </div>
-            </div>
-          </div>
+      {/* 页面标题：角色/服务药厂徽章行与「AI 呈现规范」说明卡已砍（2026-09-18），该信息由个人中心承载 */}
+      <section style={{ minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
+          <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-13)', color: '#667085' }}>{data.subtitle}</p>
         </div>
+        <LayoutCustomizeButton editing={editing} onToggle={() => setEditing(prev => !prev)} />
       </section>
 
       <SectionBoard
@@ -2396,218 +2344,17 @@ function ProviderWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => 
   );
 }
 
-// ─── 系统工作台（软件服务方唯一预置角色：贝医系统管理员） ────────────────────
-function PlatformWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
-  const { principal, can } = usePermission();
-  const platformRoleId = principal.realm === 'PLATFORM' ? principal.platformRoleId : '';
-  const platformRoleName = principal.realm === 'PLATFORM' ? principal.platformRoleName : '';
-  const data = useMemo(() => getPlatformWorkbenchData(platformRoleId, platformRoleName), [platformRoleId, platformRoleName]);
-  const layout = useDashboardLayout('platform', PLATFORM_SECTION_IDS, PLATFORM_DEFAULT_HIDDEN, PLATFORM_SIZE_SPECS);
-  const [editing, setEditing] = useState(false);
-  const exitEdit = useCallback(() => setEditing(false), []);
-  const [dismissedInsights, setDismissedInsights] = useState<string[]>([]);
-  const [feedbacks, setFeedbacks] = useState<Record<string, 'valid' | 'false-positive'>>({});
-
-  // 系统角色页面权限差异大：跳转目标先按当前角色可见性过滤，避免出现点了就报越权
-  const visible = useCallback(
-    (page: PageId) => can(page, 'view') || !RESOURCE_PAGES.some(p => p.id === page),
-    [can],
-  );
-  const metrics = useMemo(() => data.metrics.filter(m => visible(m.target)), [data.metrics, visible]);
-  const queue = useMemo(() => data.queue.filter(q => visible(q.target)), [data.queue, visible]);
-  const insightsAll = useMemo(() => data.insights.filter(i => visible(i.target)), [data.insights, visible]);
-  const quickActions = useMemo(() => data.quickActions.filter(q => visible(q.target)), [data.quickActions, visible]);
-  const visibleInsights = insightsAll
-    .filter(item => !dismissedInsights.includes(item.id))
-    .sort((a, b) => insightOrder[a.severity] - insightOrder[b.severity]);
-
-  const sections: DashboardSectionDef[] = useMemo(
-    () => [
-      {
-        id: 'metrics',
-        title: '管理指标',
-        category: '通用',
-        defaultVisible: true,
-        render: () => (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16, alignContent: 'start', height: '100%', overflowY: 'auto' }}>
-            {metrics.map(metric => {
-              const Icon = getMetricIcon(metric);
-              return (
-                <MetricCard
-                  key={metric.id}
-                  title={metric.title}
-                  value={metric.value}
-                  unit={metric.unit}
-                  delta={metric.delta}
-                  deltaLabel={metric.deltaLabel}
-                  subtitle={metric.subtitle}
-                  icon={Icon}
-                  iconColor={metric.iconColor}
-                  iconBg={metric.iconBg}
-                  urgency={metric.urgency}
-                  onClick={() => navigate(metric.target)}
-                />
-              );
-            })}
-          </div>
-        ),
-      },
-      {
-        id: 'queue',
-        title: '优先处理队列',
-        category: '通用',
-        defaultVisible: true,
-        render: () => <QueueTable items={queue} navigate={navigate} viewAllTarget={null} />,
-      },
-      {
-        id: 'ai',
-        title: 'AI 洞察',
-        category: '通用',
-        defaultVisible: true,
-        render: () => (
-          <section style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10, flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <h2 style={{ margin: 0, fontSize: 'var(--fs-15)', fontWeight: 700, color: 'var(--color-text-1)' }}>AI 洞察</h2>
-                <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', fontWeight: 700 }}>
-                  {visibleInsights.length} 条
-                </span>
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
-              {visibleInsights.map(insight => (
-                <AIInsightCard
-                  key={insight.id}
-                  {...insight}
-                  feedback={feedbacks[insight.id]}
-                  onAction={() => navigate(insight.target)}
-                  onDismiss={id => setDismissedInsights(prev => [...prev, id])}
-                  onFeedback={(id, fb) => setFeedbacks(prev => ({ ...prev, [id]: fb }))}
-                />
-              ))}
-              {visibleInsights.length === 0 && (
-                <div style={{ padding: 16, fontSize: 'var(--fs-13)', color: '#98A2B3', textAlign: 'center' }}>当前角色暂无可展示的洞察事项</div>
-              )}
-            </div>
-          </section>
-        ),
-      },
-      {
-        id: 'quick-actions',
-        title: '快捷入口',
-        category: '通用',
-        defaultVisible: true,
-        render: () => <QuickActionsPanel items={quickActions} navigate={navigate} />,
-      },
-      {
-        id: 'spotlight',
-        title: '健康度',
-        category: '通用',
-        defaultVisible: true,
-        render: () => (data.spotlight ? <StatListPanel title={data.spotlight.title} items={data.spotlight.items} /> : null),
-      },
-      {
-        id: 'recent-operations',
-        title: '最近操作',
-        category: '通用',
-        defaultVisible: false,
-        render: () => <RecentOperationsPanel items={data.recentOperations} navigate={navigate} />,
-      },
-      {
-        id: 'audit-tip',
-        title: '审计提示',
-        category: '通用',
-        defaultVisible: false,
-        render: () => (
-          <div style={{ ...sectionCardStyle({ background: '#F9FAFB' }), height: '100%', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-12)', fontWeight: 700, color: '#667085', marginBottom: 8 }}>
-              <TrendingUp size={14} />
-              审计提示
-            </div>
-            <div style={{ fontSize: 'var(--fs-13)', color: '#475467', lineHeight: 1.7 }}>
-              软件服务方操作默认全程留痕：授权、回收、角色发布、登录失败都会进入操作日志；预览模式只读不落业务变更。
-            </div>
-          </div>
-        ),
-      },
-    ],
-    [data, metrics, queue, quickActions, visibleInsights, feedbacks, navigate],
-  );
-
-  return (
-    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {editing && <LayoutEditBanner onReset={layout.resetLayout} />}
-
-      <section
-        style={{
-          ...sectionCardStyle(),
-          padding: 20,
-          background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FBFA 100%)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-              <Tag label={data.roleLabel} color="brand" />
-              <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>
-                系统管理后台 · 职责范围：{principal.realm === 'PLATFORM' ? principal.dutyScope : ''}
-              </span>
-            </div>
-            <h1 style={{ margin: 0, fontSize: 'var(--fs-24)', fontWeight: 800, color: 'var(--color-text-1)' }}>{data.headline}</h1>
-            <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-14)', color: '#667085', lineHeight: 1.7 }}>{data.subtitle}</p>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end', flexShrink: 0 }}>
-            <LayoutCustomizeButton editing={editing} onToggle={() => setEditing(prev => !prev)} />
-            <div
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                background: '#F9FAFB',
-                border: '1px solid var(--color-border)',
-                minWidth: 280,
-              }}
-            >
-              <div style={{ fontSize: 'var(--fs-12)', fontWeight: 700, color: 'var(--color-brand)', marginBottom: 6 }}>操作边界</div>
-              <div style={{ fontSize: 'var(--fs-12)', color: '#667085', lineHeight: 1.7 }}>
-                菜单与操作按当前登录角色的授权矩阵渲染；越权访问会被拦截并写入审计。
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <SectionBoard
-        sections={sections}
-        order={layout.order}
-        hidden={layout.hidden}
-        toggleVisible={layout.toggleVisible}
-        moveSection={layout.moveSection}
-        setSize={layout.setSize}
-        sizes={layout.sizes}
-        specs={PLATFORM_SIZE_SPECS}
-        editing={editing}
-        onExitEdit={exitEdit}
-        gap={16}
-        rowHeight={72}
-      />
-    </div>
-  );
-}
-
 export function Dashboard({
   navigate,
   variant,
   addToast,
 }: {
   navigate: (page: PageId) => void;
-  /** 登录身份派生的工作台形态：药厂 / 服务商链路 / 系统管理 */
-  variant: 'pharma' | 'provider' | 'platform';
+  /** 登录身份派生的工作台形态：药厂 / 服务商链路（系统管理后台已无工作台首页） */
+  variant: 'pharma' | 'provider';
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
 }) {
   void addToast;
-  if (variant === 'platform') {
-    return <PlatformWorkbenchDashboard navigate={navigate} />;
-  }
   if (variant === 'provider') {
     return <ProviderWorkbenchDashboard navigate={navigate} />;
   }

@@ -195,8 +195,23 @@ export interface TenantMembership {
   tenantName: string
   /** 成员在该租户内的组织归属节点（部门/工作组） */
   orgUnitId: string
-  status: "active" | "frozen" | "pending_activation"
+  /** 岗位（纯展示，不参与权限判定；权限只来自角色授权） */
+  jobTitle?: string
+  /**
+   * removed（2026-09-18 成员生命周期补全）：企业移除该成员（离职等）——
+   * 终止的是「本企业的成员身份」，自然人账号与其他企业身份不受影响；
+   * 历史授权保留占位记录，可重新加入（rejoin 恢复 active）。
+   */
+  status: "active" | "frozen" | "pending_activation" | "removed"
   joinedAt: string
+  /** 移除留痕（status=removed 时有值；重新加入后保留供追溯） */
+  removedAt?: string
+  removedBy?: string
+  /** 移除原因分类：离职 / 误建 / 其他（+ 自由文本说明） */
+  removedKind?: string
+  removedNote?: string
+  /** 最近一次移除→重新加入的恢复时间（重新加入后有值） */
+  rejoinedAt?: string
 }
 
 /**
@@ -573,6 +588,15 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     actions: acts("tenant-management", ["view", "create", "edit", "approve"]),
     realms: ["PLATFORM"],
   },
+  {
+    id: "tenant-package",
+    module: "系统服务",
+    name: "租户套餐管理",
+    description:
+      "租户功能开通总开关：套餐=一组菜单（功能）的集合，新建套餐时勾选关联菜单，租户绑定套餐后其用户可见菜单=角色权限∩套餐菜单；套餐可停用/删除（默认套餐与已绑租户的除外），变更即时生效",
+    actions: acts("tenant-package", ["view", "create", "edit"]),
+    realms: ["PLATFORM"],
+  },
 ]
 
 export const SENSITIVE_FIELDS: SensitiveField[] = [
@@ -667,9 +691,9 @@ function role(
 
 /**
  * 系统角色（realm=PLATFORM，软件服务方域）：仅保留「贝医系统管理员」一个预置角色，
- * 负责租户开通与企业码、菜单管理、合作关系监管与系统审计。系统角色不得持有
+ * 负责租户开通与企业码、租户套餐、菜单管理、合作关系监管与系统审计。系统角色不得持有
  * 任何租户内部页面（组织/用户/租户角色/数据范围/业务数据），也不得出现在
- * 企业角色页与企业菜单树中；软件服务方认证成功后直接进入系统工作台，无角色确认页。
+ * 企业角色页与企业菜单树中；软件服务方认证成功后直接进入租户管理页（系统工作台已移除），无角色确认页。
  */
 export const PLATFORM_ROLES: SysRole[] = [
   role({
@@ -683,8 +707,8 @@ export const PLATFORM_ROLES: SysRole[] = [
     updatedBy: ACTOR_ADMIN,
     updatedAt: "2026-09-15 10:00",
     pagePerms: perms([
-      ["dashboard", ["view"]],
       ["tenant-management", ["view", "create", "edit", "approve"]],
+      ["tenant-package", ["view", "create", "edit"]],
       ["menus", ["view", "create", "edit"]],
       ["cooperation-supervision", ["view", "export"]],
       ["platform-audit", ["view"]],
@@ -1257,24 +1281,24 @@ export const PLATFORM_BINDINGS: PlatformRoleBinding[] = [
  * 派生（见 cooperationModel.membershipsOfUser）。
  */
 export const TENANT_MEMBERSHIPS: TenantMembership[] = [
-  { id: "mb-01", userId: "u-lihang", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", status: "active", joinedAt: "2026-03-01" },
-  { id: "mb-02", userId: "u-zhaoning", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", status: "active", joinedAt: "2026-03-01" },
-  { id: "mb-03", userId: "u-zhoukai", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-shaanxi", status: "active", joinedAt: "2026-03-12" },
-  { id: "mb-04", userId: "u-shenyue", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-it", status: "active", joinedAt: "2026-04-01" },
-  { id: "mb-05", userId: "u-chenwei", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", status: "active", joinedAt: "2026-04-12" },
-  { id: "mb-06", userId: "u-chenwei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", status: "active", joinedAt: "2026-06-01" },
-  { id: "mb-07", userId: "u-liuyang", tenantId: "org-provider-smart", tenantName: "智联科技有限公司", orgUnitId: "org-group-1", status: "active", joinedAt: "2026-05-08" },
-  { id: "mb-08", userId: "u-yangming", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", status: "active", joinedAt: "2026-06-01" },
-  { id: "mb-09", userId: "u-huangfeng", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", status: "active", joinedAt: "2026-06-01" },
-  { id: "mb-10", userId: "u-wuchao", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", status: "active", joinedAt: "2026-05-28" },
-  { id: "mb-11", userId: "u-sunli", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", status: "active", joinedAt: "2026-07-14" },
-  { id: "mb-12", userId: "u-lichen", tenantId: "org-provider-smart", tenantName: "智联科技有限公司", orgUnitId: "org-provider-smart", status: "active", joinedAt: "2026-07-30" },
-  { id: "mb-13", userId: "u-hejing", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", status: "pending_activation", joinedAt: "2026-09-10" },
-  { id: "mb-14", userId: "u-hanlei", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", status: "frozen", joinedAt: "2026-05-12" },
-  { id: "mb-15", userId: "u-hanlei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", status: "active", joinedAt: "2026-06-15" },
-  { id: "mb-16", userId: "u-sunqi", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", status: "active", joinedAt: "2026-09-08" },
+  { id: "mb-01", userId: "u-lihang", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", jobTitle: "大区经理", status: "active", joinedAt: "2026-03-01" },
+  { id: "mb-02", userId: "u-zhaoning", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规主管", status: "active", joinedAt: "2026-03-01" },
+  { id: "mb-03", userId: "u-zhoukai", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-shaanxi", jobTitle: "地区销售经理", status: "active", joinedAt: "2026-03-12" },
+  { id: "mb-04", userId: "u-shenyue", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-it", jobTitle: "信息化经理", status: "active", joinedAt: "2026-04-01" },
+  { id: "mb-05", userId: "u-chenwei", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", jobTitle: "总经理", status: "active", joinedAt: "2026-04-12" },
+  { id: "mb-06", userId: "u-chenwei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规顾问", status: "active", joinedAt: "2026-06-01" },
+  { id: "mb-07", userId: "u-liuyang", tenantId: "org-provider-smart", tenantName: "智联科技有限公司", orgUnitId: "org-group-1", jobTitle: "工作组组长", status: "active", joinedAt: "2026-05-08" },
+  { id: "mb-08", userId: "u-yangming", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-06-01" },
+  { id: "mb-09", userId: "u-huangfeng", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-06-01" },
+  { id: "mb-10", userId: "u-wuchao", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-05-28" },
+  { id: "mb-11", userId: "u-sunli", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", jobTitle: "运营主管", status: "active", joinedAt: "2026-07-14" },
+  { id: "mb-12", userId: "u-lichen", tenantId: "org-provider-smart", tenantName: "智联科技有限公司", orgUnitId: "org-provider-smart", jobTitle: "服务专员", status: "active", joinedAt: "2026-07-30" },
+  { id: "mb-13", userId: "u-hejing", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "工作组组长", status: "pending_activation", joinedAt: "2026-09-10" },
+  { id: "mb-14", userId: "u-hanlei", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", jobTitle: "副总经理", status: "frozen", joinedAt: "2026-05-12" },
+  { id: "mb-15", userId: "u-hanlei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", jobTitle: "销售支持专员", status: "active", joinedAt: "2026-06-15" },
+  { id: "mb-16", userId: "u-sunqi", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-09-08" },
   // 双服务商演示：李晨同属智联（mb-12）与东方恒业——两边的角色、药厂范围互不串台
-  { id: "mb-17", userId: "u-lichen", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", status: "active", joinedAt: "2026-09-12" },
+  { id: "mb-17", userId: "u-lichen", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-09-12" },
 ]
 
 /**
@@ -1913,6 +1937,36 @@ export function pageHasAction(
   return list.includes("view") && list.includes(action)
 }
 
+/**
+ * 多角色权限合并（2026-09-18 拍板：同企业多角色自动合并，登录不再选角色）：
+ * - pagePerms 按权限点取并集（view/edit/approve 独立判定，不构造升级——
+ *   一个角色给 view、另一个给 approve，并集后两者并存，不会凭空新增动作）；
+ * - fieldPolicies 从严合并（hidden > mask > visible）：任一角色从严则从严，
+ *   敏感字段脱敏不因角色叠加而放开（合规口径）。
+ */
+export function mergeRolePerms(roleList: SysRole[]): {
+  pagePerms: Record<string, PageAction[]>
+  fieldPolicies: Record<string, FieldPolicyKind>
+} {
+  const pagePerms: Record<string, PageAction[]> = {}
+  for (const r of roleList) {
+    for (const [pageId, actions] of Object.entries(r.pagePerms)) {
+      const merged = new Set(pagePerms[pageId] ?? [])
+      for (const a of actions) merged.add(a)
+      pagePerms[pageId] = [...merged]
+    }
+  }
+  const strictRank: Record<FieldPolicyKind, number> = { visible: 0, mask: 1, hidden: 2 }
+  const fieldPolicies: Record<string, FieldPolicyKind> = {}
+  for (const r of roleList) {
+    for (const [field, kind] of Object.entries(r.fieldPolicies)) {
+      const cur = fieldPolicies[field]
+      if (!cur || strictRank[kind] > strictRank[cur]) fieldPolicies[field] = kind
+    }
+  }
+  return { pagePerms, fieldPolicies }
+}
+
 export function visiblePageIds(role: SysRole): string[] {
   return Object.entries(role.pagePerms)
     .filter(([, actions]) => actions.includes("view") || actions.length > 0)
@@ -2014,8 +2068,10 @@ export type GroupLeaderResolution =
   | { status: "invalid"; userId: string; userName: string; reason: string }
 
 /**
- * 工作组组长有效性（2026-09-15 拍板）：组长必须同时满足
- * ① 属于该工作组（成员身份 orgUnit = 本组）② 账号启用 ③ 拥有生效的「工作组组长」角色。
+ * 工作组组长有效性（2026-09-18 修订：岗位与角色分离）：组长是「岗位」而非「角色」——
+ * 有效性只看指定记录与人：① 存在指定记录 ② 属于该工作组（成员身份 orgUnit = 本组）
+ * ③ 账号启用。组长的操作权限仍来自角色授权（role-group-lead），未持角色不影响
+ * 「他是不是组长」的判定，只影响页面上权限按钮的可用性；指定入口会在缺角色时自动补授。
  * 任一不满足 → 该组「待指定组长」，不得接收新的管理任务；历史任务与审计保留。
  */
 export function resolveGroupLeader(
@@ -2038,17 +2094,6 @@ export function resolveGroupLeader(
   if (!membership || membership.orgUnitId !== groupId) {
     return { status: "invalid", userId: user.id, userName: user.name, reason: "组长已调离本工作组" }
   }
-  const today = new Date().toISOString().slice(0, 10)
-  const hasRole = ctx.assignments.some(
-    (a) =>
-      a.userId === user.id &&
-      a.tenantId === ctx.tenantId &&
-      a.roleId === "role-group-lead" &&
-      a.status === "active" &&
-      a.effectiveFrom <= today &&
-      (!a.effectiveTo || a.effectiveTo >= today),
-  )
-  if (!hasRole) return { status: "invalid", userId: user.id, userName: user.name, reason: "组长角色已回收或失效" }
   return { status: "valid", userId: user.id, userName: user.name }
 }
 

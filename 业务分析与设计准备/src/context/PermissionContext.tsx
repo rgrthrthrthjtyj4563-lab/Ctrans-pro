@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Role } from '../types';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import type { PageId, Role } from '../types';
 import type { AuthPrincipal } from '../auth/authTypes';
 import { drainLoginAuditEvents } from '../auth/mockGateway';
 import {
@@ -11,6 +11,7 @@ import {
   emptyCustomScope,
   enterpriseRootOf,
   isHighRiskRole,
+  mergeRolePerms,
   nextId,
   nowStamp,
   pageHasAction,
@@ -45,12 +46,27 @@ import {
 import {
   authorizedVarietyLinesOfPharma,
   derivedRegionCodesOfScope,
+  drainBindingAuditEvents,
   grantablePharmasForProvider,
   membershipActive,
   membershipOfUserInTenant,
+  rejoinMembership,
+  removeMembership,
   subscribeTenantMemberships,
   upsertMembership,
 } from '../data/cooperationModel';
+import {
+  getTenantRegistrySnapshot,
+  isAccountTakenInWorkspace,
+  isPhoneTakenInWorkspace,
+  subscribeTenantRegistry,
+  tenantQuotaInfo,
+} from '../data/tenantRegistry';
+import {
+  getTenantPackagesSnapshot,
+  subscribeTenantPackages,
+  tenantPackageMenuIds,
+} from '../data/tenantPackages';
 
 export interface PreviewState {
   roleId: string;
@@ -115,6 +131,10 @@ interface PermissionStore {
   revokeAssignment: (assignmentId: string, reason: string) => { ok: boolean; error?: string };
   createUser: (input: { name: string; account: string; phone: string; email: string; orgId: string }) => { ok: boolean; error?: string; user?: PermUser };
   setUserStatus: (userId: string, status: 'enabled' | 'disabled', opts?: { reason?: string; revokeAssignments?: boolean }) => { ok: boolean; error?: string };
+  /** 移除成员（2026-09-18）：终止本企业成员身份；自然人与其他企业身份不受影响 */
+  removeTenantMember: (input: { userId: string; kind: string; note?: string }) => { ok: boolean; error?: string; revokedCount?: number };
+  /** 移除后重新加入：恢复为 active 成员并更新部门 */
+  rejoinTenantMember: (input: { userId: string; orgId: string }) => { ok: boolean; error?: string };
   addDepartment: (input: { name: string; parentId: string }) => { ok: boolean; error?: string; org?: PermOrg };
   updateDepartment: (input: { orgId: string; name?: string; parentId?: string; reason?: string }) => { ok: boolean; error?: string };
   /** 服务商内部业务团队（工作组）管理：只表达团队归属，不承载权限域概念 */
@@ -159,14 +179,15 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   usersRef.current = users;
   const [changeLogs, setChangeLogs] = useState<RoleChangeLog[]>(() => [...seedChangeLogs]);
   const [auditEvents, setAuditEvents] = useState<PermAuditEvent[]>(
-    // 登录审计并入模块级镜像（跨会话可查）；页面操作审计跨会话保留；种子审计兜底展示
+    // 登录审计并入模块级镜像（跨会话可查）；页面操作审计跨会话保留；
+    // 系统角色绑定审计缓冲（cooperationModel 数据层产生）同构并入；种子审计兜底展示
     () => {
       const drained = drainLoginAuditEvents();
       for (let i = drained.length - 1; i >= 0; i -= 1) loginAuditBuffer.unshift(drained[i]);
       if (loginAuditBuffer.length > LOGIN_AUDIT_BUFFER_CAP) {
         loginAuditBuffer.length = LOGIN_AUDIT_BUFFER_CAP;
       }
-      return [...loginAuditBuffer, ...pageAuditBuffer, ...seedPermAudit];
+      return [...loginAuditBuffer, ...drainBindingAuditEvents(), ...pageAuditBuffer, ...seedPermAudit];
     },
   );
   const [preview, setPreview] = useState<PreviewState | null>(null);
@@ -181,7 +202,13 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     () => rolesOfTenant(roles, realm, realm === 'TENANT' ? principalTenantId : null),
     [roles, realm, principalTenantId],
   );
-  const currentRoleId = principal.realm === "PLATFORM" ? principal.platformRoleId : principal.activeRoleId;
+  /** 全部生效角色 id（多角色合并口径；平台域恒单角色） */
+  const currentRoleIds = useMemo(
+    () => (principal.realm === "PLATFORM" ? [principal.platformRoleId] : principal.roleIds),
+    [principal],
+  );
+  /** 主角色（首个生效角色）：视角派生与展示兜底，权限判定一律用 effectiveRole 并集 */
+  const currentRoleId = currentRoleIds[0];
 
   const mappedRole = useMemo(
     () => roles.find(r => r.id === currentRoleId) ?? realmRoles[0],
@@ -191,16 +218,27 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   const ACTOR = principal.name;
 
   const effectiveRole = useMemo(() => {
-    if (!preview) return mappedRole;
-    return roles.find(r => r.id === preview.roleId) ?? mappedRole;
-  }, [preview, roles, mappedRole]);
+    // 角色预览保持单角色只读语义：以被预览角色单独渲染
+    if (preview) return roles.find(r => r.id === preview.roleId) ?? mappedRole;
+    if (principal.realm !== "TENANT" || currentRoleIds.length <= 1) return mappedRole;
+    const roleList = currentRoleIds
+      .map(id => roles.find(r => r.id === id))
+      .filter((r): r is SysRole => Boolean(r));
+    if (roleList.length <= 1) return roleList[0] ?? mappedRole;
+    // 同企业多角色自动合并：功能权限按权限点并集、字段策略从严（mergeRolePerms）
+    const { pagePerms, fieldPolicies } = mergeRolePerms(roleList);
+    return { ...roleList[0], id: "multi-role-merged", name: roleList.map(r => r.name).join(" + "), pagePerms, fieldPolicies };
+  }, [preview, roles, mappedRole, principal.realm, currentRoleIds]);
 
   const logAudit = useCallback((partial: Partial<PermAuditEvent> & Pick<PermAuditEvent, 'action' | 'target' | 'module'>) => {
     const event: PermAuditEvent = {
       id: nextId('PE'),
       time: nowStamp(),
       actor: principal.name,
-      actorRole: principal.realm === 'PLATFORM' ? principal.platformRoleName : principal.activeRoleName,
+      actorRole:
+        principal.realm === 'PLATFORM'
+          ? principal.platformRoleName
+          : principal.roleNames.join('+'),
       org: principal.realm === 'PLATFORM' ? principal.workspaceName : principal.tenantName,
       resource: partial.resource ?? `${partial.module}`,
       decision: '允许',
@@ -233,13 +271,31 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     return pageHasAction(effectiveRole, pageId, action);
   }, [effectiveRole]);
 
+  // 套餐/租户绑定变更联动（换绑或编辑套餐菜单集后 visiblePages 即时重算）
+  const packagesSnap = useSyncExternalStore(subscribeTenantPackages, getTenantPackagesSnapshot);
+  const registrySnap = useSyncExternalStore(subscribeTenantRegistry, getTenantRegistrySnapshot);
+  void packagesSnap;
+  void registrySnap;
+
   const visiblePages = useMemo(() => {
-    return new Set(
+    const base = new Set(
       Object.entries(effectiveRole.pagePerms)
         .filter(([, actions]) => actions.includes('view') || actions.length > 0)
         .map(([id]) => id),
     );
-  }, [effectiveRole]);
+    // 租户套餐过滤（2026-09-18 套餐模型）：租户域可见菜单 = 角色权限 ∩ 所绑套餐菜单。
+    // 角色预览不受套餐裁剪（预览的是角色能力，不代表该租户开通态）；不在册的
+    // 种子登录身份无套餐约束（tenantPackageMenuIds 返回 null 时保持全量）。
+    if (principal.realm === 'TENANT' && !preview && principalTenantId) {
+      const allowed = tenantPackageMenuIds(principalTenantId);
+      if (allowed) {
+        for (const id of [...base]) {
+          if (!allowed.has(id as PageId)) base.delete(id);
+        }
+      }
+    }
+    return base;
+  }, [effectiveRole, principal, preview, principalTenantId, packagesSnap, registrySnap]);
 
   const startPreview = useCallback((state: Omit<PreviewState, 'startedAt'>) => {
     const startedAt = nowStamp();
@@ -623,8 +679,15 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     if (!/^1\d{10}$/.test(phone)) return { ok: false, error: '手机号格式不正确，应为 1 开头的 11 位数字' };
     if (!email) return { ok: false, error: '请填写邮箱' };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: '邮箱格式不正确' };
-    if (users.some(u => u.account === account)) return { ok: false, error: '用户名已存在，同一租户内唯一' };
-    if (users.some(u => u.phone === phone)) return { ok: false, error: '该手机号已绑定其他账号' };
+    // 账号/手机号唯一性（2026-09-18 口径）：企业内唯一，数据源含 rt- 运行时账号
+    // （allUsers()=种子+租户注册中心运行时用户），跨企业允许同号/同账号分别建档
+    const wsRootId = realm === 'TENANT' ? principalTenantId : 'org-platform';
+    if (wsRootId && isAccountTakenInWorkspace(account, wsRootId)) {
+      return { ok: false, error: '该账号在本企业已存在，请更换' };
+    }
+    if (wsRootId && isPhoneTakenInWorkspace(phone, wsRootId)) {
+      return { ok: false, error: '该手机号在本企业已被其他成员使用' };
+    }
     const target = orgs.find(o => o.id === input.orgId);
     if (!target) return { ok: false, error: '所属部门不存在' };
     // 成员建档边界：租户管理员只能在本企业组织树内建号；软件服务方人员只能建软件服务方账号
@@ -632,6 +695,20 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     if (realm === 'TENANT') {
       if (!targetRoot || targetRoot.id !== principalTenantId) {
         return { ok: false, error: '只能在本企业组织内新建成员（租户边界）' };
+      }
+      // 套餐开通限额（2026-09-18 租户套餐模型）：达到限额后禁止再建号；
+      // used=注册中心在册数 + 本会话新建尚未落库的用户数
+      const { quota, used } = tenantQuotaInfo(principalTenantId);
+      if (quota != null) {
+        const localExtra = usersRef.current.filter(
+          (u) =>
+            !PERM_USERS.some((s) => s.id === u.id) &&
+            u.accountStatus !== 'disabled' &&
+            enterpriseRootOf(orgs, u.orgId)?.id === principalTenantId,
+        ).length;
+        if (used + localExtra >= quota) {
+          return { ok: false, error: `该租户用户数量限额 ${quota} 人已满（当前 ${used + localExtra} 人），请联系软件服务方调整限额` };
+        }
       }
     } else if (targetRoot?.type !== 'platform') {
       return { ok: false, error: '软件服务方账号只能挂在软件服务方组织下' };
@@ -662,7 +739,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       afterSummary: `${target.name} · 启用 · ${phone.slice(0, 3)}****${phone.slice(-4)}`,
     });
     return { ok: true, user };
-  }, [logAudit, orgs, preview, principalTenantId, realm, users]);
+  }, [logAudit, orgs, preview, principalTenantId, realm]);
 
   const setUserStatus = useCallback((userId: string, status: 'enabled' | 'disabled', opts?: { reason?: string; revokeAssignments?: boolean }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
@@ -690,8 +767,108 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
         ? `停用 · 有效角色 ${activeCount} 条${opts?.revokeAssignments && activeCount > 0 ? ' · 已同步回收' : ' · 保留冻结记录'}`
         : '启用',
     });
+    // 成员身份冻结/解冻独立审计事件（2026-09-18 审计盲区补全）：账号停用/启用
+    // 对本企业成员身份生效力的留痕；自然人其他企业的成员身份不受影响
+    if (realm === 'TENANT' && principalTenantId && principal.realm === 'TENANT') {
+      const membership = membershipOfUserInTenant(userId, principalTenantId);
+      if (membership && membership.status !== 'removed') {
+        logAudit({
+          module: MOD_USER_ORG,
+          action: status === 'disabled' ? '成员身份冻结' : '成员身份解冻',
+          target: `${user.name} · ${principal.tenantName}`,
+          resource: 'memberships.status',
+          reason: `账号${status === 'disabled' ? '停用' : '启用'}联动 · 本企业成员身份随账号状态${status === 'disabled' ? '失效' : '恢复'}（其他企业成员身份不受影响）`,
+          beforeSummary: membership.status === 'active' ? '参与权限计算' : membership.status,
+          afterSummary: status === 'disabled' ? '冻结 · 不参与新会话计算' : '恢复 · 参与权限计算',
+        });
+      }
+    }
     return { ok: true };
-  }, [assignments, logAudit, preview, users]);
+  }, [assignments, logAudit, preview, principal, principalTenantId, realm, users]);
+
+  /**
+   * 移除成员（2026-09-18 成员生命周期补全，租户域唯一入口）：
+   * 终止本企业成员身份 + 同步回收全部有效角色授权（历史留痕）；
+   * 守卫：不能移除自己、不能移除企业唯一有效管理员、软件服务方身份不可调用。
+   */
+  const removeTenantMember = useCallback((input: { userId: string; kind: string; note?: string }) => {
+    if (preview) return { ok: false, error: '预览模式禁止写操作' };
+    if (realm !== 'TENANT' || !principalTenantId) return { ok: false, error: '软件服务方身份不进入租户成员管理' };
+    if (input.userId === principal.userId) return { ok: false, error: '不能移除当前登录账号自己' };
+    const user = users.find(u => u.id === input.userId);
+    if (!user) return { ok: false, error: '用户不存在' };
+    const membership = membershipOfUserInTenant(input.userId, principalTenantId);
+    if (!membership) return { ok: false, error: '该用户不是本企业成员' };
+    if (membership.status === 'removed') return { ok: false, error: '该成员已处于移除状态' };
+    // 唯一有效企业管理员守卫：移除后企业将无人管理（按预置管理员角色的生效授权判定）
+    const adminRoleIds = ['role-pharma-admin', 'role-provider-admin'];
+    const isAdmin = assignments.some(
+      a => a.userId === input.userId && a.tenantId === principalTenantId && adminRoleIds.includes(a.roleId) && a.status === 'active',
+    );
+    if (isAdmin) {
+      const adminUsers = new Set(
+        assignments
+          .filter(a => a.tenantId === principalTenantId && adminRoleIds.includes(a.roleId) && a.status === 'active' && a.userId !== input.userId)
+          .map(a => a.userId)
+          .filter(uid => {
+            const m = membershipOfUserInTenant(uid, principalTenantId);
+            const acc = users.find(u => u.id === uid);
+            return membershipActive(m) && acc?.accountStatus === 'enabled';
+          }),
+      );
+      if (adminUsers.size === 0) {
+        return { ok: false, error: '该成员是本企业唯一有效企业管理员，请先授予其他成员管理员角色后再移除' };
+      }
+    }
+    // 同步回收全部有效角色授权（历史保留占位，与停用账号的回收口径一致）
+    const activeCount = assignments.filter(a => a.userId === input.userId && a.tenantId === principalTenantId && a.status === 'active').length;
+    if (activeCount > 0) {
+      const stamp = nowStamp();
+      setAssignments(prev => prev.map(a => (
+        a.userId === input.userId && a.tenantId === principalTenantId && a.status === 'active'
+          ? { ...a, status: 'revoked' as GrantStatus, reason: `成员移除同步回收（${input.kind}）`, revokedBy: ACTOR, revokedAt: stamp }
+          : a
+      )));
+    }
+    const result = removeMembership({ userId: input.userId, tenantId: principalTenantId, actor: ACTOR, kind: input.kind, note: input.note });
+    if (!result.ok) return { ok: false, error: result.error };
+    const fromOrg = orgs.find(o => o.id === membership.orgUnitId)?.name ?? membership.orgUnitId;
+    logAudit({
+      module: MOD_USER_ORG,
+      action: '移除成员',
+      target: `${user.name} · ${user.account}`,
+      resource: 'memberships.remove',
+      reason: `${input.kind}${input.note?.trim() ? `：${input.note.trim()}` : ''}`,
+      beforeSummary: `${fromOrg} · 有效角色 ${activeCount} 条`,
+      afterSummary: `已移除 · 本企业成员身份终止${activeCount > 0 ? ` · 已同步回收 ${activeCount} 条有效授权` : ''}（自然人账号与其他企业身份不受影响）`,
+    });
+    return { ok: true, revokedCount: activeCount };
+  }, [ACTOR, assignments, logAudit, orgs, preview, principal, principalTenantId, realm, users]);
+
+  /** 移除后重新加入（租户域唯一入口）：恢复 active 成员身份并更新部门归属 */
+  const rejoinTenantMember = useCallback((input: { userId: string; orgId: string }) => {
+    if (preview) return { ok: false, error: '预览模式禁止写操作' };
+    if (realm !== 'TENANT' || !principalTenantId) return { ok: false, error: '软件服务方身份不进入租户成员管理' };
+    const user = users.find(u => u.id === input.userId);
+    if (!user) return { ok: false, error: '用户不存在' };
+    const target = orgs.find(o => o.id === input.orgId);
+    if (!target) return { ok: false, error: '目标部门不存在' };
+    const toRoot = enterpriseRootOf(orgs, target.id);
+    if (!toRoot || toRoot.id !== principalTenantId) return { ok: false, error: '只能恢复到本企业组织内（租户边界）' };
+    const result = rejoinMembership({ userId: input.userId, tenantId: principalTenantId, orgUnitId: target.id });
+    if (!result.ok) return { ok: false, error: result.error };
+    const m = result.membership;
+    logAudit({
+      module: MOD_USER_ORG,
+      action: '成员重新加入',
+      target: `${user.name} · ${user.account}`,
+      resource: 'memberships.rejoin',
+      reason: '移除后重新加入',
+      beforeSummary: `已移除${m?.removedAt ? `（${m.removedAt} 由 ${m.removedBy ?? '—'} 移除）` : ''}`,
+      afterSummary: `恢复为有效成员 · ${target.name} · 历史授权需重新授予`,
+    });
+    return { ok: true };
+  }, [logAudit, orgs, preview, principalTenantId, realm, users]);
 
   const addDepartment = useCallback((input: { name: string; parentId: string }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
@@ -866,9 +1043,9 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   }, [assignments, logAudit, orgs, preview, principalTenantId, realm, users]);
 
   /**
-   * 指定/更换工作组组长（工作组管理页唯一入口）。前置校验与 4.2 组长规则一致：
-   * 属于该工作组 ∧ 账号启用 ∧ 拥有生效「工作组组长」角色（未持有角色的成员
-   * 会提示先在「角色与数据范围 · 已授权成员」授予）。变更写入本地审计记录。
+   * 指定/更换工作组组长（工作组管理页唯一入口）。2026-09-18 岗位与角色分离后：
+   * 前置校验只看人与岗位记录（属于该工作组 ∧ 账号启用）；若被指定人未持有生效的
+   * 「工作组组长」角色，自动补授一条（复用唯一授权入口，含审计），避免「有岗位无权限」。
    */
   const [groupLeaders, setGroupLeaders] = useState<Record<string, GroupLeaderRecord>>(() => ({ ...SEED_GROUP_LEADERS }));
   const [groupLeaderChanges, setGroupLeaderChanges] = useState<GroupLeaderChange[]>(() => [...SEED_GROUP_LEADER_CHANGES]);
@@ -893,8 +1070,18 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
         a.effectiveFrom <= today &&
         (!a.effectiveTo || a.effectiveTo >= today),
     );
+    let autoGranted = false;
     if (!hasRole) {
-      return { ok: false, error: `${user.name} 尚未持有生效的「工作组组长」角色，请先在「角色与数据范围 · 已授权成员」页签授予后再指定` };
+      const grant = createAssignment({
+        userId: input.userId,
+        roleId: 'role-group-lead',
+        effectiveFrom: today,
+        reason: `指定组长自动补授 · ${input.reason.trim()}`,
+      });
+      if (!grant.ok) {
+        return { ok: false, error: `自动补授「工作组组长」角色失败：${grant.error}` };
+      }
+      autoGranted = true;
     }
     const prev = groupLeaders[input.groupId];
     const record: GroupLeaderRecord = {
@@ -911,8 +1098,8 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       at: nowStamp(),
       actor: ACTOR,
       summary: prev
-        ? `组长由 ${users.find(u => u.id === prev.userId)?.name ?? prev.userId} 变更为 ${user.name} · 原因：${input.reason.trim()}`
-        : `指定 ${user.name} 为工作组组长 · 原因：${input.reason.trim()}`,
+        ? `组长由 ${users.find(u => u.id === prev.userId)?.name ?? prev.userId} 变更为 ${user.name} · 原因：${input.reason.trim()}${autoGranted ? '（已自动补授组长角色）' : ''}`
+        : `指定 ${user.name} 为工作组组长 · 原因：${input.reason.trim()}${autoGranted ? '（已自动补授组长角色）' : ''}`,
     };
     setGroupLeaderChanges(prevList => [change, ...prevList]);
     logAudit({
@@ -923,10 +1110,10 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       resource: 'workgroup-leader.edit',
       reason: input.reason.trim(),
       beforeSummary: prev ? `${users.find(u => u.id === prev.userId)?.name ?? prev.userId} · ${prev.appointedAt}` : '（未设置）',
-      afterSummary: `${user.name} · ${record.appointedAt}`,
+      afterSummary: `${user.name} · ${record.appointedAt}${autoGranted ? ' · 已自动补授组长角色' : ''}`,
     });
-    return { ok: true };
-  }, [assignments, groupLeaders, logAudit, preview, principalTenantId, principalTenantKind, users]);
+    return { ok: true, autoGranted };
+  }, [assignments, createAssignment, groupLeaders, logAudit, preview, principalTenantId, principalTenantKind, users]);
 
   const value: PermissionStore = {
     roles,
@@ -958,6 +1145,8 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     revokeAssignment,
     createUser,
     setUserStatus,
+    removeTenantMember,
+    rejoinTenantMember,
     addDepartment,
     updateDepartment,
     addWorkGroup,

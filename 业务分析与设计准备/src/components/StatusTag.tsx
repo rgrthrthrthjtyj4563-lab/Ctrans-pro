@@ -20,6 +20,7 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '停用':   { label: '停用',   fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   '已过期': { label: '已过期', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   '已回收': { label: '已回收', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
+  '已移除': { label: '已移除', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
   '待复核': { label: '待复核', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '待审核': { label: '待审核', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '待评定': { label: '待评定', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
