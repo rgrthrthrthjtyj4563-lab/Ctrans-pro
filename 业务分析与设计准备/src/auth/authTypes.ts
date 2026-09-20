@@ -371,6 +371,8 @@ export interface AuthGateway {
         realm: AccessRealm
         /** 顶部提示文案：「系统管理后台」或企业名 */
         workspaceLabel: string
+        /** 可选行业标签（下拉框条目展示用）：后台=系统顶层管理组织，企业按租户 kind 推导 */
+        tag?: string
       }
     | { ok: false; failure: LoginFailure }
   >

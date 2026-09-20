@@ -1392,12 +1392,23 @@ export const authGateway: AuthGateway = {
       }
     }
     const workspaceLabel = realm === "PLATFORM" ? PLATFORM_WORKSPACE_NAME : resolved.enterpriseName
+    // 行业标签（登录下拉框条目展示）：后台=系统顶层管理组织；企业按租户 kind 推导，未知留空
+    const kind = tenantKindOfRoot(allOrgs().find((o) => o.id === resolved.enterpriseId))
+    const tag =
+      realm === "PLATFORM"
+        ? "系统顶层管理组织"
+        : kind === "pharma"
+          ? "核心制药企业"
+          : kind === "provider"
+            ? "医药商业服务商"
+            : undefined
     return {
       ok: true,
       enterpriseId: resolved.enterpriseId,
       enterpriseName: resolved.enterpriseName,
       realm,
       workspaceLabel,
+      ...(tag ? { tag } : {}),
     }
   },
 

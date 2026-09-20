@@ -12,6 +12,7 @@
  */
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -21,13 +22,17 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react"
 import {
+  ArrowRight,
   Building2,
+  Check,
+  ChevronDown,
   Eye,
   EyeOff,
   Info,
   LoaderCircle,
   RefreshCw,
   ScanLine,
+  Search,
   ShieldCheck,
   Smartphone,
   TriangleAlert,
@@ -70,6 +75,8 @@ const REMEMBERED_ENT_KEY = "lg-remembered-enterprises"
 interface RememberedEnterprise {
   code: string
   name: string
+  /** 行业标签（下拉框条目展示；解析成功时由网关返回并随记忆保存，旧记录可缺省） */
+  tag?: string
 }
 
 /** 读全部 try/catch：不可用、格式损坏或写入失败时静默降级，登录流程不受影响 */
@@ -300,7 +307,13 @@ export function LoginPage({
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({})
 
   // 编码两段式：第 1 段 = 企业验证/工作空间验证（enterprise 为空时未验证），第 2 段 = 短信验证
-  const [entCode, setEntCode] = useState("")
+  // 第 1 段为可搜索复合下拉框：输入框承载「选中展示文本 / 自由检索文本」两种形态
+  const [entQuery, setEntQuery] = useState("")
+  /** 下拉框选中的记忆条目（摘要条数据源）：选中仅回填展示，点「继续」才解析（不信任缓存） */
+  const [selectedEnt, setSelectedEnt] = useState<RememberedEnterprise | null>(null)
+  const [comboOpen, setComboOpen] = useState(false)
+  /** 键盘导航高亮项（作用于过滤后列表的索引，-1 = 无） */
+  const [comboActive, setComboActive] = useState(-1)
   const [entBusy, setEntBusy] = useState(false)
   /** aria-live 异步结果区：正在解析 / 已识别：{企业名} / 缓存失效提示 */
   const [entStatus, setEntStatus] = useState<string | null>(null)
@@ -310,6 +323,9 @@ export function LoginPage({
   const resolveSeq = useRef(0)
   const smsSeq = useRef(0)
   const entCodeRef = useRef<HTMLInputElement>(null)
+  const comboWrapRef = useRef<HTMLDivElement>(null)
+  /** 程序化聚焦抑制：回填选中后 refocus 会触发 onFocus，不能因此重新展开面板 */
+  const suppressFocusOpenRef = useRef(false)
 
   // 密码登录（第 2 段「密码登录」子方式；账号企业内唯一，联合企业编码定位）
   const [account, setAccount] = useState("")
@@ -417,7 +433,11 @@ export function LoginPage({
       setEntStatus(result.realm === "PLATFORM" ? "已识别：系统管理后台（软件服务方）" : `已识别：${result.enterpriseName}`)
       setRemembered((prev) => {
         const next = [
-          { code, name: result.workspaceLabel },
+          {
+            code,
+            name: result.workspaceLabel,
+            ...(result.tag ? { tag: result.tag } : {}),
+          },
           ...prev.filter((v) => v.code !== code),
         ].slice(0, 5)
         saveRememberedEnterprises(next)
@@ -446,24 +466,125 @@ export function LoginPage({
     setSmsNotice(null)
     setAccount("")
     setPassword("")
+    setEntQuery("")
+    setSelectedEnt(null)
+    setComboOpen(false)
+    setComboActive(-1)
     window.setTimeout(() => entCodeRef.current?.focus(), 30)
   }, [])
 
-  const useMemoEntry = useCallback(
+  // ─── 第 1 段可搜索复合下拉框：过滤、选中、直接进入、继续按钮 ─────────────────
+
+  // 面板展开时点击外部收起：不能用 fixed 全屏遮罩——登录卡有 backdrop-filter，
+  // 会成为 fixed 后代的包含块导致遮罩只盖住卡片；document 级 pointerdown 外点判定最稳
+  useEffect(() => {
+    if (!comboOpen) return
+    const onDocPointerDown = (e: PointerEvent) => {
+      const wrap = comboWrapRef.current
+      if (wrap && e.target instanceof Node && wrap.contains(e.target)) return
+      setComboOpen(false)
+      setComboActive(-1)
+    }
+    document.addEventListener("pointerdown", onDocPointerDown)
+    return () => document.removeEventListener("pointerdown", onDocPointerDown)
+  }, [comboOpen])
+
+  /** 检索词：输入文本恰为选中展示态「名称 (编码)」时不作过滤（展开面板显示全部） */
+  const comboQuery = useMemo(() => {
+    if (selectedEnt && entQuery === `${selectedEnt.name} (${selectedEnt.code})`) return ""
+    return entQuery.trim().toLowerCase()
+  }, [selectedEnt, entQuery])
+
+  const filteredEnterprises = useMemo(() => {
+    if (!comboQuery) return remembered
+    return remembered.filter(
+      (v) => v.name.toLowerCase().includes(comboQuery) || v.code.toLowerCase().includes(comboQuery),
+    )
+  }, [remembered, comboQuery])
+
+  /** 下拉条目点击：仅回填展示并标记就绪，点「继续」才解析（不信任缓存的企业名/ID） */
+  const pickEnterprise = useCallback((entry: RememberedEnterprise) => {
+    setSelectedEnt(entry)
+    setEntQuery(`${entry.name} (${entry.code})`)
+    setComboOpen(false)
+    setComboActive(-1)
+    setFieldErrors({})
+    suppressFocusOpenRef.current = true
+    window.setTimeout(() => entCodeRef.current?.focus(), 0)
+  }, [])
+
+  /** 解析失败后的缓存失效收口：回退为纯编码并取消选中；removeStale 时静默删除该记忆条目 */
+  const staleSelectionFallback = useCallback((code: string, removeStale: boolean) => {
+    setEntQuery(code)
+    setSelectedEnt(null)
+    if (removeStale) {
+      setRemembered((prev) => {
+        const next = prev.filter((v) => v.code !== code)
+        saveRememberedEnterprises(next)
+        return next
+      })
+    }
+  }, [])
+
+  /** 推荐项「直接进入」：选中并立即解析进入第 2 步（每次重新 resolve，缓存失效则静默删条目） */
+  const quickEnterEnterprise = useCallback(
     async (entry: RememberedEnterprise) => {
-      setEntCode(entry.code)
+      setSelectedEnt(entry)
+      setEntQuery(`${entry.name} (${entry.code})`)
+      setComboOpen(false)
+      setComboActive(-1)
       const ok = await resolveEnterpriseCode(entry.code)
-      if (!ok) {
-        // 解析失败：缓存内容不可信，静默删除该条并提示重输（错误文案即重输提示）
-        setRemembered((prev) => {
-          const next = prev.filter((v) => v.code !== entry.code)
-          saveRememberedEnterprises(next)
-          return next
-        })
-      }
+      if (!ok) staleSelectionFallback(entry.code, true)
     },
-    [resolveEnterpriseCode],
+    [resolveEnterpriseCode, staleSelectionFallback],
   )
+
+  /** 主按钮/回车：取选中条目编码，或从输入文本中提取字母数字编码候选，解析通过后进入第 2 步。
+      去掉独立「绑定新编码」入口后的隐式能力：直接输入有效 8 位编码仍可继续登录 */
+  const proceedEnterprise = useCallback(async () => {
+    if (entBusy) return
+    const candidate = selectedEnt?.code ?? entQuery.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()
+    if (!candidate) {
+      setFieldErrors({ entcode: "请选择或输入企业编码" })
+      entCodeRef.current?.focus()
+      return
+    }
+    if (candidate.length !== 8) {
+      setFieldErrors({ entcode: "企业编码为 8 位字母数字，请补全后再试" })
+      entCodeRef.current?.focus()
+      return
+    }
+    const ok = await resolveEnterpriseCode(candidate)
+    if (!ok && selectedEnt) staleSelectionFallback(candidate, false)
+  }, [entBusy, selectedEnt, entQuery, resolveEnterpriseCode, staleSelectionFallback])
+
+  /** 输入框键盘导航：↑↓ 移动高亮、Enter 选中高亮项或直接继续、Esc 收起面板 */
+  const onComboKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault()
+      if (!comboOpen) {
+        setComboOpen(true)
+        setComboActive(filteredEnterprises.length > 0 ? 0 : -1)
+        return
+      }
+      if (filteredEnterprises.length === 0) return
+      const delta = e.key === "ArrowDown" ? 1 : -1
+      setComboActive((prev) => (prev + delta + filteredEnterprises.length) % filteredEnterprises.length)
+      return
+    }
+    if (e.key === "Enter") {
+      e.preventDefault()
+      const active = comboActive >= 0 ? filteredEnterprises[comboActive] : undefined
+      if (comboOpen && active) pickEnterprise(active)
+      else void proceedEnterprise()
+      return
+    }
+    if (e.key === "Escape" && comboOpen) {
+      e.preventDefault()
+      setComboOpen(false)
+      setComboActive(-1)
+    }
+  }
 
   const deleteMemoEntry = useCallback((code: string) => {
     setRemembered((prev) => {
@@ -712,7 +833,10 @@ export function LoginPage({
       setHintsOpen(false)
       setMethod("sms")
       resetSmsState()
-      setEntCode(h.enterpriseCode)
+      setEntQuery(`${h.orgName} (${h.enterpriseCode})`)
+      setSelectedEnt(null)
+      setComboOpen(false)
+      setComboActive(-1)
       const ok = await resolveEnterpriseCode(h.enterpriseCode)
       // 解析成功的回调里会重置第 2 段，手机号/账号必须在解析完成后回填
       if (ok) {
@@ -978,52 +1102,227 @@ export function LoginPage({
                 >
                   {!enterprise ? (
                     <>
-                      {/* 第 1 段：企业编码 */}
+                      {/* 第 1 段：企业验证（可搜索复合下拉框：输入框承载选中态/检索态） */}
                       <div>
-                        <label htmlFor="login-entcode" className="lg-label">
-                          企业编码
-                        </label>
-                        <div className="lg-field-row" style={{ display: "flex", gap: 10 }}>
-                          <input
-                            id="login-entcode"
-                            ref={entCodeRef}
-                            className="lg-field font-mono-nums"
-                            value={entCode}
-                            onChange={(e) => setEntCode(e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase())}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") void resolveEnterpriseCode(entCode)
-                            }}
-                            maxLength={8}
-                            disabled={entBusy}
-                            autoComplete="off"
-                            aria-invalid={Boolean(fieldErrors.entcode)}
-                            aria-describedby={fieldErrors.entcode ? "err-entcode" : entStatus ? "ent-status" : undefined}
-                            style={{ flex: 1, minWidth: 0, letterSpacing: "0.08em", fontWeight: 700 }}
-                            placeholder="8 位企业编码，如 E9K4P7X2"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void resolveEnterpriseCode(entCode)}
-                            disabled={entBusy || !entCode.trim()}
-                            style={{
-                              flexShrink: 0,
-                              height: 50,
-                              padding: "0 16px",
-                              borderRadius: 10,
-                              border: "1px solid rgba(25,197,154,0.3)",
-                              background: "rgba(25,197,154,0.06)",
-                              color: entBusy || !entCode.trim() ? "rgba(26,43,66,0.3)" : "#0D9B7A",
-                              fontSize: "var(--fs-13)",
-                              fontWeight: 500,
-                              fontFamily: "inherit",
-                              cursor: entBusy || !entCode.trim() ? "not-allowed" : "pointer",
-                              transition: "background 150ms, color 150ms",
-                              whiteSpace: "nowrap",
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            justifyContent: "space-between",
+                            gap: 8,
+                            marginBottom: 8,
+                          }}
+                        >
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <label htmlFor="login-entcode" className="lg-label" style={{ marginBottom: 0 }}>
+                              选择或输入企业
+                            </label>
+                            <span className="lg-combo-hintchip">支持代码或名称检索</span>
+                          </span>
+                          {remembered.length > 0 && <span className="lg-combo-count">已记住 {remembered.length} 家企业</span>}
+                        </div>
+
+                        <div className="lg-combo-wrap" ref={comboWrapRef}>
+                          <div
+                            className={"lg-combo-box" + (comboOpen ? " is-open" : "")}
+                            onClick={() => {
+                              if (!comboOpen) {
+                                setComboOpen(true)
+                                setComboActive(-1)
+                              }
                             }}
                           >
-                            {entBusy ? "验证中…" : "验证企业"}
-                          </button>
+                            <Building2 size={15} aria-hidden className="lg-combo-box-icon" />
+                            <input
+                              id="login-entcode"
+                              ref={entCodeRef}
+                              role="combobox"
+                              aria-expanded={comboOpen}
+                              aria-controls="lg-combo-listbox"
+                              aria-activedescendant={
+                                comboOpen && comboActive >= 0 && filteredEnterprises[comboActive]
+                                  ? `lg-combo-opt-${comboActive}`
+                                  : undefined
+                              }
+                              className="lg-combo-input"
+                              value={entQuery}
+                              onChange={(e) => {
+                                setEntQuery(e.target.value)
+                                setSelectedEnt(null)
+                                setComboOpen(true)
+                                setComboActive(-1)
+                                setFieldErrors({})
+                              }}
+                              onKeyDown={onComboKeyDown}
+                              onFocus={() => {
+                                if (suppressFocusOpenRef.current) {
+                                  suppressFocusOpenRef.current = false
+                                  return
+                                }
+                                if (!comboOpen) {
+                                  setComboOpen(true)
+                                  setComboActive(-1)
+                                }
+                              }}
+                              disabled={entBusy}
+                              autoComplete="off"
+                              aria-invalid={Boolean(fieldErrors.entcode)}
+                              aria-describedby={fieldErrors.entcode ? "err-entcode" : entStatus ? "ent-status" : undefined}
+                              placeholder="输入企业编码或名称检索，也可下拉快速选取"
+                            />
+                            {entQuery && (
+                              <button
+                                type="button"
+                                className="lg-combo-clear"
+                                aria-label="清空输入"
+                                title="清空"
+                                disabled={entBusy}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEntQuery("")
+                                  setSelectedEnt(null)
+                                  setComboOpen(true)
+                                  setComboActive(-1)
+                                  entCodeRef.current?.focus()
+                                }}
+                              >
+                                <X size={13} aria-hidden />
+                              </button>
+                            )}
+                            <span className="lg-combo-divider" aria-hidden />
+                            <button
+                              type="button"
+                              className="lg-combo-toggle"
+                              aria-label={comboOpen ? "收起企业列表" : "展开企业列表"}
+                              disabled={entBusy}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setComboOpen((v) => {
+                                  if (!v) setComboActive(-1)
+                                  return !v
+                                })
+                              }}
+                            >
+                              <ChevronDown size={15} aria-hidden className={"lg-combo-chevron" + (comboOpen ? " is-open" : "")} />
+                            </button>
+                          </div>
+
+                          {/* 下拉面板：外点收起由 document pointerdown 统一处理，条目索引与键盘高亮连续对应 */}
+                          {comboOpen && (
+                            <div className="lg-combo-panel" id="lg-combo-listbox" role="listbox" aria-label="已保存的企业">
+                                <div className="lg-combo-panel-head">
+                                  <span className="lg-combo-panel-head-main">
+                                    <Search size={12} aria-hidden />
+                                    {comboQuery
+                                      ? `匹配到 ${filteredEnterprises.length} 家已保存企业`
+                                      : `已保存 ${remembered.length} 家企业`}
+                                  </span>
+                                  <span className="lg-combo-hintchip">支持名称或代码检索</span>
+                                </div>
+                                {filteredEnterprises.length === 0 ? (
+                                  <div className="lg-combo-empty">
+                                    未找到匹配企业
+                                    <span>可直接输入 8 位企业编码后回车继续</span>
+                                  </div>
+                                ) : (
+                                  <div className="lg-combo-list">
+                                    {filteredEnterprises.map((v, i) => {
+                                      const isMru = remembered[0]?.code === v.code
+                                      const isRecommended = i === 0 && isMru
+                                      const isSelected = selectedEnt?.code === v.code
+                                      const showRecommendedHeader = i === 0 && isMru
+                                      const showRestHeader =
+                                        !isMru && (i === 0 || remembered[0]?.code === filteredEnterprises[i - 1]?.code)
+                                      return (
+                                        <Fragment key={v.code}>
+                                          {showRecommendedHeader && (
+                                            <div className="lg-combo-group">
+                                              <span>推荐 / 上次使用</span>
+                                            </div>
+                                          )}
+                                          {showRestHeader && (
+                                            <div className="lg-combo-group">
+                                              <span>已记住的组织</span>
+                                            </div>
+                                          )}
+                                          <div
+                                            id={`lg-combo-opt-${i}`}
+                                            role="option"
+                                            aria-selected={isSelected}
+                                            aria-label={`${v.name}，编码 ${v.code}`}
+                                            className={
+                                              "lg-combo-item" +
+                                              (isRecommended ? " is-recommended" : "") +
+                                              (isSelected ? " is-selected" : "") +
+                                              (i === comboActive ? " is-active" : "")
+                                            }
+                                            onMouseEnter={() => setComboActive(i)}
+                                            onClick={() => pickEnterprise(v)}
+                                          >
+                                            <span className={"lg-combo-item-icon" + (isSelected || isRecommended ? " is-selected" : "")}>
+                                              {isSelected || isRecommended ? (
+                                                <Check size={13} aria-hidden />
+                                              ) : (
+                                                <Building2 size={13} aria-hidden />
+                                              )}
+                                            </span>
+                                            <span className="lg-combo-item-body">
+                                              <span className="lg-combo-item-title">
+                                                <span className="lg-combo-item-name">{v.name}</span>
+                                                {isRecommended ? (
+                                                  <span className="lg-combo-item-tag">上次登录</span>
+                                                ) : (
+                                                  v.tag && <span className="lg-combo-item-tag">{v.tag}</span>
+                                                )}
+                                              </span>
+                                              <span className="lg-combo-item-sub">
+                                                <code className="font-mono-nums">{v.code}</code>
+                                                {isRecommended && v.tag && <span>{v.tag}</span>}
+                                              </span>
+                                            </span>
+                                            <span className="lg-combo-actions">
+                                              {isRecommended ? (
+                                                <button
+                                                  type="button"
+                                                  className="lg-combo-quickenter"
+                                                  disabled={entBusy}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    void quickEnterEnterprise(v)
+                                                  }}
+                                                >
+                                                  直接进入
+                                                </button>
+                                              ) : (
+                                                <span className="lg-combo-pick" aria-hidden>
+                                                  选择
+                                                </span>
+                                              )}
+                                              <button
+                                                type="button"
+                                                className="lg-combo-del"
+                                                aria-label={`删除记住的企业 ${v.name}`}
+                                                title={`删除 ${v.name}`}
+                                                disabled={entBusy}
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  setMemoDeleteTarget(v)
+                                                }}
+                                              >
+                                                <X size={12} aria-hidden />
+                                              </button>
+                                            </span>
+                                          </div>
+                                        </Fragment>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                          )}
                         </div>
+
                         {fieldErrors.entcode && (
                           <div id="err-entcode" className="lg-error-pill" style={{ marginTop: 8 }}>
                             <TriangleAlert size={14} aria-hidden />
@@ -1052,46 +1351,39 @@ export function LoginPage({
                         </div>
                       </div>
 
-                      {/* 本设备记住的企业：点击仅回填编码并重新解析，不信任缓存 */}
-                      {remembered.length > 0 && (
-                        <div>
-                          <span className="lg-label" style={{ marginBottom: 7 }}>
-                            本设备记住的企业
-                          </span>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            {remembered.map((v) => (
-                              <div key={v.code} className="lg-memo-row">
-                                <button
-                                  type="button"
-                                  className="lg-memo-main"
-                                  disabled={entBusy}
-                                  onClick={() => void useMemoEntry(v)}
-                                >
-                                  <Building2 size={14} aria-hidden />
-                                  <span className="lg-memo-name">{v.name}</span>
-                                  <code className="font-mono-nums lg-memo-code">{v.code}</code>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="lg-memo-del"
-                                  aria-label={`删除记住的企业 ${v.name}`}
-                                  title={`删除 ${v.name}`}
-                                  disabled={entBusy}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setMemoDeleteTarget(v)
-                                  }}
-                                >
-                                  <X size={13} aria-hidden />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                          <div style={{ fontSize: "var(--fs-12)", color: "rgba(26,43,66,0.35)", marginTop: 6 }}>
-                            也可在上方输入其他企业编码
-                          </div>
+                      {/* 就绪摘要条：选中回填后展示；「设为默认」与第 2 步开关共用同一状态（两处互斥渲染） */}
+                      {selectedEnt && !fieldErrors.entcode && (
+                        <div className="lg-combo-ready">
+                          <span className="lg-combo-ready-dot" aria-hidden />
+                          <span className="lg-combo-ready-label">当前就绪：</span>
+                          <span className="lg-combo-ready-name">{selectedEnt.name}</span>
+                          <code className="font-mono-nums lg-combo-ready-code">{selectedEnt.code}</code>
+                          <label className="lg-combo-ready-remember">
+                            <input
+                              type="checkbox"
+                              checked={rememberDefault}
+                              onChange={(e) => setRememberDefault(e.target.checked)}
+                            />
+                            <span>设为默认</span>
+                          </label>
                         </div>
                       )}
+
+                      {/* 主操作：以选中企业继续；未选中时直接输入有效 8 位编码亦可继续（隐式入口） */}
+                      <button type="button" className="lg-submit" disabled={entBusy} onClick={() => void proceedEnterprise()}>
+                        {entBusy ? (
+                          <>
+                            <LoaderCircle size={15} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden />
+                            正在验证企业…
+                          </>
+                        ) : (
+                          <>
+                            以选定企业继续进入下一步
+                            <ArrowRight size={15} aria-hidden />
+                          </>
+                        )}
+                      </button>
+                      <p className="lg-combo-note">首次加入的企业完成短信验证后将自动安全保存在本设备</p>
                     </>
                   ) : (
                     <>
@@ -1197,7 +1489,7 @@ export function LoginPage({
                           </div>
                         )}
                       </div>
-                      <div>
+                      <div className="lg-code-section">
                         <span className="lg-label" style={{ marginBottom: 7 }}>
                           短信验证码
                         </span>
@@ -1239,7 +1531,7 @@ export function LoginPage({
                           </div>
                         )}
                         {!smsDevCode && !fieldErrors.code && (
-                          <div style={{ fontSize: "var(--fs-12)", color: "rgba(26,43,66,0.35)", marginTop: 7 }}>
+                          <div className="lg-code-help">
                             先输入手机号并获取验证码（演示环境不发送真实短信，成员验证码固定为 123456）
                           </div>
                         )}
