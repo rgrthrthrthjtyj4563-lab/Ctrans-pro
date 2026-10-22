@@ -27,6 +27,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { MetricCard } from '../components/MetricCard';
+import { StartupGuideBanner, type StartupGuideBannerState } from '../components/StartupGuide';
 import { AIInsightCard } from '../components/AIInsightCard';
 import { Button } from '../components/Button';
 import { RiskTag, Tag } from '../components/StatusTag';
@@ -1534,7 +1535,7 @@ function SectionBoard({
   );
 }
 
-function PharmaWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => void }) {
+function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page: PageId) => void; startupGuide?: StartupGuideBannerState }) {
   const salesData = useMemo(() => getRoleDashboardData('药厂销售部门'), []);
   const complianceData = useMemo(() => getRoleDashboardData('药厂合规部门'), []);
   const workbench = salesData.salesWorkbench;
@@ -1853,6 +1854,8 @@ function PharmaWorkbenchDashboard({ navigate }: { navigate: (page: PageId) => vo
 
   return (
     <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* 00 新手引导：业务启动步骤欢迎卡（稍后再说/全部完成后隐藏） */}
+      {startupGuide && <StartupGuideBanner state={startupGuide} />}
       {editing && <LayoutEditBanner onReset={layout.resetLayout} />}
 
       {/* 01 页面标题与范围 */}
@@ -2348,15 +2351,18 @@ export function Dashboard({
   navigate,
   variant,
   addToast,
+  startupGuide,
 }: {
   navigate: (page: PageId) => void;
   /** 登录身份派生的工作台形态：药厂 / 服务商链路（系统管理后台已无工作台首页） */
   variant: 'pharma' | 'provider';
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+  /** 新手引导「业务启动步骤」欢迎卡状态（仅药厂形态由 AppShell 注入） */
+  startupGuide?: StartupGuideBannerState;
 }) {
   void addToast;
   if (variant === 'provider') {
     return <ProviderWorkbenchDashboard navigate={navigate} />;
   }
-  return <PharmaWorkbenchDashboard navigate={navigate} />;
+  return <PharmaWorkbenchDashboard navigate={navigate} startupGuide={startupGuide} />;
 }

@@ -2,19 +2,18 @@
  * 合作关系（药厂侧）：本药厂与各服务商的合作关系台账与生命周期控制。
  * 只负责合作语义（生效/暂停/恢复/终止）；品种/项目/区域资格在「业务授权」。
  * 暂停/终止由药厂控制，实时影响服务商全员可进入范围（员工授权无法绕过）。
- * 数据源 = cooperationModel（服务商准入通过后的合作生效记录 + 软件服务方运行时建租户）。
+ * 数据源 = cooperationModel（服务商准入通过后的合作生效记录 + 外部已准入批量导入 + 软件服务方运行时建租户）。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Eye, Pause, Play, ShieldX } from 'lucide-react';
+import { Eye, Pause, Play, ShieldX, Upload } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
-import { StatusTag, Tag } from '../components/StatusTag';
+import { StatusTag } from '../components/StatusTag';
 import { usePermission } from '../context/PermissionContext';
 import {
   activeAuthSummaryOfRelationship,
-  relationshipStatusLabel,
   subscribeCooperation,
   relationshipsOfPharma,
   pauseRelationship,
@@ -24,6 +23,9 @@ import {
 } from '../data/cooperationModel';
 import type { ToastMessage } from '../components/Toast';
 import { Field, InfoBanner, inputStyle, tdStyle, thStyle } from './permUi';
+import { CoopImportModal } from './CoopImportModal';
+
+const mono = "'JetBrains Mono', monospace";
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
@@ -49,6 +51,8 @@ export function PharmaCooperation({ addToast, onOpenAuthorization }: Props) {
   const canApprove = can('pharma-cooperation', 'approve') && !previewReadOnly;
 
   const [op, setOp] = useState<{ kind: 'pause' | 'resume' | 'terminate'; relId: string; providerName: string; reason: string; error: string } | null>(null);
+  /** 导入合作服务商（外部已准入）：与「服务商准入」并列的合作建立入口 */
+  const [importOpen, setImportOpen] = useState(false);
 
   function submitOp() {
     if (!op) return;
@@ -74,12 +78,16 @@ export function PharmaCooperation({ addToast, onOpenAuthorization }: Props) {
   }
 
   const statusTone = (s: string) => (s === 'active' ? 'success' : s === 'paused' ? 'warning' : 'danger');
+  void statusTone;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="合作关系"
         description={`管理「${pharmaName}」与各服务商的合作生命周期。业务资格（品种/项目/区域）在「业务授权」维护。`}
+        actions={canEdit ? (
+          <Button variant="outline" size="sm" icon={<Upload size={14} />} onClick={() => setImportOpen(true)}>导入服务商（外部已准入）</Button>
+        ) : undefined}
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         <div style={{ marginBottom: 12 }}>
@@ -100,9 +108,17 @@ export function PharmaCooperation({ addToast, onOpenAuthorization }: Props) {
                     const sum = activeAuthSummaryOfRelationship(rel.id);
                     return (
                       <tr key={rel.id}>
-                        <td style={tdStyle}><div style={{ fontWeight: 600 }}>{providerName}</div><div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{rel.id}</div></td>
-                        <td style={tdStyle}><StatusTag status={relationshipStatusLabel(rel.status)} size="sm" /></td>
-                        <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>{rel.effectiveFrom}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {providerName}
+                            {rel.source === 'manual' && (
+                              <span style={{ fontSize: 'var(--fs-11)', padding: '1px 7px', borderRadius: 4, color: '#2F6BCE', background: '#EBF2FE', border: '1px solid #C9DDF7', fontWeight: 600 }}>↧ 外部准入</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{rel.id}</div>
+                        </td>
+                        <td style={tdStyle}><StatusTag status={rel.status === 'active' ? '合作中' : rel.status === 'paused' ? '已暂停' : '已终止'} size="sm" /></td>
+                        <td style={{ ...tdStyle, fontFamily: mono }}>{rel.effectiveFrom}</td>
                         <td style={tdStyle}>
                           <div style={{ fontSize: 'var(--fs-12)' }}>已授权产品 {sum.varieties.length} 个</div>
                           <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>授权区域 {sum.regions.length} 个</div>
@@ -155,9 +171,17 @@ export function PharmaCooperation({ addToast, onOpenAuthorization }: Props) {
             <Field label="原因" required hint="只填适合对外展示的文案（随操作审计保留）">
               <textarea value={op.reason} onChange={e => setOp({ ...op, reason: e.target.value, error: '' })} rows={2} style={{ ...inputStyle, height: 'auto', padding: 10, resize: 'vertical' }} placeholder="例如：合作协议待续签" />
             </Field>
-            {op.kind !== 'pause' && <Tag label="操作人将记录为当前登录用户" color="default" />}
+            {op.kind !== 'pause' && <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>操作人将记录为当前登录用户</div>}
           </div>
         </Modal>
+      )}
+
+      {importOpen && (
+        <CoopImportModal
+          pharmaTenantId={pharmaTenantId}
+          addToast={addToast}
+          onClose={() => setImportOpen(false)}
+        />
       )}
     </div>
   );

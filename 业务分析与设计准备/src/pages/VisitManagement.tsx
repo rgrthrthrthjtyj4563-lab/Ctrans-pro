@@ -10,6 +10,11 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Timeline } from '../components/Timeline';
 import { EmptyState } from '../components/EmptyState';
 import { visitRecords, providers, workGroups, visitCategories } from '../data/mockData';
+import { useAcceptance } from '../context/AcceptanceContext';
+import { itemAcceptanceLabel, pendingLevelOf, BUSINESS_TYPE_CATEGORIES } from '../data/acceptanceData';
+import { BatchReviewModal } from '../components/AcceptanceTab';
+import { Tag } from '../components/StatusTag';
+import type { NavigateFn, NavFocus } from '../types';
 import { usePermission } from '../context/PermissionContext';
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
 import { InfoBanner } from './permUi';
@@ -25,6 +30,8 @@ const DRAWER_TABS: DrawerTab[] = ['记录详情', '操作历史', '拜访位置'
 interface VisitManagementProps {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
   currentRole?: Role;
+  navigate?: NavigateFn;
+  navFocus?: NavFocus;
 }
 
 const mockTimeline = [
@@ -140,8 +147,14 @@ function VisitLocationMap({ record }: { record: VisitRecord }) {
   );
 }
 
-export function VisitManagement({ addToast }: VisitManagementProps) {
+export function VisitManagement({ addToast, navigate, navFocus }: VisitManagementProps) {
   const { principal, can } = usePermission();
+  // ── 成果验收（任务详情「去审核」跳入：预置月份/服务提供商筛选；药厂就地验收推广记录） ──
+  const { config: acceptChainConfig, packageOf, reviewBatch } = useAcceptance();
+  const [acceptBatchOpen, setAcceptBatchOpen] = useState(false);
+  const [preRejectIds, setPreRejectIds] = useState<string[] | undefined>(undefined);
+  const [acceptSingleRejectItems, setAcceptSingleRejectItems] = useState<{ itemId: string; itemType: '推广记录' | '报告'; itemName: string }[]>([]);
+  const [acceptBatchCtx, setAcceptBatchCtx] = useState<{ taskId: string; month: string; lv: number; department: string } | null>(null);
   // 审核能力按角色页面权限判定（服务商侧审核；不再用旧角色名称字符串）
   const isProvider = can('hospital-visits', 'approve');
   // 统一过滤口径（P0-C）：当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；
@@ -153,7 +166,12 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
   const isAcademicVisit = (r: VisitRecord) => r.visitCategory.includes('学术');
   const [activeTab, setActiveTab] = useState<TabId>('医院拜访');
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [filters, setFilters] = useState<Record<string, string>>(() => {
+    const f: Record<string, string> = {};
+    if (navFocus?.serviceMonth) f.month = navFocus.serviceMonth;
+    if (navFocus?.provider) f.provider = navFocus.provider;
+    return f;
+  });
   const [selected, setSelected] = useState<string[]>([]);
   const [drawerRecord, setDrawerRecord] = useState<VisitRecord | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('记录详情');
@@ -178,8 +196,20 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
     '药房拜访': Math.floor(sessionFiltered.length * 0.4),
   };
 
-  const filtered = useMemo(() => {
+  // 范围集：月份 / 业务类型（「去审核」跳入即预置月份+服务提供商为普通筛选）
+  const monthTypeScoped = useMemo(() => {
     return sessionFiltered.filter(r => {
+      if (filters.month && !r.visitDate.startsWith(filters.month)) return false;
+      if (filters.businessType) {
+        const cats = BUSINESS_TYPE_CATEGORIES[filters.businessType] ?? [];
+        if (!cats.includes(r.visitCategory)) return false;
+      }
+      return true;
+    });
+  }, [sessionFiltered, filters.month, filters.businessType]);
+
+  const filtered = useMemo(() => {
+    return monthTypeScoped.filter(r => {
       if (filters.provider && !r.provider.includes(filters.provider)) return false;
       if (filters.workGroup && r.workGroup !== filters.workGroup) return false;
       if (filters.category && r.visitCategory !== filters.category) return false;
@@ -193,7 +223,23 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
       if (filters.auditStatus && r.auditStatus !== filters.auditStatus) return false;
       return true;
     });
-  }, [sessionFiltered, filters]);
+  }, [monthTypeScoped, filters]);
+
+  // 单条记录的验收上下文（任务×月份包 + 当前级/部门）
+  function recordAcceptCtx(r: VisitRecord) {
+    if (!r.taskId) return null;
+    const month = r.visitDate.slice(0, 7);
+    const pkg = packageOf(r.taskId, month);
+    const lv = pendingLevelOf(pkg.items, acceptChainConfig.levels) ?? 1;
+    const department = acceptChainConfig.levels <= 1 ? '成果验收' : acceptChainConfig.departments[lv - 1] ?? '—';
+    return { taskId: r.taskId, month, pkg, lv, department };
+  }
+  function recordPendingAcceptance(r: VisitRecord) {
+    const ctx = recordAcceptCtx(r);
+    if (!ctx) return false;
+    const st = ctx.pkg.items[r.id];
+    return !st || (!st.rectifying && st.passedLevels < acceptChainConfig.levels);
+  }
 
   const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -240,6 +286,66 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
     setAuditComment('');
   }
 
+  // ── 成果验收：提交（行级单条 / 批量共用） ──
+  function submitAcceptance(
+    ctx: { taskId: string; month: string; lv: number; department: string },
+    items: { itemId: string; itemType: '推广记录' | '报告'; itemName: string; decision: '通过' | '驳回'; comment: string }[],
+    batchComment: string,
+  ): boolean {
+    const result = reviewBatch({
+      taskId: ctx.taskId,
+      serviceMonth: ctx.month,
+      level: ctx.lv,
+      department: ctx.department,
+      reviewer: principal.name,
+      batchComment,
+      items,
+    });
+    if (!result.ok) {
+      addToast({ type: 'error', title: '提交失败', description: result.error });
+      return false;
+    }
+    addToast({
+      type: 'success',
+      title: `第 ${ctx.lv} 级验收已提交`,
+      description: `通过 ${items.filter(i => i.decision === '通过').length} 条 · 驳回 ${items.filter(i => i.decision === '驳回').length} 条，记录已留痕`,
+    });
+    setSelected([]);
+    return true;
+  }
+
+  function acceptItemName(r: VisitRecord) {
+    return `${r.hospital} · ${r.visitCategory}（${r.specialist} ${r.visitDate}）`;
+  }
+
+  function acceptSinglePass(r: VisitRecord) {
+    const ctx = recordAcceptCtx(r);
+    if (!ctx) return;
+    submitAcceptance(
+      ctx,
+      [{ itemId: r.id, itemType: '推广记录', itemName: acceptItemName(r), decision: '通过', comment: '' }],
+      '',
+    );
+  }
+
+  function acceptSingleReject(r: VisitRecord) {
+    const ctx = recordAcceptCtx(r);
+    if (!ctx) return;
+    setPreRejectIds([r.id]);
+    setAcceptSingleRejectItems([{ itemId: r.id, itemType: '推广记录', itemName: acceptItemName(r) }]);
+    setAcceptBatchCtx({ taskId: ctx.taskId, month: ctx.month, lv: ctx.lv, department: ctx.department });
+    setAcceptBatchOpen(true);
+  }
+
+  // 批量验收条目（仅待验收状态的选中项）
+  const acceptBatchItems = useMemo(() => {
+    return selected
+      .map(id => pageData.find(r => r.id === id))
+      .filter((r): r is VisitRecord => !!r && recordPendingAcceptance(r))
+      .map(r => ({ itemId: r.id, itemType: '推广记录' as const, itemName: acceptItemName(r) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, pageData]);
+
   function confirmDelete() {
     addToast({ type: 'success', title: '删除成功', description: '操作已写入操作日志' });
     setDeleteTarget(null);
@@ -257,8 +363,14 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
     setDrawerTab('记录详情');
   }
 
+  const monthOptions = useMemo(() => {
+    const set = new Set(sessionFiltered.map(r => r.visitDate.slice(0, 7)));
+    return Array.from(set).sort().reverse().map(m => ({ value: m, label: m }));
+  }, [sessionFiltered]);
   const filterFields = [
     { id: 'provider', label: '服务提供商', type: 'select' as const, options: providers.map(p => ({ value: p, label: p })) },
+    { id: 'month', label: '拜访月份', type: 'select' as const, options: monthOptions },
+    { id: 'businessType', label: '业务类型', type: 'select' as const, options: Object.keys(BUSINESS_TYPE_CATEGORIES).map(c => ({ value: c, label: c })) },
     { id: 'workGroup', label: '工作组', type: 'select' as const, options: workGroups.map(w => ({ value: w, label: w })) },
     { id: 'category', label: '拜访类别', type: 'select' as const, options: visitCategories.map(c => ({ value: c, label: c })) },
     { id: 'specialist', label: '服务专员', type: 'text' as const, placeholder: '搜索服务专员' },
@@ -287,6 +399,21 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
   const extraActions = (
     <>
       <Button variant="outline" size="sm" icon={<Download size={13} />}>导出</Button>
+      {!isProvider && acceptBatchItems.length > 0 && (
+        <>
+          <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {acceptBatchItems.length} 条待验收</span>
+          <Button variant="primary" size="sm" icon={<CheckCircle size={13} />} onClick={() => {
+            const first = pageData.find(r => selected.includes(r.id) && recordPendingAcceptance(r));
+            const ctx = first ? recordAcceptCtx(first) : null;
+            if (!ctx) return;
+            setAcceptBatchCtx({ taskId: ctx.taskId, month: ctx.month, lv: ctx.lv, department: ctx.department });
+            setPreRejectIds(undefined);
+            setAcceptBatchOpen(true);
+          }}>
+            批量验收（已选 {acceptBatchItems.length} 条）
+          </Button>
+        </>
+      )}
       {isProvider && selected.length > 0 && (
         <>
           <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {selected.length} 条</span>
@@ -297,6 +424,8 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
       )}
     </>
   );
+
+  const rowLinkStyle: React.CSSProperties = { border: 'none', background: 'none', padding: 0, color: '#2F6BCE', cursor: 'pointer', fontSize: 'var(--fs-13)' };
 
   const th = (label: string, w?: string | number) => (
     <th style={{
@@ -388,14 +517,13 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                   {th('结束时间', 150)}
                   {th('绩效状态')}
                   {th('审核状态')}
-                  {th('审核意见')}
-                  {th('操作', isProvider ? 140 : 70)}
+                  {th('操作', 110)}
                 </tr>
               </thead>
               <tbody>
                 {pageData.length === 0 ? (
                   <tr>
-                    <td colSpan={14} style={{ padding: 0 }}>
+                    <td colSpan={13} style={{ padding: 0 }}>
                       <EmptyState
                         title="没有符合条件的拜访记录"
                         description="尝试调整筛选条件，或联系管理员确认数据范围。"
@@ -481,60 +609,23 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                     <td style={{ padding: '10px 12px' }}>
                       <StatusTag status={record.auditStatus} size="sm" />
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#C73A3A', maxWidth: 140 }}>
-                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={record.auditComment}>
-                        {record.auditComment || '—'}
-                      </span>
-                    </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <IconButton
-                          icon={<Eye size={13} />}
-                          title="查看详情"
-                          aria-label="查看详情"
-                          size="sm"
-                          onClick={() => openDrawer(record)}
-                        />
-                        {isProvider && record.auditStatus === '待审核' && (
-                          <IconButton
-                            icon={<CheckCircle size={13} />}
-                            title={filingBlocked && isAcademicVisit(record) ? '备案异常：学术拜访类动作已阻断' : '审核通过'}
-                            aria-label="审核通过"
-                            size="sm"
-                            disabled={filingBlocked && isAcademicVisit(record)}
-                            onClick={() => {
-                              if (filingBlocked && isAcademicVisit(record)) {
-                                addToast({ type: 'warning', title: '学术拜访已阻断', description: '当前备案异常（可进入药厂但不可发起/审核学术拜访），请先在「服务人员备案」完成补正。' });
-                                return;
-                              }
-                              addToast({
-                                type: 'success',
-                                title: '审核通过',
-                                description: `${record.id} 已通过审核，操作已写入操作日志`,
-                              });
-                            }}
-                          />
-                        )}
-                        {isProvider && (
-                          <>
-                            <IconButton
-                              icon={<Edit2 size={13} />}
-                              title="修改"
-                              aria-label="修改"
-                              size="sm"
-                              onClick={() => addToast({ type: 'info', title: '编辑模式', description: '此操作在真实系统中会打开编辑表单' })}
-                            />
-                            <IconButton
-                              icon={<Trash2 size={13} />}
-                              title="删除"
-                              aria-label="删除"
-                              size="sm"
-                              style={{ color: '#C73A3A' }}
-                              onClick={() => setDeleteTarget(record.id)}
-                            />
-                          </>
-                        )}
-                      </div>
+                      {(() => {
+                        const canAudit =
+                          (isProvider && record.auditStatus === '待审核' && !(filingBlocked && isAcademicVisit(record))) ||
+                          (!isProvider && recordPendingAcceptance(record));
+                        return (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', whiteSpace: 'nowrap' }}>
+                            <button type="button" onClick={() => openDrawer(record)} style={rowLinkStyle}>查看</button>
+                            {canAudit && (
+                              <>
+                                <span style={{ color: '#E5E7EB' }}>｜</span>
+                                <button type="button" onClick={() => openDrawer(record)} style={rowLinkStyle}>审核</button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -568,6 +659,16 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
           drawerRecord ? (
             <>
               <Button variant="outline" size="md" onClick={closeDrawer}>关闭</Button>
+              {!isProvider && recordPendingAcceptance(drawerRecord) && (
+                <>
+                  <Button variant="danger" size="md" icon={<XCircle size={14} />} onClick={() => acceptSingleReject(drawerRecord)}>
+                    驳回
+                  </Button>
+                  <Button variant="primary" size="md" icon={<CheckCircle size={14} />} onClick={() => acceptSinglePass(drawerRecord)}>
+                    通过
+                  </Button>
+                </>
+              )}
               {isProvider && drawerRecord.auditStatus === '待审核' && (
                 <>
                   <Button
@@ -737,6 +838,19 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
                     value={<span style={{ fontSize: 'var(--fs-16)', fontWeight: 700, color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>￥{drawerRecord.amount.toLocaleString()}</span>}
                   />
                   <FieldItem label="审核状态" value={<StatusTag status={drawerRecord.auditStatus} />} />
+                  <FieldItem label="审核意见" value={drawerRecord.auditComment || '—'} />
+                  <FieldItem
+                    label="验收状态"
+                    value={
+                      drawerRecord.taskId
+                        ? (() => {
+                            const pkg = packageOf(drawerRecord.taskId, drawerRecord.visitDate.slice(0, 7));
+                            const acc = itemAcceptanceLabel(pkg.items[drawerRecord.id], acceptChainConfig.levels);
+                            return <Tag label={acc.label} color={acc.tone} />;
+                          })()
+                        : '—'
+                    }
+                  />
                 </FieldGroup>
 
                 {showAuditPanel && (
@@ -784,7 +898,23 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
             {drawerTab === '操作历史' && (
               <FieldGroup title="操作历史">
                 <div style={{ gridColumn: '1 / -1' }}>
-                  <Timeline events={mockTimeline} />
+                  <Timeline
+                    events={[
+                      ...(drawerRecord && drawerRecord.taskId
+                        ? packageOf(drawerRecord.taskId, drawerRecord.visitDate.slice(0, 7)).logs
+                            .filter(l => l.itemId === drawerRecord.id)
+                            .map(l => ({
+                              id: l.id,
+                              type: (l.decision === '通过' ? '审核通过' : '审核驳回') as '审核通过' | '审核驳回',
+                              operator: l.reviewer,
+                              role: `成果验收 · 第 ${l.level} 级 · ${l.department}`,
+                              time: l.time,
+                              comment: l.comment || undefined,
+                            }))
+                        : []),
+                      ...mockTimeline,
+                    ]}
+                  />
                 </div>
               </FieldGroup>
             )}
@@ -825,6 +955,24 @@ export function VisitManagement({ addToast }: VisitManagementProps) {
         onConfirm={confirmBatch}
         onCancel={() => setBatchAction(null)}
       />
+
+      {/* 成果验收批量弹窗（行内单条驳回 / 勾选批量共用） */}
+      {acceptBatchOpen && (
+        <BatchReviewModal
+          taskId={acceptBatchCtx?.taskId ?? ''}
+          month={acceptBatchCtx?.month ?? ''}
+          level={acceptBatchCtx?.lv ?? 1}
+          department={acceptBatchCtx?.department ?? '—'}
+          reviewer={principal.name}
+          items={acceptSingleRejectItems.length ? acceptSingleRejectItems : acceptBatchItems}
+          preRejectIds={preRejectIds}
+          onClose={() => { setAcceptBatchOpen(false); setPreRejectIds(undefined); }}
+          onSubmit={(input) => {
+            if (!acceptBatchCtx) return false;
+            return submitAcceptance(acceptBatchCtx, input.items, input.batchComment);
+          }}
+        />
+      )}
     </div>
   );
 }

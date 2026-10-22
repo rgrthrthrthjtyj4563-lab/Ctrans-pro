@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   Bell,
   Plus,
@@ -9,14 +9,18 @@ import {
   Download,
   FileText,
   RefreshCw,
+  Search,
   ShieldOff,
 } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
 import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
+import { AcceptanceTab } from "../components/AcceptanceTab"
+import { useAcceptance } from "../context/AcceptanceContext"
 import { StatusTag, Tag } from "../components/StatusTag"
 import { Modal } from "../components/Modal"
 import { ConfirmDialog } from "../components/ConfirmDialog"
+import { BatchCreateTaskModal } from "../components/BatchCreateTaskModal"
 import { EmptyState } from "../components/EmptyState"
 import { Pagination } from "../components/Pagination"
 import {
@@ -62,7 +66,9 @@ import {
   workGroupMembers,
   SERVICE_DAILY_CAPACITY,
   providers,
+  visitRecords,
 } from "../data/mockData"
+import { packageMonths, packageKey, pendingLevelOf } from "../data/acceptanceData"
 import { chainPathLabel } from "../domain/taskV4"
 import {
   FILE_KIND_LABEL,
@@ -98,7 +104,6 @@ interface Props {
 }
 
 const PAGE_SIZE = 10
-const MEMORY_KEY = "by-create-task-memory"
 const inputStyle: React.CSSProperties = {
   width: "100%",
   height: 36,
@@ -161,6 +166,7 @@ export function TaskExecution({
 }: Props) {
   const ctx = useTaskData()
   const { principal, orgs, users, assignments, groupLeaders } = usePermission()
+  const { config: acceptCfg, packageOf: acceptPkgOf, reviewBatch: acceptReviewBatch } = useAcceptance()
   /**
    * 组长拦截（2026-09-15 拍板）：无有效组长的工作组（未设置/被停用/调离本组/
    * 角色被回收）不得接收新的管理任务——下派控件禁用并说明原因。
@@ -350,11 +356,11 @@ export function TaskExecution({
           variant="primary"
           size="sm"
           onClick={() => {
-            setReviewTask(t)
+            // 成果与验收页签内按材料包批量验收（原单报告一过式审核入口废弃）
             openDetail(t, "report")
           }}
         >
-          审核报告
+          验收成果
         </Button>
       )
     }
@@ -689,7 +695,7 @@ export function TaskExecution({
         )}
       </div>
 
-      <CreateTaskModal
+      <BatchCreateTaskModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         addToast={addToast}
@@ -724,6 +730,9 @@ export function TaskExecution({
         onPreviewReport={(report) =>
           detail && setPreviewRef({ taskId: detail.id, reportId: report.id })
         }
+        reviewerName={principal.name}
+        addToast={addToast}
+        onNavigate={navigate}
         onConfirmTask={
           isProvider && detail?.taskStatus === "待确认"
             ? () => {
@@ -883,8 +892,57 @@ export function TaskExecution({
       />
 
       <AttachmentPreviewModal
+        key={previewReport?.id ?? "none"}
         report={previewReport}
         onClose={() => setPreviewRef(null)}
+        decide={
+          isSales && previewReport && previewReport.serviceMonth && previewRef
+            ? (() => {
+                const pkg = acceptPkgOf(previewRef.taskId, previewReport.serviceMonth)
+                const st = pkg.items[previewReport.id]
+                if (st && (st.rectifying || st.passedLevels >= acceptCfg.levels)) return undefined
+                const lv = pendingLevelOf(pkg.items, acceptCfg.levels) ?? 1
+                const department =
+                  acceptCfg.levels <= 1 ? "成果验收" : acceptCfg.departments[lv - 1] ?? "—"
+                const submit = (decision: "通过" | "驳回", comment: string) => {
+                  const result = acceptReviewBatch({
+                    taskId: previewRef.taskId,
+                    serviceMonth: previewReport.serviceMonth!,
+                    level: lv,
+                    department,
+                    reviewer: principal.name,
+                    batchComment: "",
+                    items: [
+                      {
+                        itemId: previewReport.id,
+                        itemType: "报告",
+                        itemName: previewReport.name,
+                        decision,
+                        comment,
+                      },
+                    ],
+                  })
+                  if (!result.ok) {
+                    addToast({ type: "error", title: "提交失败", description: result.error })
+                    return
+                  }
+                  addToast({
+                    type: "success",
+                    title: decision === "通过" ? "报告验收通过" : "报告已驳回",
+                    description:
+                      decision === "通过"
+                        ? `${previewReport.name} 已通过 ${department} 验收`
+                        : `${previewReport.name} 退回服务商补充，重新提交后从第 1 级重新验收`,
+                  })
+                  setPreviewRef(null)
+                }
+                return {
+                  onPass: () => submit("通过", ""),
+                  onReject: (reason: string) => submit("驳回", reason),
+                }
+              })()
+            : undefined
+        }
       />
 
       <ReviewModal
@@ -1172,1423 +1230,6 @@ function ChipSelect({
   )
 }
 
-interface DraftItem {
-  variety: string
-  region: string
-  category: ServiceItem["category"]
-  name: string
-  unit: string
-  suggestedUnitPrice: number
-  unitPrice: number
-  qty: number
-  amount: number
-  suggestedAmount: number
-  adjustReason: string
-}
-
-const CREATE_STEPS = ["基本信息", "任务详情"]
-
-function CreateTaskModal({
-  open,
-  onClose,
-  addToast,
-  holderPharma,
-}: {
-  open: boolean
-  onClose: () => void
-  addToast: (msg: Omit<ToastMessage, "id">) => void
-  /** 创建任务的服务委托方（本厂）名称；任务随会话按本厂隔离 */
-  holderPharma: string
-}) {
-  const {
-    varieties,
-    priceBooks,
-    budgetPlans,
-    auths,
-    unitPriceAdjustRule,
-    createTask,
-    varietiesOf,
-    regionsOf,
-  } = useTaskData()
-  const memory = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem(MEMORY_KEY) || "null")
-    } catch {
-      return null
-    }
-  }, [])
-
-  const [step, setStep] = useState(0)
-  const [provider, setProvider] = useState(memory?.provider ?? "")
-  const [pickedVarieties, setPickedVarieties] = useState<string[]>(
-    memory?.varieties ?? [],
-  )
-  const [pickedRegions, setPickedRegions] = useState<string[]>(
-    memory?.regions ?? [],
-  )
-  const [startDate, setStartDate] = useState(memory?.startDate ?? "2026-09-01")
-  const [endDate, setEndDate] = useState(memory?.endDate ?? "2026-09-30")
-  const [remember, setRemember] = useState(!!memory)
-  const [drafts, setDrafts] = useState<DraftItem[]>([])
-  const [periods, setPeriods] = useState<Omit<SettlementPeriod, "id">[]>(
-    defaultSettlementPeriods("2026-09-01", "2026-09-30"),
-  )
-  const [roundingLogs, setRoundingLogs] = useState<RoundingLog[]>([])
-  const [priceAdjustLogs, setPriceAdjustLogs] = useState<PriceAdjustLog[]>([])
-  const [totalAmount, setTotalAmount] = useState(0)
-  const [sectionAmounts, setSectionAmounts] = useState({
-    promo: 0,
-    analysis: 0,
-  })
-  const [error, setError] = useState("")
-
-  const varietyOpts = provider ? varietiesOf(provider) : []
-  const regionOpts = provider
-    ? regionsOf(provider, pickedVarieties.length ? pickedVarieties : undefined)
-    : []
-  const pickedObjs = pickedVarieties
-    .map((n) => varieties.find((v) => v.tradeName === n))
-    .filter((v): v is NonNullable<typeof v> => !!v)
-  const lockedBook = pickedObjs[0]
-    ? varietyPriceBook(pickedObjs[0], priceBooks)
-    : undefined
-
-  const rec = recommendedBudget({
-    provider,
-    varieties: pickedVarieties,
-    regions: pickedRegions,
-    startDate,
-    endDate,
-    categories: ["市场推广服务", "分析报告服务"],
-    plans: budgetPlans,
-  })
-  const planTotal = drafts
-    .filter((d) => d.amount > 0)
-    .reduce((s, d) => s + d.amount, 0)
-  const budgetDiff = rec.configured ? totalAmount - rec.amount : 0
-
-  function rulesOfBook() {
-    if (!lockedBook)
-      return { promo: [] as PriceRow[], analysis: [] as PriceRow[] }
-    return {
-      promo: lockedBook.rules
-        .filter((r) => r.category === "市场推广服务")
-        .map((r) => ({
-          category: r.category,
-          name: r.name,
-          unitPrice: r.amount,
-          unit: r.unit,
-        })),
-      analysis: lockedBook.rules
-        .filter((r) => r.category === "分析报告服务")
-        .map((r) => ({
-          category: r.category,
-          name: r.name,
-          unitPrice: r.amount,
-          unit: r.unit,
-        })),
-    }
-  }
-
-  function fixedRegionsOf(vs: string[]) {
-    if (!provider || !vs.length) return []
-    const perVariety = vs.map((name) =>
-      auths.filter((a) => a.provider === provider && a.varietyName === name),
-    )
-    if (perVariety.some((rows) => rows.length === 0)) return []
-    const candidates = [
-      ...new Set(
-        perVariety.flatMap((rows) =>
-          rows.flatMap((row) =>
-            row.regions.filter((region) => region !== "全国"),
-          ),
-        ),
-      ),
-    ]
-    const shared = candidates.filter((region) =>
-      perVariety.every((rows) =>
-        rows.some(
-          (row) => row.regions.includes("全国") || row.regions.includes(region),
-        ),
-      ),
-    )
-    return shared.length
-      ? shared
-      : perVariety.every((rows) =>
-            rows.some((row) => row.regions.includes("全国")),
-          )
-        ? ["全国"]
-        : []
-  }
-
-  function splitByRatio(total: number) {
-    const { promo, analysis } = rulesOfBook()
-    const promoWeight = promo.reduce(
-      (sum, row) =>
-        sum +
-        (lockedBook?.rules.find(
-          (rule) =>
-            rule.id === row.name ||
-            (rule.category === row.category && rule.name === row.name),
-        )?.ratio ?? 0),
-      0,
-    )
-    const analysisWeight = analysis.reduce(
-      (sum, row) =>
-        sum +
-        (lockedBook?.rules.find(
-          (rule) =>
-            rule.id === row.name ||
-            (rule.category === row.category && rule.name === row.name),
-        )?.ratio ?? 0),
-      0,
-    )
-    const all = promoWeight + analysisWeight || 1
-    const promoAmount = Math.round((total * promoWeight) / all)
-    return {
-      promo: promoAmount,
-      analysis: Math.max(0, Math.round(total - promoAmount)),
-    }
-  }
-
-  function rebuildDrafts(vs: string[], rs: string[], amounts = sectionAmounts) {
-    const book = vs[0]
-      ? varietyPriceBook(
-          varieties.find((v) => v.tradeName === vs[0]),
-          priceBooks,
-        )
-      : undefined
-    if (!book || !rs.length) {
-      setDrafts([])
-      return
-    }
-    const rows = [
-      ...book.rules.filter((r) => r.category === "市场推广服务"),
-      ...book.rules.filter((r) => r.category === "分析报告服务"),
-    ]
-    const pairCount = vs.length * rs.length
-    const next: DraftItem[] = []
-    vs.forEach((variety) => {
-      rs.forEach((region) => {
-        rows.forEach((r) => {
-          const sectionRules = rows.filter((row) => row.category === r.category)
-          const sectionWeight =
-            sectionRules.reduce((sum, row) => sum + row.ratio, 0) || 1
-          const sectionAmount =
-            r.category === "市场推广服务" ? amounts.promo : amounts.analysis
-          const requested =
-            (sectionAmount * r.ratio) / sectionWeight / pairCount
-          const calculated = nearestTier(requested, r.amount)
-          next.push({
-            variety,
-            region,
-            category: r.category,
-            name: r.name,
-            unit: r.unit,
-            suggestedUnitPrice: r.amount,
-            unitPrice: r.amount,
-            qty: calculated.qty,
-            amount: calculated.amount,
-            suggestedAmount: calculated.amount,
-            adjustReason: "",
-          })
-        })
-      })
-    })
-    setDrafts(next)
-  }
-
-  function applyTotalAmount(value: number) {
-    const next = splitByRatio(Math.max(0, value))
-    setTotalAmount(Math.max(0, value))
-    setSectionAmounts(next)
-    rebuildDrafts(pickedVarieties, pickedRegions, next)
-  }
-
-  function applySectionAmount(section: "promo" | "analysis", value: number) {
-    const next = { ...sectionAmounts, [section]: Math.max(0, value) }
-    setSectionAmounts(next)
-    setTotalAmount(next.promo + next.analysis)
-    rebuildDrafts(pickedVarieties, pickedRegions, next)
-  }
-
-  function patchDraft(
-    idx: number,
-    part: Partial<DraftItem>,
-    source: "price" | "amount" | "qty",
-  ) {
-    setDrafts((prev) => {
-      const cur = prev[idx]
-      if (!cur) return prev
-      const next = { ...cur, ...part }
-      const beforeAmount = cur.amount
-      const beforeQty =
-        source === "amount" && next.unitPrice > 0
-          ? cur.amount / cur.unitPrice
-          : cur.qty
-      if (source === "qty") {
-        next.amount = Math.round(next.qty * next.unitPrice)
-      } else if (source === "price") {
-        next.amount = Math.round(next.qty * next.unitPrice)
-      }
-      const tier = nearestTier(next.amount, next.unitPrice)
-      if (tier.rounded && next.amount > 0) {
-        const log: RoundingLog = {
-          id: `RND-${Date.now()}`,
-          time: new Date().toISOString().slice(0, 16).replace("T", " "),
-          variety: next.variety,
-          region: next.region,
-          itemName: next.name,
-          beforeAmount,
-          beforeQty,
-          unitPrice: next.unitPrice,
-          afterAmount: tier.amount,
-          afterQty: tier.qty,
-          reason: tier.reason,
-        }
-        setRoundingLogs((logs) => [...logs, log])
-        addToast({
-          type: "warning",
-          title: "已按最近档位取整",
-          description: roundingToastText(log),
-        })
-        next.qty = tier.qty
-        next.amount = tier.amount
-      } else if (!tier.rounded && source !== "qty") {
-        next.qty = tier.qty
-        next.amount = next.amount
-      }
-      if (
-        next.suggestedAmount === 0 &&
-        next.qty > 0 &&
-        next.unitPrice === next.suggestedUnitPrice
-      ) {
-        next.suggestedAmount = next.qty * next.suggestedUnitPrice
-      }
-      if (
-        next.unitPrice !== next.suggestedUnitPrice ||
-        next.amount !== next.suggestedAmount
-      ) {
-        if (next.adjustReason) {
-          setPriceAdjustLogs((logs) => [
-            ...logs.filter(
-              (l) =>
-                !(
-                  l.variety === next.variety &&
-                  l.region === next.region &&
-                  l.itemName === next.name
-                ),
-            ),
-            {
-              id: `ADJ-${next.variety}-${next.region}-${next.name}`,
-              time: new Date().toISOString().slice(0, 16).replace("T", " "),
-              variety: next.variety,
-              region: next.region,
-              itemName: next.name,
-              suggestedUnitPrice: next.suggestedUnitPrice,
-              actualUnitPrice: next.unitPrice,
-              suggestedAmount: next.suggestedAmount,
-              actualAmount: next.amount,
-              reason: next.adjustReason,
-            },
-          ])
-        }
-      }
-      return prev.map((item, i) => (i === idx ? next : item))
-    })
-  }
-
-  function toggleVariety(name: string) {
-    const v = varieties.find((x) => x.tradeName === name)
-    const book = varietyPriceBook(v, priceBooks)
-    if (!isPriceBookActive(book)) {
-      setError(`品种「${name}」没有有效价目表，无法创建任务`)
-      return
-    }
-    if (pickedVarieties.includes(name)) {
-      const next = pickedVarieties.filter((x) => x !== name)
-      const regions = fixedRegionsOf(next)
-      setPickedVarieties(next)
-      setPickedRegions(regions)
-      rebuildDrafts(next, regions)
-      setError("")
-      return
-    }
-    if (lockedBook && book && book.id !== lockedBook.id) {
-      setError(PRICE_BOOK_MISMATCH_MSG)
-      addToast({
-        type: "error",
-        title: "价目表不一致",
-        description: `${name} 使用「${book.name}」，与当前任务「${lockedBook.name}」不同`,
-      })
-      return
-    }
-    const next = [...pickedVarieties, name]
-    const regions = fixedRegionsOf(next)
-    setPickedVarieties(next)
-    setPickedRegions(regions)
-    rebuildDrafts(next, regions)
-    setError("")
-  }
-
-  function goNext() {
-    setError("")
-    if (step === 0) {
-      if (!provider) return setError("请选择服务提供商")
-      if (!pickedVarieties.length) return setError("请选择品种")
-      if (!startDate || !endDate) return setError("请选择推广时间")
-      if (endDate < startDate) return setError("结束日期不能早于开始日期")
-      const regions = fixedRegionsOf(pickedVarieties)
-      if (!regions.length)
-        return setError(
-          "所选品种在该服务商下没有共同授权的推广地区，无法创建同一任务",
-        )
-      const missing = pickedObjs.find(
-        (v) => !isPriceBookActive(varietyPriceBook(v, priceBooks)),
-      )
-      if (missing)
-        return setError(
-          `品种「${missing.tradeName}」没有有效价目表，无法创建任务`,
-        )
-      if (new Set(pickedObjs.map((v) => v.activePriceBookId)).size > 1)
-        return setError(PRICE_BOOK_MISMATCH_MSG)
-      const initialRec = recommendedBudget({
-        provider,
-        varieties: pickedVarieties,
-        regions,
-        startDate,
-        endDate,
-        categories: ["市场推广服务", "分析报告服务"],
-        plans: budgetPlans,
-      })
-      const initialTotal = initialRec.configured ? initialRec.amount : 0
-      const amounts = splitByRatio(initialTotal)
-      setPickedRegions(regions)
-      setTotalAmount(initialTotal)
-      setSectionAmounts(amounts)
-      rebuildDrafts(pickedVarieties, regions, amounts)
-      setPeriods(defaultSettlementPeriods(startDate, endDate))
-      setStep(1)
-      return
-    }
-    if (step === 1) {
-      if (!pickedVarieties.length) return setError("请选择品种")
-      const missing = pickedObjs.find(
-        (v) => !isPriceBookActive(varietyPriceBook(v, priceBooks)),
-      )
-      if (missing)
-        return setError(
-          `品种「${missing.tradeName}」没有有效价目表，无法创建任务`,
-        )
-      const ids = [...new Set(pickedObjs.map((v) => v.activePriceBookId))]
-      if (ids.length > 1) return setError(PRICE_BOOK_MISMATCH_MSG)
-    }
-    if (step === 2) {
-      if (!pickedRegions.length) return setError("请选择服务地区")
-      for (const vn of pickedVarieties) {
-        for (const rg of pickedRegions) {
-          const ok = auths.some(
-            (a) =>
-              a.provider === provider &&
-              a.varietyName === vn &&
-              (a.regions.includes("全国") ||
-                a.regions.includes(rg) ||
-                rg === "全国"),
-          )
-          if (!ok)
-            return setError(`${provider} 未获得「${vn}」在「${rg}」的授权`)
-        }
-      }
-      rebuildDrafts(pickedVarieties, pickedRegions)
-    }
-    if (step === 4) {
-      if (!drafts.some((d) => d.amount > 0))
-        return setError("请至少填写一项服务项目的推广金额")
-      for (const d of drafts.filter((x) => x.amount > 0)) {
-        const rangeErr = unitPriceOutOfRange(
-          d.unitPrice,
-          d.suggestedUnitPrice,
-          unitPriceAdjustRule,
-        )
-        if (rangeErr) return setError(`${d.variety} / ${d.name}：${rangeErr}`)
-        if (
-          (d.unitPrice !== d.suggestedUnitPrice ||
-            d.amount !== d.suggestedAmount) &&
-          !d.adjustReason.trim()
-        ) {
-          return setError(
-            `「${d.name}」（${d.variety}·${d.region}）偏离建议单价或建议金额，调整原因必填`,
-          )
-        }
-      }
-    }
-    setStep((s) => Math.min(s + 1, CREATE_STEPS.length - 1))
-  }
-
-  function submit() {
-    if (totalAmount <= 0 || !drafts.some((draft) => draft.amount > 0)) {
-      setError("请填写大于 0 的推广总金额")
-      return
-    }
-    const periodErr = validateSettlementPeriods(startDate, endDate, periods)
-    if (periodErr) {
-      setError(periodErr)
-      return
-    }
-    const items: ServiceItem[] = drafts
-      .filter((d) => d.amount > 0)
-      .map((d, i) => ({
-        id: `new-${i}`,
-        variety: d.variety,
-        region: d.region,
-        category: d.category,
-        name: d.name,
-        unitPrice: d.unitPrice,
-        unit: d.unit,
-        qty: d.qty,
-        amount: d.amount,
-        suggestedUnitPrice: d.suggestedUnitPrice,
-        suggestedAmount: d.suggestedAmount,
-        adjustReason: d.adjustReason || undefined,
-      }))
-    const result = createTask({
-      varieties: pickedVarieties,
-      provider,
-      holderPharma,
-      regions: pickedRegions,
-      startDate,
-      endDate,
-      serviceItems: items,
-      settlementPeriods: periods,
-      roundingLogs,
-      priceAdjustLogs,
-    })
-    if (!result.ok) {
-      setError(result.error || "创建失败")
-      return
-    }
-    if (remember) {
-      localStorage.setItem(
-        MEMORY_KEY,
-        JSON.stringify({
-          provider,
-          varieties: pickedVarieties,
-          regions: pickedRegions,
-          startDate,
-          endDate,
-        }),
-      )
-    } else {
-      localStorage.removeItem(MEMORY_KEY)
-    }
-    addToast({
-      type: result.warning ? "warning" : "success",
-      title: "任务已创建",
-      description: `${result.data?.taskNo} 进入待确认${
-        result.warning ? `。${result.warning}` : ""
-      }`,
-    })
-    setStep(0)
-    setDrafts([])
-    setError("")
-    onClose()
-  }
-
-  const { promo, analysis } = rulesOfBook()
-  const survey: PriceRow[] = []
-
-  return (
-    <Modal
-      open={open}
-      title="创建任务"
-      onClose={onClose}
-      width={980}
-      footer={
-        <div
-          style={{
-            width: "calc(100% + 40px)",
-            margin: "-12px -20px",
-            flexShrink: 0,
-          }}
-        >
-          {step === 1 && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 20,
-                padding: "10px 20px",
-                background: "#F9FAFB",
-                borderBottom: "1px solid var(--color-border)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 14,
-                  flexWrap: "wrap",
-                  fontSize: "var(--fs-12)",
-                  color: "var(--color-text-2)",
-                }}
-              >
-                <span>
-                  市场推广服务{" "}
-                  <strong
-                    style={{
-                      marginLeft: 4,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontWeight: 600,
-                      color: "#344054",
-                    }}
-                  >
-                    {formatCNY(sectionAmounts.promo)}
-                  </strong>
-                </span>
-                <span style={{ color: "var(--color-text-3)" }}>+</span>
-                <span>
-                  分析报告服务{" "}
-                  <strong
-                    style={{
-                      marginLeft: 4,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontWeight: 600,
-                      color: "#344054",
-                    }}
-                  >
-                    {formatCNY(sectionAmounts.analysis)}
-                  </strong>
-                </span>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  flexShrink: 0,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "var(--fs-12)",
-                    color: "var(--color-text-2)",
-                  }}
-                >
-                  任务合计金额
-                </span>
-                <strong
-                  style={{
-                    fontSize: "var(--fs-18)",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: "var(--color-warning-fg)",
-                  }}
-                >
-                  {formatCNY(totalAmount)}
-                </strong>
-              </div>
-            </div>
-          )}
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              justifyContent: "flex-end",
-              padding: "12px 20px",
-            }}
-          >
-            <Button variant="outline" onClick={onClose}>
-              取消
-            </Button>
-            {step > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setError("")
-                  setStep((s) => s - 1)
-                }}
-              >
-                上一步
-              </Button>
-            )}
-            {step < CREATE_STEPS.length - 1 ? (
-              <Button variant="primary" onClick={goNext}>
-                下一步：任务详情
-              </Button>
-            ) : (
-              <Button variant="primary" onClick={submit}>
-                创建任务
-              </Button>
-            )}
-          </div>
-        </div>
-      }
-    >
-      <div
-        style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}
-      >
-        {CREATE_STEPS.map((label, i) => (
-          <div
-            key={label}
-            style={{
-              padding: "4px 8px",
-              borderRadius: 12,
-              fontSize: "var(--fs-11)",
-              fontWeight: i === step ? 700 : 500,
-              background:
-                i === step
-                  ? "var(--color-brand-subtle)"
-                  : i < step
-                    ? "#F3F4F6"
-                    : "#fff",
-              color: i === step ? "var(--color-brand)" : "#667085",
-              border:
-                i === step
-                  ? "1px solid var(--color-brand)"
-                  : "1px solid var(--color-border)",
-            }}
-          >
-            {i + 1}. {label}
-          </div>
-        ))}
-      </div>
-      {error && <Banner color="danger">{error}</Banner>}
-
-      {step === 0 && (
-        <Section title="基本信息">
-          <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-          >
-            <Field label="服务提供商（一个任务固定一个）">
-              <select
-                value={provider}
-                onChange={(e) => {
-                  setProvider(e.target.value)
-                  setPickedVarieties([])
-                  setPickedRegions([])
-                  setDrafts([])
-                }}
-                style={inputStyle}
-              >
-                <option value="">请选择服务提供商</option>
-                {providers.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="所属品种（可多选，同一价目表）">
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  minHeight: 36,
-                  alignItems: "center",
-                }}
-              >
-                {varietyOpts.length === 0 ? (
-                  <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF" }}>
-                    {provider ? "该服务商暂无授权品种" : "请先选择服务提供商"}
-                  </span>
-                ) : (
-                  varietyOpts.map((name) => {
-                    const variety = varieties.find(
-                      (item) => item.tradeName === name,
-                    )
-                    const book = varietyPriceBook(variety, priceBooks)
-                    const active = isPriceBookActive(book)
-                    const mismatch = !!(
-                      lockedBook &&
-                      book &&
-                      book.id !== lockedBook.id
-                    )
-                    const selected = pickedVarieties.includes(name)
-                    const disabled = !active || mismatch
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        title={
-                          !active
-                            ? "无有效价目表"
-                            : mismatch
-                              ? `与当前价目表不一致：${book?.name}`
-                              : book?.name
-                        }
-                        disabled={disabled && !selected}
-                        onClick={() => toggleVariety(name)}
-                        style={{
-                          padding: "4px 9px",
-                          borderRadius: 14,
-                          fontSize: "var(--fs-12)",
-                          border: selected
-                            ? "1px solid var(--color-brand)"
-                            : "1px solid var(--color-border)",
-                          background: selected
-                            ? "var(--color-brand-subtle)"
-                            : "#fff",
-                          color:
-                            disabled && !selected
-                              ? "#98A2B3"
-                              : selected
-                                ? "var(--color-brand)"
-                                : "#344054",
-                          cursor:
-                            disabled && !selected ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        {name}
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            </Field>
-            <Field label="推广时间（开始）">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={inputStyle}
-              />
-            </Field>
-            <Field label="推广时间（结束）">
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                style={inputStyle}
-              />
-            </Field>
-            <Field label="推广地区">
-              <div
-                style={{
-                  ...inputStyle,
-                  height: "auto",
-                  minHeight: 36,
-                  display: "flex",
-                  alignItems: "center",
-                  background: "#F9FAFB",
-                  color: pickedRegions.length ? "#344054" : "#98A2B3",
-                }}
-              >
-                {pickedRegions.length
-                  ? formatCoverage(pickedRegions)
-                  : "选择品种后，系统按授权范围自动带出"}
-              </div>
-            </Field>
-          </div>
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: "var(--fs-13)",
-              marginTop: 10,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-            />
-            记住选项（下次创建自动带出服务商、品种与推广时间）
-          </label>
-        </Section>
-      )}
-
-      {step === 1 && (
-        <TaskDetailsEditor
-          priceBookName={
-            lockedBook ? `${lockedBook.name} ${lockedBook.version}` : "—"
-          }
-          recommendedAmount={rec.configured ? rec.amount : undefined}
-          totalAmount={totalAmount}
-          sectionAmounts={sectionAmounts}
-          rows={drafts}
-          onTotalChange={applyTotalAmount}
-          onSectionChange={applySectionAmount}
-        />
-      )}
-
-      {step === 2 && (
-        <Section title="授权校验（每个品种 × 地区）">
-          <Field label="服务地区（多选省级）">
-            <ChipSelect
-              options={regionOpts}
-              value={pickedRegions}
-              onChange={(rs) => {
-                setPickedRegions(rs)
-                rebuildDrafts(pickedVarieties, rs)
-              }}
-              placeholder={provider ? "该服务商暂无授权地区" : "请先选择服务商"}
-            />
-          </Field>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}
-          >
-            <thead>
-              <tr>
-                <th style={th}>品种</th>
-                {pickedRegions.map((r) => (
-                  <th key={r} style={th}>
-                    {r}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {pickedVarieties.map((vn) => (
-                <tr key={vn}>
-                  <td style={td}>{vn}</td>
-                  {pickedRegions.map((rg) => {
-                    const ok = auths.some(
-                      (a) =>
-                        a.provider === provider &&
-                        a.varietyName === vn &&
-                        (a.regions.includes("全国") || a.regions.includes(rg)),
-                    )
-                    return (
-                      <td
-                        key={rg}
-                        style={{
-                          ...td,
-                          color: ok ? "var(--color-brand)" : "#C73A3A",
-                        }}
-                      >
-                        {ok ? "已授权" : "未授权"}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
-      )}
-
-      {step === 3 && (
-        <Section title="预算推荐（仅提示，不阻断）">
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: 12,
-            }}
-          >
-            <Info
-              label="预算推荐总金额"
-              value={rec.configured ? formatCNY(rec.amount) : "未配置预算"}
-            />
-            <Info label="计划总金额" value={formatCNY(planTotal)} />
-            <Info
-              label="差额（计划 − 推荐）"
-              value={rec.configured ? formatCNY(budgetDiff) : "—"}
-            />
-          </div>
-          <div
-            style={{
-              fontSize: "var(--fs-12)",
-              color: "#667085",
-              marginTop: 10,
-            }}
-          >
-            {rec.detail}
-          </div>
-          {rec.configured && budgetDiff > 0 && (
-            <Banner color="warning">
-              计划总金额高于预算推荐，仅提示，允许创建。
-            </Banner>
-          )}
-          {rec.configured && budgetDiff < 0 && (
-            <Banner color="info">
-              计划总金额低于预算推荐，仅提示，允许创建。
-            </Banner>
-          )}
-          {!rec.configured && (
-            <Banner color="warning">未配置预算，允许创建。</Banner>
-          )}
-        </Section>
-      )}
-
-      {step === 4 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Banner color="info">{unitPriceAdjustRule.hint}</Banner>
-          {pickedVarieties.length === 0 || pickedRegions.length === 0 ? (
-            <EmptyState
-              title="请先完成品种和地区"
-              description="服务项目按品种 × 地区落到价目表快照。"
-            />
-          ) : (
-            pickedVarieties.flatMap((vn) =>
-              pickedRegions.map((rg) => (
-                <Section key={`${vn}-${rg}`} title={`${vn} · ${rg}`}>
-                  <ItemEditorTable
-                    rows={drafts}
-                    filterVariety={vn}
-                    filterRegion={rg}
-                    groups={[
-                      { title: "市场推广服务", rows: promo },
-                      {
-                        title: "调研与报告一体化服务 · 分析报告服务",
-                        rows: analysis,
-                      },
-                      {
-                        title: "调研与报告一体化服务 · 问卷调研与分析服务",
-                        rows: survey,
-                      },
-                    ]}
-                    onPatch={patchDraft}
-                  />
-                </Section>
-              )),
-            )
-          )}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              fontSize: "var(--fs-14)",
-              fontWeight: 700,
-            }}
-          >
-            预算推荐 {rec.configured ? formatCNY(rec.amount) : "未配置"} ·
-            计划总金额 {formatCNY(planTotal)} · 差额{" "}
-            {rec.configured ? formatCNY(budgetDiff) : "—"}
-          </div>
-        </div>
-      )}
-
-      {step === 5 && (
-        <Section title="药厂预设结算周期">
-          <div
-            style={{
-              fontSize: "var(--fs-12)",
-              color: "#667085",
-              marginBottom: 10,
-            }}
-          >
-            必须连续覆盖整个推广期（{startDate} ~ {endDate}
-            ），不得重叠、不得空档。服务商只能针对这些周期发起结算。
-          </div>
-          {periods.map((p, i) => (
-            <div
-              key={i}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 1fr 1fr auto",
-                gap: 8,
-                marginBottom: 8,
-              }}
-            >
-              <input
-                value={p.name}
-                onChange={(e) =>
-                  setPeriods(patch(periods, i, { name: e.target.value }))
-                }
-                style={inputStyle}
-              />
-              <input
-                type="date"
-                value={p.startDate}
-                onChange={(e) =>
-                  setPeriods(patch(periods, i, { startDate: e.target.value }))
-                }
-                style={inputStyle}
-              />
-              <input
-                type="date"
-                value={p.endDate}
-                onChange={(e) =>
-                  setPeriods(patch(periods, i, { endDate: e.target.value }))
-                }
-                style={inputStyle}
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setPeriods(periods.filter((_, j) => j !== i))}
-              >
-                删
-              </Button>
-            </div>
-          ))}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setPeriods([
-                ...periods,
-                { name: `周期${periods.length + 1}`, startDate, endDate },
-              ])
-            }
-          >
-            新增周期
-          </Button>
-        </Section>
-      )}
-    </Modal>
-  )
-}
-
-function TaskDetailsEditor({
-  priceBookName,
-  recommendedAmount,
-  totalAmount,
-  sectionAmounts,
-  rows,
-  onTotalChange,
-  onSectionChange,
-}: {
-  priceBookName: string
-  recommendedAmount?: number
-  totalAmount: number
-  sectionAmounts: { promo: number; analysis: number }
-  rows: DraftItem[]
-  onTotalChange: (value: number) => void
-  onSectionChange: (section: "promo" | "analysis", value: number) => void
-}) {
-  const groups: {
-    key: "promo" | "analysis"
-    title: string
-    category: ServiceItem["category"]
-  }[] = [
-    { key: "promo", title: "市场推广服务", category: "市场推广服务" },
-    {
-      key: "analysis",
-      title: "调研与报告一体化服务 · 分析报告服务",
-      category: "分析报告服务",
-    },
-  ]
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <Section title="任务详情">
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1.25fr 1fr",
-            gap: 12,
-            alignItems: "end",
-          }}
-        >
-          <Field label="推广总金额（￥）">
-            <input
-              type="number"
-              min="0"
-              value={totalAmount || ""}
-              placeholder={
-                recommendedAmount == null ? "未配置预算，请输入金额" : undefined
-              }
-              onChange={(event) =>
-                onTotalChange(Number(event.target.value) || 0)
-              }
-              style={{
-                ...inputStyle,
-                fontFamily: "'JetBrains Mono', monospace",
-                fontWeight: 650,
-              }}
-            />
-          </Field>
-          <Info
-            label="预算推荐金额"
-            value={
-              recommendedAmount == null
-                ? "未配置预算"
-                : formatCNY(recommendedAmount)
-            }
-          />
-        </div>
-        <div
-          style={{ marginTop: 10, fontSize: "var(--fs-12)", color: "#667085" }}
-        >
-          标准价目表：{priceBookName}
-          。系统按价目表比例自动分配金额并换算数量；金额无法整除时按最近档位取整。
-        </div>
-      </Section>
-
-      {groups.map((group) => {
-        const groupRows = rows.filter((row) => row.category === group.category)
-        const actual = groupRows.reduce((sum, row) => sum + row.amount, 0)
-        const displayRows = [
-          ...groupRows
-            .reduce((map, row) => {
-              const current = map.get(row.name)
-              map.set(
-                row.name,
-                current
-                  ? {
-                      ...current,
-                      qty: current.qty + row.qty,
-                      amount: current.amount + row.amount,
-                    }
-                  : { ...row },
-              )
-              return map
-            }, new Map<string, DraftItem>())
-            .values(),
-        ]
-        return (
-          <Section key={group.key} title={group.title}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "end",
-                gap: 16,
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ color: "#667085", fontSize: "var(--fs-12)" }}>
-                可按分项总金额二次调整，系统将按本服务组的价目比例重新换算数量与明细金额。
-              </div>
-              <Field label="分项总金额（￥）">
-                <input
-                  type="number"
-                  min="0"
-                  value={sectionAmounts[group.key] || ""}
-                  onChange={(event) =>
-                    onSectionChange(group.key, Number(event.target.value) || 0)
-                  }
-                  style={{
-                    ...inputStyle,
-                    width: 180,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontWeight: 650,
-                  }}
-                />
-              </Field>
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  {[
-                    "服务项目",
-                    "标准单价",
-                    "价目比例",
-                    "系统计算数量",
-                    "系统计算金额",
-                  ].map((heading) => (
-                    <th key={heading} style={th}>
-                      {heading}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {displayRows.map((row) => (
-                  <tr key={row.name}>
-                    <td style={td}>{row.name}</td>
-                    <td
-                      style={{
-                        ...td,
-                        fontFamily: "'JetBrains Mono', monospace",
-                      }}
-                    >
-                      {formatCNY(row.unitPrice)}/{row.unit}
-                    </td>
-                    <td style={td}>
-                      {row.amount > 0
-                        ? `${Math.round((row.amount / Math.max(1, actual)) * 100)}%`
-                        : "—"}
-                    </td>
-                    <td
-                      style={{
-                        ...td,
-                        fontFamily: "'JetBrains Mono', monospace",
-                      }}
-                    >
-                      {row.qty}
-                    </td>
-                    <td
-                      style={{
-                        ...td,
-                        fontFamily: "'JetBrains Mono', monospace",
-                      }}
-                    >
-                      {formatCNY(row.amount)}
-                    </td>
-                  </tr>
-                ))}
-                <tr>
-                  <td style={td} colSpan={4}>
-                    <strong>分项计算金额</strong>
-                  </td>
-                  <td
-                    style={{
-                      ...td,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {formatCNY(actual)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </Section>
-        )
-      })}
-    </div>
-  )
-}
-
-function ItemEditorTable({
-  rows,
-  filterVariety,
-  filterRegion,
-  groups,
-  onPatch,
-}: {
-  rows: DraftItem[]
-  filterVariety: string
-  filterRegion: string
-  groups: { title: string; rows: PriceRow[] }[]
-  onPatch: (
-    idx: number,
-    part: Partial<DraftItem>,
-    source: "price" | "amount" | "qty",
-  ) => void
-}) {
-  return (
-    <div>
-      {groups.map((g) => {
-        const items = rows
-          .map((d, idx) => ({ d, idx }))
-          .filter(
-            ({ d }) =>
-              d.variety === filterVariety &&
-              d.region === filterRegion &&
-              g.rows.some(
-                (r) => r.name === d.name && r.category === d.category,
-              ),
-          )
-        if (!items.length) return null
-        const sum = items.reduce((s, x) => s + x.d.amount, 0)
-        return (
-          <div key={g.title} style={{ marginBottom: 10 }}>
-            <div
-              style={{
-                fontSize: "var(--fs-12)",
-                fontWeight: 650,
-                color: "#667085",
-                margin: "8px 0",
-              }}
-            >
-              {g.title}
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  {[
-                    "服务项目",
-                    "建议单价",
-                    "单价",
-                    "数量",
-                    "金额",
-                    "调整原因",
-                  ].map((h) => (
-                    <th key={h} style={th}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map(({ d, idx }) => (
-                  <tr key={d.name}>
-                    <td style={td}>{d.name}</td>
-                    <td
-                      style={{
-                        ...td,
-                        fontFamily: "'JetBrains Mono', monospace",
-                      }}
-                    >
-                      {formatCNY(d.suggestedUnitPrice)}/{d.unit}
-                    </td>
-                    <td style={td}>
-                      <input
-                        type="number"
-                        value={d.unitPrice || ""}
-                        onChange={(e) =>
-                          onPatch(
-                            idx,
-                            { unitPrice: Number(e.target.value) || 0 },
-                            "price",
-                          )
-                        }
-                        style={{ ...inputStyle, height: 30, width: 90 }}
-                      />
-                    </td>
-                    <td style={td}>
-                      <input
-                        type="number"
-                        value={d.qty || ""}
-                        onChange={(e) =>
-                          onPatch(
-                            idx,
-                            { qty: Number(e.target.value) || 0 },
-                            "qty",
-                          )
-                        }
-                        style={{ ...inputStyle, height: 30, width: 70 }}
-                      />
-                    </td>
-                    <td style={td}>
-                      <input
-                        type="number"
-                        value={d.amount || ""}
-                        onChange={(e) =>
-                          onPatch(
-                            idx,
-                            { amount: Number(e.target.value) || 0 },
-                            "amount",
-                          )
-                        }
-                        style={{ ...inputStyle, height: 30, width: 110 }}
-                      />
-                    </td>
-                    <td style={td}>
-                      <input
-                        value={d.adjustReason}
-                        onChange={(e) =>
-                          onPatch(
-                            idx,
-                            { adjustReason: e.target.value },
-                            "price",
-                          )
-                        }
-                        placeholder="偏离建议时必填"
-                        style={{ ...inputStyle, height: 30 }}
-                      />
-                    </td>
-                  </tr>
-                ))}
-                <tr>
-                  <td style={td} colSpan={4}>
-                    <strong>小计</strong>
-                  </td>
-                  <td
-                    style={{
-                      ...td,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {formatCNY(sum)}
-                  </td>
-                  <td style={td} />
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 // ─── 任务详情：固定步骤条 + 页签 ───
 
@@ -2685,6 +1326,9 @@ export function TaskDetailModal({
   onUploadReport,
   onReuploadReport,
   onPreviewReport,
+  reviewerName,
+  addToast,
+  onNavigate,
 }: {
   task: Task | null
   tab: DetailTab
@@ -2698,6 +1342,9 @@ export function TaskDetailModal({
   onUploadReport?: () => void
   onReuploadReport?: (report: ReportFile) => void
   onPreviewReport?: (report: ReportFile) => void
+  reviewerName?: string
+  addToast?: (msg: { type: "success" | "error" | "info" | "warning"; title: string; description?: string }) => void
+  onNavigate?: NavigateFn
 }) {
   if (!task) return null
   return (
@@ -2714,6 +1361,9 @@ export function TaskDetailModal({
       onUploadReport={onUploadReport}
       onReuploadReport={onReuploadReport}
       onPreviewReport={onPreviewReport}
+      reviewerName={reviewerName ?? "—"}
+      addToast={addToast ?? (() => {})}
+      onNavigate={onNavigate}
     />
   )
 }
@@ -2856,8 +1506,43 @@ function taskLifecycleTimes(task: Task): string[] {
 }
 
 function TaskLifecycleBar({ task }: { task: Task }) {
+  const { config: acceptConfig, packages: acceptPackages } = useAcceptance()
   const realStage = useMemo(() => taskLifecycleStage(task), [task])
   const times = useMemo(() => taskLifecycleTimes(task), [task])
+  // 成果验收部门确认节点：任务有材料包时插在「任务执行中」与「结算确认」之间（X 部门确认——X 部门确认）
+  const acceptNodes = useMemo(() => {
+    const months = packageMonths(
+      visitRecords.filter(r => r.taskId === task.id),
+      task.reports,
+    )
+    const month = months[0]
+    if (!month) return []
+    const pkg = acceptPackages[packageKey(task.id, month)]
+    const monthPromos = visitRecords.filter(r => r.taskId === task.id && r.visitDate.slice(0, 7) === month)
+    const monthReports = task.reports.filter(r => (r.serviceMonth ?? "") === month)
+    const states = [...monthPromos.map(r => pkg?.items[r.id]), ...monthReports.map(r => pkg?.items[r.id])]
+    if (!states.length) return []
+    const levels = acceptConfig.levels
+    // 当前级 = 待决条目的最小下一级（整改中不阻塞级推进）；无待决 = 各级本轮均已审毕
+    const currentLevel =
+      states.reduce<number | null>((acc, s) => {
+        if (!s || s.rectifying || s.passedLevels >= levels) return acc
+        const need = s.passedLevels + 1
+        return acc === null || need < acc ? need : acc
+      }, null)
+    const allPassed = states.every(s => s && !s.rectifying && s.passedLevels >= levels)
+    return Array.from({ length: levels }, (_, i) => i + 1).map(lv => ({
+      label: acceptConfig.levels <= 1 ? "成果验收" : `${acceptConfig.departments[lv - 1] ?? "—"}验收`,
+      state: (allPassed || (currentLevel !== null && lv < currentLevel)
+        ? "done"
+        : currentLevel === lv
+          ? "current"
+          : currentLevel === null
+            ? "done"
+            : "future") as "done" | "current" | "future",
+      level: lv,
+    }))
+  }, [task.id, task.reports, acceptPackages, acceptConfig])
   const [viewId, setViewId] = useState<LifecycleViewId | null>(() =>
     realStage >= 4
       ? (LIFECYCLE_VIEWS.find((view) => view.stage === realStage && !view.loop)?.id ?? null)
@@ -2951,19 +1636,120 @@ function TaskLifecycleBar({ task }: { task: Task }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+          gridTemplateColumns: `repeat(${6 + acceptNodes.length}, minmax(0, 1fr))`,
           gap: 4,
           padding: "20px 8px 0",
         }}
       >
         {LIFECYCLE_STEP_NAMES.map((name, index) => {
           const stepNo = index + 1
+          const displayNo = acceptNodes.length ? (index <= 2 ? index + 1 : index) : stepNo
           const done = stepNo < activeStage
           const current = stepNo === activeStage
           const date = times[index]
           return (
+            <Fragment key={name}>
+            {index === 3 && acceptNodes.length > 0 ? (
+              acceptNodes.map(node => (
+                <div
+                  key={`${node.label}${node.level}`}
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    textAlign: "center",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: 15,
+                      width: "100%",
+                      height: 2,
+                      background: node.state !== "future" ? "var(--color-brand)" : "var(--color-border)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: "relative",
+                      zIndex: 1,
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "var(--fs-12)",
+                      fontWeight: 700,
+                      ...(node.state === "done"
+                        ? { background: "var(--color-brand)", color: "#fff" }
+                        : node.state === "current"
+                          ? {
+                              background: "var(--color-brand)",
+                              color: "#fff",
+                              boxShadow: "0 0 0 4px var(--color-brand-subtle)",
+                              animation: "taskLifecyclePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+                            }
+                          : {
+                              background: "var(--color-table-stripe)",
+                              border: "1px solid var(--color-border)",
+                              color: "var(--color-text-3)",
+                            }),
+                    }}
+                  >
+                    {node.state === "done" ? "✓" : node.level}
+                  </span>
+                  <div
+                    style={{
+                      position: "relative",
+                      zIndex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      marginTop: 10,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "var(--fs-12)",
+                        fontWeight: node.state === "current" ? 650 : 500,
+                        color:
+                          node.state === "current"
+                            ? "var(--color-brand)"
+                            : node.state === "done"
+                              ? "var(--color-text-1)"
+                              : "var(--color-text-3)",
+                      }}
+                    >
+                      {node.label}
+                    </span>
+                    {node.state === "current" && (
+                      <span
+                        style={{
+                          background: "var(--color-brand-subtle)",
+                          color: "var(--color-brand)",
+                          fontSize: "var(--fs-10)",
+                          fontWeight: 500,
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        待验收
+                      </span>
+                    )}
+                  </div>
+                  {node.state !== "current" && (
+                    <span style={{ marginTop: 3, fontSize: "var(--fs-11)", color: "var(--color-text-3)" }}>
+                      {node.state === "done" ? "已通过" : `第 ${node.level} 级`}
+                    </span>
+                  )}
+                </div>
+              ))
+            ) : (
             <div
-              key={name}
               style={{
                 position: "relative",
                 display: "flex",
@@ -3056,7 +1842,7 @@ function TaskLifecycleBar({ task }: { task: Task }) {
                         : "var(--color-text-3)",
                   }}
                 >
-                  {stepNo}. {name}
+                  {displayNo}. {name}
                 </span>
                 {current && (
                   <span
@@ -3088,6 +1874,8 @@ function TaskLifecycleBar({ task }: { task: Task }) {
                 </span>
               )}
             </div>
+            )}
+            </Fragment>
           )
         })}
       </div>
@@ -3108,6 +1896,9 @@ function TaskDetailV5({
   onUploadReport,
   onReuploadReport,
   onPreviewReport,
+  reviewerName,
+  addToast,
+  onNavigate,
 }: {
   task: Task
   tab: DetailTab
@@ -3121,6 +1912,9 @@ function TaskDetailV5({
   onUploadReport?: () => void
   onReuploadReport?: (report: ReportFile) => void
   onPreviewReport?: (report: ReportFile) => void
+  reviewerName?: string
+  addToast?: (msg: { type: "success" | "error" | "info" | "warning"; title: string; description?: string }) => void
+  onNavigate?: NavigateFn
 }) {
   const [allocationWorkGroup, setAllocationWorkGroup] = useState<string | null>(
     null,
@@ -3161,38 +1955,45 @@ function TaskDetailV5({
           endDate: task.endDate,
         },
       ]
-  const reportRows = task.reports.map((report, index) => ({
-    id: report.id,
-    name: report.name,
-    variety:
-      report.variety ??
-      (task.varieties[index % Math.max(1, task.varieties.length)] ?? "—"),
-    region:
-      report.region ??
-      (task.regions[index % Math.max(1, task.regions.length)] ?? "—"),
-    fileName: report.fileName ?? "",
-    submitter: report.uploadedBy || "—",
-    time: report.uploadedAt || "—",
-    version: report.version ?? 1,
-    status:
-      report.status === "通过"
-        ? "审核通过"
-        : report.status === "驳回"
-          ? "已退回"
-          : report.status === "待上传"
-            ? "待上传"
-            : "待审核",
-    opinion: report.comment || (report.status === "待审核" ? "资料完整性待核验" : "—"),
-    settled: !!report.settledBillNo,
-    raw: report,
-  }))
+  // 操作记录 = 任务日志 + 成果验收批次混排（时间倒序；验收条目带级数·部门与驳回明细）
+  const acceptancePackages = useAcceptance().packages
+  const mergedLogRows = useMemo(() => {
+    const ops = task.opsLogs.map((log) => ({
+      id: log.id,
+      time: log.time,
+      operator: log.operator,
+      role: log.role,
+      action: log.action,
+      detail: log.detail,
+      acceptance: false,
+    }))
+    const batches = Object.values(acceptancePackages)
+      .filter((p) => p.taskId === task.id)
+      .flatMap((p) =>
+        p.batches.map((b) => ({
+          id: b.id,
+          time: b.time,
+          operator: b.reviewer,
+          role: b.department === "成果验收" ? "成果验收" : `第 ${b.level} 级 · ${b.department}`,
+          action: "成果验收",
+          detail:
+            `通过 ${b.passedCount} 条 / 驳回 ${b.rejectedCount} 条` +
+            (b.rejections.length
+              ? `；驳回：${b.rejections.map((rj) => `${rj.itemName}（${rj.reason}）`).join("；")}`
+              : "") +
+            (b.batchComment ? `；批次意见：${b.batchComment}` : ""),
+          acceptance: true,
+        })),
+      )
+    return [...ops, ...batches].sort((a, b) => b.time.localeCompare(a.time))
+  }, [task.opsLogs, task.id, acceptancePackages])
   const tabs: { id: DetailTab; label: string; badge?: number }[] = [
     { id: "plan", label: "任务计划" },
     { id: "exec", label: "任务拆解" },
     {
       id: "report",
-      label: "报告与审核",
-      // 服务商关注待上传，药厂关注待审核
+      label: "成果与验收",
+      // 服务商关注待上传，药厂关注待验收
       badge: isProvider ? pendingUploadReports : pendingReviewReports,
     },
     { id: "settle", label: "结算周期与结算单" },
@@ -3915,174 +2716,19 @@ function TaskDetailV5({
             ))}
 
           {tab === "report" && (
-            <Section
-              title="报告与审核"
-              subtitle={`待上传 ${pendingUploadReports} 条 · 待审核 ${pendingReviewReports} 条 · 报告任务由药厂分派生成，服务商按记录上传，药厂审核`}
-            >
-              {isProvider && task.taskStatus === "执行中" && onUploadReport && (
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 10,
-                  }}
-                >
-                  {!pendingUploadReports && (
-                    <span
-                      style={{ fontSize: "var(--fs-12)", color: "#98A2B3" }}
-                    >
-                      暂无待上传的报告记录
-                    </span>
-                  )}
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<Upload size={13} />}
-                    disabled={!pendingUploadReports}
-                    onClick={onUploadReport}
-                  >
-                    上传报告
-                  </Button>
-                </div>
-              )}
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {[
-                      "报告名称",
-                      "附件",
-                      "所属品种",
-                      "所属区域",
-                      "提交人",
-                      "提交时间",
-                      "审核状态",
-                      "审核意见",
-                      "操作",
-                    ].map((heading) => (
-                      <th key={heading} style={th}>
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportRows.map((row) => (
-                    <tr key={row.id}>
-                      <td style={td}>
-                        <strong>{row.name}</strong>
-                        {row.version > 1 && (
-                          <div
-                            style={{
-                              fontSize: "var(--fs-11)",
-                              color: "#98A2B3",
-                              marginTop: 2,
-                            }}
-                          >
-                            第 {row.version} 版
-                          </div>
-                        )}
-                      </td>
-                      <td style={td}>
-                        {row.fileName ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                            }}
-                          >
-                            <span
-                              title={row.fileName}
-                              style={{
-                                maxWidth: 170,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {row.fileName}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => onPreviewReport?.(row.raw)}
-                              style={{
-                                border: "none",
-                                background: "none",
-                                padding: 0,
-                                color: "#2F6BCE",
-                                cursor: "pointer",
-                                fontSize: "var(--fs-12)",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              预览
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: "#98A2B3" }}>—</span>
-                        )}
-                      </td>
-                      <td style={td}>{row.variety}</td>
-                      <td style={td}>{row.region}</td>
-                      <td style={td}>{row.submitter}</td>
-                      <td style={{ ...td, whiteSpace: "nowrap" }}>
-                        {row.time}
-                      </td>
-                      <td style={td}>
-                        <DetailStatus label={row.status} />
-                      </td>
-                      <td
-                        style={{
-                          ...td,
-                          color:
-                            row.status === "已退回" ? "#C77A16" : "#667085",
-                        }}
-                      >
-                        {row.opinion}
-                      </td>
-                      <td style={td}>
-                        {isSales && row.status === "待审核" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onReview}
-                          >
-                            审核
-                          </Button>
-                        ) : isProvider && row.status === "待上传" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onReuploadReport?.(row.raw)}
-                          >
-                            上传
-                          </Button>
-                        ) : isProvider && row.status === "已退回" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onReuploadReport?.(row.raw)}
-                          >
-                            重新上传
-                          </Button>
-                        ) : (
-                          <span style={{ color: "#98A2B3" }}>—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {!reportRows.length && (
-                    <tr>
-                      <td style={td} colSpan={9}>
-                        本任务未包含报告类服务项目，无需提交报告。
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </Section>
+            <AcceptanceTab
+              task={task}
+              isSales={isSales}
+              isProvider={isProvider}
+              reviewerName={reviewerName ?? "—"}
+              navigate={onNavigate}
+              addToast={addToast ?? (() => {})}
+              onPreviewReport={onPreviewReport}
+              onUploadReport={
+                isProvider && task.taskStatus === "执行中" ? onUploadReport : undefined
+              }
+              onGoSettle={() => onTab("settle")}
+            />
           )}
 
           {tab === "settle" && (
@@ -4328,7 +2974,7 @@ function TaskDetailV5({
           )}
 
           {tab === "log" && (
-            <Section title="操作记录">
+            <Section title="操作记录" subtitle="任务操作日志与成果验收批次混排，按时间倒序">
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
@@ -4342,18 +2988,30 @@ function TaskDetailV5({
                   </tr>
                 </thead>
                 <tbody>
-                  {task.opsLogs
-                    .slice()
-                    .reverse()
-                    .map((log) => (
-                      <tr key={log.id}>
-                        <td style={td}>{log.time}</td>
-                        <td style={td}>{log.operator}</td>
-                        <td style={td}>{log.role}</td>
-                        <td style={td}>{log.action}</td>
-                        <td style={td}>{log.detail}</td>
+                  {mergedLogRows.map((row) =>
+                    row.acceptance ? (
+                      <tr key={row.id} style={{ background: "#F7FBF9" }}>
+                        <td style={{ ...td, whiteSpace: "nowrap", borderLeft: "3px solid var(--color-brand)" }}>{row.time}</td>
+                        <td style={td}>{row.operator}</td>
+                        <td style={td}>{row.role}</td>
+                        <td style={td}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <Tag label="验收" color="brand" />
+                            {row.action}
+                          </span>
+                        </td>
+                        <td style={{ ...td, color: "#374151" }}>{row.detail}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      <tr key={row.id}>
+                        <td style={td}>{row.time}</td>
+                        <td style={td}>{row.operator}</td>
+                        <td style={td}>{row.role}</td>
+                        <td style={td}>{row.action}</td>
+                        <td style={td}>{row.detail}</td>
+                      </tr>
+                    ),
+                  )}
                 </tbody>
               </table>
             </Section>
@@ -7517,10 +6175,15 @@ function ReportUploadModal({
 function AttachmentPreviewModal({
   report,
   onClose,
+  decide,
 }: {
   report: ReportFile | null
   onClose: () => void
+  /** 成果验收动作（当前级验收人打开待验收报告时提供）；驳回必填原因 */
+  decide?: { onPass: () => void; onReject: (reason: string) => void }
 }) {
+  const [rejecting, setRejecting] = useState(false)
+  const [rejectReason, setRejectReason] = useState("")
   if (!report || !report.fileName) return null
   const fileName = report.fileName
   const kind = fileKindOf(fileName)
@@ -7533,20 +6196,60 @@ function AttachmentPreviewModal({
       onClose={onClose}
       width={680}
       footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            关闭
-          </Button>
-          <Button
-            variant="primary"
-            icon={<Download size={14} />}
-            onClick={() => downloadAttachment(fileName, report.url)}
-          >
-            下载到本地
-          </Button>
-        </>
+        rejecting ? (
+          <>
+            <span style={{ marginRight: "auto", fontSize: "var(--fs-12)", color: "#C73A3A" }}>
+              驳回原因必填，该报告将退回服务商补充
+            </span>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRejecting(false)
+                setRejectReason("")
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              variant="danger"
+              disabled={!rejectReason.trim()}
+              onClick={() => decide?.onReject(rejectReason.trim())}
+            >
+              确认驳回
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="outline" onClick={onClose}>
+              关闭
+            </Button>
+            {decide && (
+              <>
+                <Button variant="danger" onClick={() => setRejecting(true)}>
+                  驳回
+                </Button>
+                <Button variant="primary" onClick={() => decide.onPass()}>
+                  通过
+                </Button>
+              </>
+            )}
+          </>
+        )
       }
     >
+      {rejecting && (
+        <>
+          <div style={{ padding: "10px 12px", background: "#FFFBFA", border: "1px solid #F1C7C7", borderRadius: 6 }}>
+            <input
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="请填写驳回原因（必填），将退回服务商补充"
+              style={{ width: "100%", height: 32, padding: "0 10px", fontSize: "var(--fs-13)", border: "1px solid #F1C7C7", borderRadius: 6, outline: "none", background: "#fff" }}
+            />
+          </div>
+          <div style={{ height: 12 }} />
+        </>
+      )}
       <Info label="报告名称" value={report.name} />
       <div style={{ height: 10 }} />
       <Info label="附件" value={`${fileName} · ${FILE_KIND_LABEL[kind]}`} />

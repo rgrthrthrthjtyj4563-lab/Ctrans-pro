@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>批量导入合作关系（线下已准入）· 界面预览</title>
+<style>
+  :root {
+    --brand: #176B5B;
+    --brand-hover: #0f5044;
+    --brand-subtle: #E8F4F1;
+    --border: #E5E7EB;
+    --border-strong: #D1D5DB;
+    --t1: #1F2937;
+    --t2: #667085;
+    --t3: #9CA3AF;
+    --bg: #F3F4F6;
+    --danger: #C73A3A;
+    --danger-bg: #FEECEC;
+    --danger-border: #F5C6C6;
+    --ok: #248A5A;
+    --ok-bg: #E6F5ED;
+    --ok-border: #C8E9D6;
+    --warn-bg: #FEF3E2;
+    --warn-border: #F5D99A;
+    --warn: #92400E;
+    --info: #2F6BCE;
+    --info-bg: #EBF2FE;
+    --info-border: #C9DDF7;
+    --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    background: #E9EBEE; color: var(--t1); padding: 32px 24px 64px; font-size: 13px; line-height: 1.6;
+  }
+  .sheet { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+
+  /* 稿头说明 */
+  .draft-head { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; }
+  .draft-head h1 { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .draft-head h1 .chip { font-size: 11px; font-weight: 600; color: var(--info); background: var(--info-bg); border: 1px solid var(--info-border); padding: 2px 10px; border-radius: 999px; }
+  .draft-head p { color: var(--t2); margin-top: 6px; font-size: 13px; }
+  .draft-head p b { color: var(--t1); }
+
+  .stage-label { font-size: 12px; font-weight: 700; color: var(--t2); display: flex; align-items: center; gap: 8px; margin-bottom: -6px; }
+  .stage-label .no { width: 18px; height: 18px; border-radius: 50%; background: var(--brand); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+
+  /* 通用卡片/页头 */
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .page-head .t { font-size: 15px; font-weight: 700; }
+  .page-head .d { font-size: 12px; color: var(--t2); margin-top: 2px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+  .btn-outline { background: #fff; border-color: var(--border-strong); color: var(--t1); }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover { background: var(--brand-hover); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+  /* 列表 */
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tbl th { text-align: left; padding: 9px 14px; font-size: 12px; font-weight: 600; color: var(--t2); background: #F9FAFB; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .tbl td { padding: 10px 14px; border-bottom: 1px solid #F3F4F6; vertical-align: middle; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .tag-ok { color: var(--ok); background: var(--ok-bg); border: 1px solid var(--ok-border); }
+  .tag-paused { color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn-border); }
+  .tag-term { color: var(--t2); background: #F3F4F6; border: 1px solid var(--border); }
+  .src-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+  .src-access { color: var(--t2); background: #F3F4F6; border: 1px solid var(--border); }
+  .src-manual { color: var(--info); background: var(--info-bg); border: 1px solid var(--info-border); font-weight: 600; }
+
+  /* 弹窗 */
+  .modal-mask { background: rgba(17,24,39,.45); border-radius: 8px; padding: 28px 0; }
+  .modal { max-width: 780px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 20px 50px rgba(0,0,0,.25); display: flex; flex-direction: column; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+  .modal-head .t { font-size: 14px; font-weight: 700; }
+  .x { color: var(--t3); font-size: 16px; cursor: pointer; line-height: 1; }
+  .modal-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); background: #FAFBFC; border-radius: 0 0 10px 10px; align-items: center; }
+
+  .info-banner { display: flex; gap: 10px; background: var(--brand-subtle); border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: var(--brand); line-height: 1.8; }
+  .info-banner .ic { flex-shrink: 0; margin-top: 3px; }
+  .info-banner a { color: var(--brand); font-weight: 700; text-decoration: underline; cursor: pointer; }
+  .info-banner b { font-weight: 700; }
+
+  .paste-label { font-size: 12px; font-weight: 600; color: var(--t2); display: flex; align-items: center; gap: 8px; }
+  .paste-label .hint { font-weight: 400; color: var(--t3); }
+
+  /* 上传区（对齐原型合同上传样式：虚线框 + 已选文件条） */
+  .upload-zone {
+    border: 1.5px dashed var(--border-strong); border-radius: 8px; background: #FAFBFC;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    padding: 22px 16px; cursor: pointer; text-align: center;
+  }
+  .upload-zone:hover { border-color: var(--brand); background: var(--brand-subtle); }
+  .uz-icon {
+    width: 38px; height: 38px; border-radius: 10px; background: var(--brand-subtle); color: var(--brand);
+    display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700;
+  }
+  .uz-main { font-size: 13px; font-weight: 600; color: var(--t1); }
+  .uz-sub { font-size: 12px; color: var(--t3); }
+  .picked-file {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 8px 12px;
+    background: #F9FAFB; border: 1px solid var(--border); border-radius: 6px; font-size: 12px;
+  }
+  .pf-icon { color: var(--brand); }
+  .pf-name { font-weight: 600; color: var(--t1); }
+  .pf-size { color: var(--t3); }
+  .pf-remove { color: var(--danger); cursor: pointer; margin-left: auto; }
+
+  .tbl .err-row td { background: #FFF7F7; }
+  .v-ok { color: var(--ok); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .v-err { color: var(--danger); font-size: 12px; }
+  .mono { font-family: var(--mono); }
+
+  .stat-bar { display: flex; align-items: center; gap: 14px; font-size: 12px; }
+  .stat-bar .ok-n { color: var(--ok); font-weight: 700; }
+  .stat-bar .err-n { color: var(--danger); font-weight: 700; }
+  .stat-bar .rule { color: var(--t2); }
+  .stat-bar.error { background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: 6px; padding: 8px 12px; color: var(--danger); }
+
+  .declare { display: flex; gap: 10px; align-items: flex-start; padding: 11px 14px; border-radius: 6px; background: var(--warn-bg); border: 1px solid var(--warn-border); cursor: pointer; }
+  .declare input { width: 15px; height: 15px; margin-top: 2px; accent-color: var(--brand); flex-shrink: 0; }
+  .declare .txt { font-size: 12px; color: var(--warn); line-height: 1.7; }
+  .declare .txt b { font-weight: 700; }
+
+  /* footer 两态特写 */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .shot { background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .shot .cap { font-size: 12px; font-weight: 700; color: var(--t2); padding: 10px 14px; border-bottom: 1px solid var(--border); background: #F9FAFB; display: flex; gap: 8px; align-items: center; }
+  .shot .cap .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .shot .body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .shot .foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; border-top: 1px dashed var(--border); }
+
+  .note-card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; }
+  .note-card h3 { font-size: 13px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .note-card ol { padding-left: 18px; color: var(--t2); font-size: 12px; line-height: 2; }
+  .note-card ol b { color: var(--t1); }
+  .anno { position: absolute; }
+  .rel { position: relative; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- 稿头 -->
+  <div class="draft-head">
+    <h1>批量导入合作关系（线下已准入）<span class="chip">交互样式稿 V1</span></h1>
+    <p>适用场景：合作商资质审查已在线下完成、无需重走系统准入的<b>存量服务商</b>，药厂整理名单后<b>上传文件一次导入、批量建立生效合作关系</b>。新合作、需要材料线上审查的仍走「服务商准入」。交互流程：<b>下载模板 → 上传文件 → 逐行校验 → 有错全驳 → 勾选声明 → 确认导入</b>。</p>
+  </div>
+
+  <!-- ① 页面上下文 -->
+  <div>
+    <div class="stage-label"><span class="no">1</span>合作关系页 · 入口与导入后的列表形态（上下文示意）</div>
+    <div class="card" style="margin-top:10px">
+      <div class="page-head">
+        <div>
+          <div class="t">合作关系</div>
+          <div class="d">管理「百益制药」与各服务商的合作生命周期。业务资格（品种/区域）在「业务授权」维护。</div>
+        </div>
+        <button class="btn btn-outline">⬆ 批量导入</button>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>服务商</th><th>合作状态</th><th>合作生效</th><th>来源</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>智联科技有限公司</b><br><span class="mono" style="font-size:11px;color:var(--t3)">rel-access-…</span></td>
+            <td><span class="tag tag-ok">合作生效</span></td>
+            <td class="mono">2026-06-20</td>
+            <td><span class="src-badge src-access">准入审核通过建立</span></td>
+            <td style="color:var(--brand);cursor:pointer">暂停 · 终止</td>
+          </tr>
+          <tr>
+            <td><b>泰合医学推广有限公司</b><br><span class="mono" style="font-size:11px;color:var(--t3)">rel-manual-…</span></td>
+            <td><span class="tag tag-ok">合作生效</span></td>
+            <td class="mono">2026-10-16</td>
+            <td><span class="src-badge src-manual">↧ 线下准入导入</span></td>
+            <td style="color:var(--brand);cursor:pointer">暂停 · 终止</td>
+          </tr>
+          <tr>
+            <td><b>康晟云服科技有限公司</b></td>
+            <td><span class="tag tag-paused">合作暂停</span></td>
+            <td class="mono">2026-05-12</td>
+            <td><span class="src-badge src-access">准入审核通过建立</span></td>
+            <td style="color:var(--brand);cursor:pointer">恢复 · 终止</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ② 弹窗主态 -->
+  <div>
+    <div class="stage-label"><span class="no">2</span>批量导入弹窗 · 上传文件与逐行校验（核心交互）</div>
+    <div class="modal-mask" style="margin-top:10px">
+      <div class="modal">
+        <div class="modal-head">
+          <div class="t">批量导入合作关系（线下已准入）</div>
+          <span class="x">✕</span>
+        </div>
+        <div class="modal-body">
+
+          <div class="info-banner">
+            <span class="ic">ⓘ</span>
+            <div>
+              适用于<b>线下已完成服务商资质审查</b>的存量合作商：下载模板填写后上传，导入即批量建立生效合作关系（合作生效日 = 导入当天）。模板列：<b>服务商名称、 统一社会信用代码</b>。
+              <a>下载模板（演示）</a><br>
+              目标服务商须已在本系统注册：未注册的企业请先联系软件服务方完成开户（提供营业执照信息与初始管理员手机号），开户后再导入。
+            </div>
+          </div>
+
+          <div>
+            <div class="paste-label" style="margin-bottom:8px">上传名单文件<span class="hint">（支持 .xlsx / .csv，单次一份）</span></div>
+            <div class="upload-zone" onclick="void(0)">
+              <div class="uz-icon">⬆</div>
+              <div class="uz-main">点击选择文件，或拖拽到此处上传</div>
+              <div class="uz-sub">《线下已准入服务商导入模板.xlsx》· 填写服务商名称与统一社会信用代码</div>
+            </div>
+            <div class="picked-file">
+              <span class="pf-icon">📄</span>
+              <span class="pf-name">线下已准入服务商名单.xlsx</span>
+              <span class="pf-size">12.4 KB</span>
+              <span class="pf-remove">移除</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="paste-label" style="margin-bottom:8px">校验预览<span class="hint">（上传后自动逐行校验；存在任何错误行时全部驳回，修正后重新上传）</span></div>
+            <div class="card" style="border-radius:6px">
+              <table class="tbl">
+                <thead><tr><th style="width:44px">行</th><th>服务商名称</th><th>统一社会信用代码</th><th>校验结果</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">2</td><td>康晟云服科技有限公司</td><td class="mono">91370100MA03IJKL56</td><td><span class="v-ok">✓ 通过</span></td></tr>
+                  <tr class="err-row"><td class="mono">3</td><td>东方恒业医药科技有限公司</td><td class="mono">91330106MA02EFGH34</td><td><span class="v-err">合作关系已存在（准入审核通过建立），无需重复导入</span></td></tr>
+                  <tr class="err-row"><td class="mono">4</td><td>杭州启明医药咨询有限公司</td><td class="mono">91330108MA7K21XB9T</td><td><span class="v-err">该服务商尚未注册本系统，请先由软件服务方完成企业开户</span></td></tr>
+                  <tr class="err-row"><td class="mono">5</td><td>西安瑞康市场服务有限公司</td><td class="mono">91330108MA6K</td><td><span class="v-err">统一社会信用代码须为 18 位</span></td></tr>
+                  <tr class="err-row"><td class="mono">6</td><td>康晟云服科技有限公司</td><td class="mono">91370100MA03IJKL56</td><td><span class="v-err">与第 2 行重复（文件内重复）</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="stat-bar error">
+            <span>校验通过 <span class="ok-n">1</span> 行 · 错误 <span class="err-n">4</span> 行</span>
+            <span class="rule">— 存在任何错误行时全部驳回，请修正文件后重新上传（避免半批导入）</span>
+          </div>
+
+          <label class="declare" id="declare">
+            <input type="checkbox" id="ck" onchange="document.getElementById('btn').disabled = !this.checked">
+            <span class="txt"><b>导入声明（必勾）：</b>本批次全部合作关系均已完成线下服务商资质审查，相关审查材料由本厂线下留存备查，审查责任由本厂承担。导入后将记入审计日志。</span>
+          </label>
+        </div>
+
+        <div class="modal-foot">
+          <button class="btn btn-outline">取 消</button>
+          <button class="btn btn-primary" id="btn" disabled>存在错误行，全部驳回</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ footer 两态特写 -->
+  <div>
+    <div class="stage-label"><span class="no">3</span>底部操作条 · 两态特写</div>
+    <div class="duo" style="margin-top:10px">
+      <div class="shot">
+        <div class="cap"><span class="dot" style="background:var(--danger)"></span>有错误行（默认态）—— 勾了声明也保持禁用</div>
+        <div class="body">
+          <div class="stat-bar error" style="margin:0">校验通过 <span class="ok-n">1</span> 行 · 错误 <span class="err-n">4</span> 行 — 全部驳回</div>
+          <div class="declare"><input type="checkbox" checked><span class="txt"><b>导入声明（必勾）：</b>本批次全部合作关系均已完成线下资质审查，材料由本厂线下留存，责任由本厂承担。</span></div>
+          <div class="foot"><button class="btn btn-outline btn-sm">取 消</button><button class="btn btn-primary btn-sm" disabled>存在错误行，全部驳回</button></div>
+        </div>
+      </div>
+      <div class="shot">
+        <div class="cap"><span class="dot" style="background:var(--ok)"></span>全部通过 + 已勾声明 —— 可导入</div>
+        <div class="body">
+          <div class="stat-bar" style="background:var(--ok-bg);border:1px solid var(--ok-border);border-radius:6px;padding:8px 12px;color:var(--ok)">校验通过 <b>3</b> 行 · 错误 <b>0</b> 行 — 可导入 3 家</div>
+          <div class="declare"><input type="checkbox" checked><span class="txt"><b>导入声明（必勾）：</b>本批次全部合作关系均已完成线下资质审查，材料由本厂线下留存，责任由本厂承担。</span></div>
+          <div class="foot"><button class="btn btn-outline btn-sm">取 消</button><button class="btn btn-primary btn-sm">确认导入 3 家</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 设计注记 -->
+  <div class="note-card">
+    <h3>🗒 口径注记（随样式一并确认）</h3>
+    <ol>
+      <li><b>列结构仅两列</b>：服务商名称 + 统一社会信用代码；合作生效日统一取导入当天，不逐行填。</li>
+      <li><b>校验顺序</b>：格式 → 文件内重复 → 是否已注册 → 租户状态（待激活/暂停/终止的禁导并说明）→ 已存在生效关系 → 存在暂停中关系（提示走恢复）→ 该方向有在途准入任务（提示先完成或撤回）。历史终止的关系允许导入（导入即重建生效）。</li>
+      <li><b>有错全驳</b>：避免半批导入；修正文件后重新上传。</li>
+      <li><b>声明必勾 + 留痕</b>：声明文案与批次结果写入审计日志（动作「批量导入合作关系（线下准入）」）。</li>
+      <li><b>导入后引导</b>：成功提示引导前往「业务授权」配置品种——准入/导入都只建立关系，承接业务仍需品种授权；合同管理页同步出现「待上传」行。</li>
+      <li><b>模板下载（演示）</b>：原型不生成真实文件，toast 说明列结构。</li>
+    </ol>
+  </div>
+
+</div>
+</body>
+</html>

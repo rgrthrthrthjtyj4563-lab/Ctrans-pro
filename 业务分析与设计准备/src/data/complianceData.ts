@@ -7,8 +7,10 @@ import type {
   EligibilityResult,
   EligibilityVerdict,
   Representative,
+  RepresentativeStatus,
   Role,
   SelectionRecord,
+  TrainingRecord,
   Vendor,
   VendorContract,
   VendorCreditCompliance,
@@ -173,11 +175,12 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2025-01-01', employEnd: '2026-12-31',
     education: '本科', major: '药学', school: '中国药科大学', eduProof: '学历证明-张伟.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-03-12', pledgeFile: '承诺书-张伟.pdf',
-    filingNo: 'YB-BJ-2026-10021', filingReceipt: '备案信息表-张伟.pdf', filingValidUntil: '2027-03-31',
-    filingApprovedAt: '2026-03-18 10:20', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    filingNo: 'YB-BJ-2026-10021', filingValidUntil: '2027-03-31',
+    syncedAt: '2026-10-18 09:12', status: '已备案',
     operations: [
-      { at: '2026-03-10 09:00', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2026-03-18 10:20', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-BJ-2026-10021，有效期至 2027-03-31' },
+      { at: '2026-03-10 09:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2026-03-18 10:20', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-BJ-2026-10021' },
+      { at: '2026-03-18 10:21', by: ACTORS.compliance.name, action: '设置授权截止日期', note: '按合同期设置至 2027-03-31' },
     ],
   },
   {
@@ -187,11 +190,11 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2024-06-01', employEnd: '2027-05-31',
     education: '硕士', major: '临床医学', school: '南京医科大学', eduProof: '学历证明-李强.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-02-20', pledgeFile: '承诺书-李强.pdf',
-    filingNo: 'YB-JS-2026-08812', filingReceipt: '备案信息表-李强.pdf', filingValidUntil: '2027-06-30',
-    filingApprovedAt: '2026-02-25 15:00', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    filingNo: 'YB-JS-2026-08812', filingValidUntil: '2027-06-30',
+    syncedAt: '2026-10-18 09:12', status: '已备案',
     operations: [
-      { at: '2026-02-18 14:00', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2026-02-25 15:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-JS-2026-08812' },
+      { at: '2026-02-18 14:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2026-02-25 15:00', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-JS-2026-08812' },
     ],
   },
   {
@@ -201,11 +204,11 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2025-03-01', employEnd: '2026-09-30',
     education: '本科', major: '药学', school: '广东药科大学', eduProof: '学历证明-王芳.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-09-05', pledgeFile: '承诺书-王芳.pdf',
-    filingNo: 'YB-GD-2025-30156', filingReceipt: '备案信息表-王芳.pdf', filingValidUntil: '2026-09-25',
-    filingApprovedAt: '2025-09-10 11:00', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    filingNo: 'YB-GD-2025-30156', filingValidUntil: '2026-09-25',
+    syncedAt: '2026-10-18 09:12', status: '已备案',
     operations: [
-      { at: '2025-09-01 09:30', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2025-09-10 11:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-GD-2025-30156' },
+      { at: '2025-09-01 09:30', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2025-09-10 11:00', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-GD-2025-30156' },
     ],
   },
   {
@@ -215,11 +218,11 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2025-07-01', employEnd: '2027-06-30',
     education: '本科', major: '药物制剂', school: '沈阳药科大学', eduProof: '学历证明-刘洋.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-10-12', pledgeFile: '承诺书-刘洋.pdf',
-    filingNo: 'YB-SD-2025-40233', filingReceipt: '备案信息表-刘洋.pdf', filingValidUntil: '2026-10-08',
-    filingApprovedAt: '2025-10-15 09:40', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    filingNo: 'YB-SD-2025-40233', filingValidUntil: '2026-10-08',
+    syncedAt: '2026-10-18 09:12', status: '已备案',
     operations: [
-      { at: '2025-10-09 10:00', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2025-10-15 09:40', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-SD-2025-40233' },
+      { at: '2025-10-09 10:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2025-10-15 09:40', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-SD-2025-40233' },
     ],
   },
   {
@@ -229,11 +232,11 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2024-09-01', employEnd: '2026-08-31',
     education: '大专', major: '药学', school: '浙江医药高等专科学校', eduProof: '学历证明-陈静.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-08-15', pledgeFile: '承诺书-陈静.pdf',
-    filingNo: 'YB-ZJ-2025-50077', filingReceipt: '备案信息表-陈静.pdf', filingValidUntil: '2026-08-20',
-    filingApprovedAt: '2025-08-18 14:30', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    filingNo: 'YB-ZJ-2025-50077', filingValidUntil: '2026-08-20',
+    syncedAt: '2026-10-18 09:12', status: '已备案',
     operations: [
-      { at: '2025-08-12 09:00', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2025-08-18 14:30', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-ZJ-2025-50077' },
+      { at: '2025-08-12 09:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2025-08-18 14:30', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-ZJ-2025-50077' },
     ],
   },
   {
@@ -243,10 +246,11 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2026-09-01', employEnd: '2028-08-31',
     education: '本科', major: '临床医学', school: '四川大学华西医学中心', eduProof: '学历证明-杨明.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-09-02', pledgeFile: '承诺书-杨明.pdf',
-    filingNo: '', filingReceipt: '', filingValidUntil: '',
-    status: '待审核',
+    filingNo: '', filingValidUntil: '',
+    syncedAt: '2026-10-18 09:12', status: '未备案',
     operations: [
-      { at: '2026-09-06 10:15', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2026-09-06 10:15', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2026-10-18 09:12', by: '系统', action: '同步备案状态', note: '国家平台未查到备案记录' },
     ],
   },
   {
@@ -256,10 +260,11 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2026-08-01', employEnd: '2028-07-31',
     education: '本科', major: '中药学', school: '陕西中医药大学', eduProof: '学历证明-赵磊.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-08-05', pledgeFile: '承诺书-赵磊.pdf',
-    filingNo: '', filingReceipt: '', filingValidUntil: '',
-    status: '待审核',
+    filingNo: '', filingValidUntil: '',
+    syncedAt: '2026-10-10 08:00', status: '未备案',
     operations: [
-      { at: '2026-09-01 09:00', by: ACTORS.sales.name, action: '提交审核' },
+      { at: '2026-09-01 09:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2026-10-10 08:00', by: '系统', action: '同步备案状态', note: '国家平台未查到备案记录' },
     ],
   },
   {
@@ -269,11 +274,10 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2026-07-01', employEnd: '2028-06-30',
     education: '本科', major: '预防医学', school: '大连医科大学', eduProof: '',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-07-10', pledgeFile: '承诺书-孙丽.pdf',
-    filingNo: '', filingReceipt: '', filingValidUntil: '',
-    status: '已驳回', reviewNote: '学历证明附件不清晰，请重新上传后再提交',
+    filingNo: '', filingValidUntil: '',
+    status: '未备案',
     operations: [
-      { at: '2026-07-08 09:00', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2026-07-12 16:40', by: ACTORS.compliance.name, action: '驳回', note: '学历证明附件不清晰' },
+      { at: '2026-07-08 09:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
     ],
   },
   {
@@ -283,11 +287,11 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2025-05-01', employEnd: '2027-04-30',
     education: '硕士', major: '药理学', school: '华中科技大学同济医学院', eduProof: '学历证明-黄峰.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-01-08', pledgeFile: '承诺书-黄峰.pdf',
-    filingNo: 'YB-HB-2026-60019', filingReceipt: '备案信息表-黄峰.pdf', filingValidUntil: '2026-12-31',
-    filingApprovedAt: '2026-01-12 10:00', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    filingNo: 'YB-HB-2026-60019', filingValidUntil: '2026-12-31',
+    syncedAt: '2026-10-18 09:12', status: '已备案',
     operations: [
-      { at: '2026-01-05 09:30', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2026-01-12 10:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-HB-2026-60019' },
+      { at: '2026-01-05 09:30', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2026-01-12 10:00', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-HB-2026-60019' },
     ],
   },
   {
@@ -297,13 +301,12 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2024-10-01', employEnd: '2026-09-30',
     education: '本科', major: '生物制药', school: '福州大学', eduProof: '学历证明-吴超.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-12-01', pledgeFile: '承诺书-吴超.pdf',
-    filingNo: 'YB-FJ-2025-70104', filingReceipt: '备案信息表-吴超.pdf', filingValidUntil: '2026-11-30',
-    filingApprovedAt: '2025-12-05 11:20', filingApprovedBy: ACTORS.compliance.name,
-    status: '已停用', stopReason: '离职',
+    filingNo: 'YB-FJ-2025-70104', filingValidUntil: '2026-11-30',
+    syncedAt: '2026-10-18 09:12', status: '已注销', cancelReason: '离职',
     operations: [
-      { at: '2025-11-28 09:00', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2025-12-05 11:20', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-FJ-2025-70104' },
-      { at: '2026-08-20 10:00', by: ACTORS.compliance.name, action: '停用', note: '离职；请在国家平台注销备案' },
+      { at: '2025-11-28 09:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2025-12-05 11:20', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-FJ-2025-70104' },
+      { at: '2026-08-20 10:00', by: '系统', action: '同步备案状态', note: '国家平台显示已注销（离职）' },
     ],
   },
   {
@@ -313,12 +316,12 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2023-04-01', employEnd: '2026-03-31',
     education: '本科', major: '药学', school: '复旦大学药学院', eduProof: '学历证明-周宁.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2025-04-01', pledgeFile: '承诺书-周宁.pdf',
-    filingNo: 'YB-SH-2023-80321', filingReceipt: '备案信息表-周宁.pdf', filingValidUntil: '2026-03-31',
-    filingApprovedAt: '2025-04-03 09:00', filingApprovedBy: ACTORS.compliance.name,
-    status: '已停用', stopReason: '停止授权',
+    filingNo: 'YB-SH-2023-80321', filingValidUntil: '2026-03-31',
+    syncedAt: '2026-10-18 09:12', status: '已注销', cancelReason: '停止授权',
     operations: [
-      { at: '2023-04-03 09:00', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-SH-2023-80321' },
-      { at: '2026-03-25 15:00', by: ACTORS.compliance.name, action: '停用', note: '停止授权，档案保留' },
+      { at: '2023-04-01 09:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2023-04-03 09:00', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-SH-2023-80321' },
+      { at: '2026-03-25 15:00', by: '系统', action: '同步备案状态', note: '国家平台显示已注销（停止授权），档案保留' },
     ],
   },
   {
@@ -328,12 +331,68 @@ export const seedRepresentatives: Representative[] = [
     employStart: '2025-11-01', employEnd: '2027-10-31',
     education: '本科', major: '药学', school: '河北医科大学', eduProof: '学历证明-马超.pdf',
     pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '2026-02-01', pledgeFile: '承诺书-马超.pdf',
-    filingNo: 'YB-TJ-2026-90215', filingReceipt: '备案信息表-马超.pdf', filingValidUntil: '2027-01-15',
-    filingApprovedAt: '2026-02-05 10:30', filingApprovedBy: ACTORS.compliance.name, status: '已备案',
+    filingNo: 'YB-TJ-2026-90215', filingValidUntil: '2027-01-15',
+    syncedAt: '2026-10-18 09:12', status: '已备案',
     operations: [
-      { at: '2026-01-30 09:00', by: ACTORS.sales.name, action: '提交审核' },
-      { at: '2026-02-05 10:30', by: ACTORS.compliance.name, action: '审核通过', note: '备案号 YB-TJ-2026-90215' },
+      { at: '2026-01-30 09:00', by: ACTORS.sales.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' },
+      { at: '2026-02-05 10:30', by: '系统', action: '同步备案状态', note: '国家平台已备案，备案号 YB-TJ-2026-90215' },
     ],
+  },
+];
+
+/**
+ * 国家备案平台 mock 真值表：同步备案状态时按此收敛，未列出的代表一律视为「未备案」。
+ * REP-007 赵磊刻意标为已备案：台账初始是未备案，首次同步演示「药厂在国家平台完成
+ * 备案 → 系统同步自动带出备案号」的链路（REP-006 杨明 / REP-008 孙丽保持未备案，
+ * 演示药厂尚未在国家平台操作的情形）。
+ */
+export const PLATFORM_FILING_TRUTH: Record<string, { status: RepresentativeStatus; filingNo?: string }> = {
+  'REP-001': { status: '已备案', filingNo: 'YB-BJ-2026-10021' },
+  'REP-002': { status: '已备案', filingNo: 'YB-JS-2026-08812' },
+  'REP-003': { status: '已备案', filingNo: 'YB-GD-2025-30156' },
+  'REP-004': { status: '已备案', filingNo: 'YB-SD-2025-40233' },
+  'REP-005': { status: '已备案', filingNo: 'YB-ZJ-2025-50077' },
+  'REP-007': { status: '已备案', filingNo: 'YB-BJ-2026-10442' },
+  'REP-009': { status: '已备案', filingNo: 'YB-HB-2026-60019' },
+  'REP-010': { status: '已注销' },
+  'REP-011': { status: '已注销' },
+  'REP-012': { status: '已备案', filingNo: 'YB-TJ-2026-90215' },
+};
+
+export const seedTrainingRecords: TrainingRecord[] = [
+  {
+    id: 'TR-001', kind: '考核', title: '2026 年 Q3 产品知识考核',
+    repIds: ['REP-001', 'REP-006', 'REP-009'], date: '2026-09-28',
+    note: '满分 100 分、80 分合格，三人均通过',
+    files: ['Q3考核成绩单.pdf', '考核试卷-空白版.pdf'], links: [],
+    uploadedBy: ACTORS.compliance.name, uploadedAt: '2026-09-30 14:20',
+  },
+  {
+    id: 'TR-002', kind: '培训', title: '心血管产品线学术培训（线上）',
+    repIds: ['REP-001', 'REP-002', 'REP-012'], date: '2026-09-10',
+    note: '含课后测验，完成率 100%',
+    files: [], links: [{ name: 'E-learning 课程回放', url: 'https://learn.baiyee-demo.com/course/cv-2026' }],
+    uploadedBy: ACTORS.compliance.name, uploadedAt: '2026-09-12 10:05',
+  },
+  {
+    id: 'TR-003', kind: '培训', title: '新员工岗前合规培训',
+    repIds: ['REP-006'], date: '2026-09-03',
+    files: ['合规培训签到表.pdf', '培训课件-合规红线.pptx'],
+    links: [{ name: '合规考试系统', url: 'https://exam.baiyee-demo.com/compliance' }],
+    uploadedBy: ACTORS.compliance.name, uploadedAt: '2026-09-03 17:40',
+  },
+  {
+    id: 'TR-004', kind: '考核', title: '学术推广模拟演练考核',
+    repIds: ['REP-004', 'REP-005'], date: '2026-08-21',
+    note: '陈静 82 分，刘洋 76 分（已补考通过）',
+    files: ['演练评分表.pdf'], links: [],
+    uploadedBy: ACTORS.sales.name, uploadedAt: '2026-08-22 09:15',
+  },
+  {
+    id: 'TR-005', kind: '培训', title: 'Q4 重点品种进阶培训',
+    repIds: ['REP-001', 'REP-003', 'REP-009', 'REP-012'], date: '2026-10-15',
+    files: [], links: [{ name: '培训材料合集', url: 'https://learn.baiyee-demo.com/course/q4-advanced' }],
+    uploadedBy: ACTORS.compliance.name, uploadedAt: '2026-10-16 09:05',
   },
 ];
 
@@ -748,8 +807,8 @@ export const emptyRepresentative = (): Omit<Representative, 'id'> => ({
   employStart: '', employEnd: '',
   education: '本科', major: '', school: '', eduProof: '',
   pledgeVersion: CURRENT_PLEDGE_TEMPLATE, pledgeDate: '', pledgeFile: '',
-  filingNo: '', filingReceipt: '', filingValidUntil: '',
-  status: '待审核',
+  filingNo: '', filingValidUntil: '',
+  status: '未备案',
   operations: [],
 });
 

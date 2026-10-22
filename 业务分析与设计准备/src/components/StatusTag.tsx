@@ -52,6 +52,21 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '已删除': { label: '已删除', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   '待提交': { label: '待提交', fg: '#667085', bg: '#F3F4F6', dot: '#98A2B3' },
   '审核中': { label: '审核中', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
+  // 准入任务（准入码制，2026-09-21）
+  '待领取': { label: '待领取', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
+  '待服务商提交': { label: '待服务商提交', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
+  '已准入': { label: '已准入', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
+  '已撤回': { label: '已撤回', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
+  '已失效': { label: '已失效', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
+  // 服务商管理 · 统一主体行状态（2026-10-20 整合改造）
+  '合作中': { label: '合作中', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
+  '已暂停': { label: '已暂停', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
+  '已终止': { label: '已终止', fg: '#C73A3A', bg: '#FEECEC', dot: '#C73A3A' },
+  '待补充': { label: '待补充', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
+  '尚未合作': { label: '尚未合作', fg: '#667085', bg: '#F3F4F6', dot: '#98A2B3' },
+  // 合同归档两态（合同管理，2026-09-21）
+  '待上传': { label: '待上传', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
+  '已归档': { label: '已归档', fg: 'var(--color-brand)', bg: 'var(--color-brand-subtle)', dot: 'var(--color-brand)' },
   '补件中': { label: '补件中', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '合格': { label: '合格', fg: '#2F6BCE', bg: '#EBF2FE', dot: '#2F6BCE' },
   '启用': { label: '启用', fg: '#248A5A', bg: '#E6F5ED', dot: '#248A5A' },
@@ -78,7 +93,9 @@ const statusConfig: Record<string, { label: string; fg: string; bg: string; dot:
   '待审': { label: '待审', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   '撤销': { label: '撤销', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   '过期': { label: '过期', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
-  // 医药代表备案（最简版）
+  // 医药代表备案（留底制：备案由药厂在国家平台操作，系统同步状态）
+  '未备案': { label: '未备案', fg: '#667085', bg: '#F3F4F6', dot: '#98A2B3' },
+  '已注销': { label: '已注销', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   '已停用': { label: '已停用', fg: '#6B7280', bg: '#F3F4F6', dot: '#9CA3AF' },
   '即将到期': { label: '即将到期', fg: '#C77A16', bg: '#FEF3E2', dot: '#C77A16' },
   // 服务商状态

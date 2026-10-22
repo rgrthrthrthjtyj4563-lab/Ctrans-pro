@@ -56,3 +56,14 @@ output/
 # Python bytecode (ui-ux-pro-max prompt pack)
 __pycache__/
 *.pyc
+
+# Browser/video agent tool artifacts
+.playwright-mcp/
+.video_agent/
+
+# Local working materials (design drafts, prompt docs, standalone prototypes)
+文档/
+代表备案-最简设计稿.html
+会议申请与审批功能/
+会议申请与审批功能.zip
+美罗需求设计稿.html

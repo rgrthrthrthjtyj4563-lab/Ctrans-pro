@@ -187,7 +187,8 @@ function PharmaAuthDetail({
               <span style={{ color: '#9CA3AF' }}>合作状态 </span>
               <StatusTag status={rel.status === 'active' ? '合作生效' : rel.status === 'paused' ? '合作暂停' : '合作终止'} size="sm" />
             </div>
-            <div><span style={{ color: '#9CA3AF' }}>合作生效日（准入通过） </span>{rel.effectiveFrom}</div>
+            <div><span style={{ color: '#9CA3AF' }}>合作生效日 </span>{rel.effectiveFrom}</div>
+            <div><span style={{ color: '#9CA3AF' }}>关系来源 </span>{rel.source === 'manual' ? '药厂线下准入导入（资质审查线下完成）' : '服务商准入审核通过'}</div>
             {rel.pausedAt && <div><span style={{ color: '#9CA3AF' }}>暂停时间 </span>{rel.pausedAt}{rel.pausedReason ? ` · ${rel.pausedReason}` : ''}</div>}
             {rel.terminatedAt && <div><span style={{ color: '#9CA3AF' }}>终止时间 </span>{rel.terminatedAt}{rel.terminatedReason ? ` · ${rel.terminatedReason}` : ''}</div>}
             <div><span style={{ color: '#9CA3AF' }}>最近使用 </span>{rel.lastUsedAt ?? '—'}</div>

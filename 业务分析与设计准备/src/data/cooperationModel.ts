@@ -329,19 +329,37 @@ export function upsertMembership(input: { userId: string; tenantId: string; orgU
 
 export type RelationshipStatus = "active" | "paused" | "terminated"
 
+/** 外部准入导入的可追溯信息（source=manual 时由导入流程写入；存量数据缺省 = 未记录） */
+export interface RelationshipImportMeta {
+  importBatchId?: string
+  /** 导入时间（合作生效日 = 导入当天，不代表外部实际审核通过日期） */
+  importedAt?: string
+  importedBy?: string
+  /** 导入声明原文（审核责任由本厂承担） */
+  declaration?: string
+}
+
 export interface ProviderPharmaRelationship {
   id: string
   pharmaTenantId: string
   providerTenantId: string
-  /** 准入通过时间（企业间合作生效的起点；准入审核记录在服务商准入模块） */
+  /** 合作生效起点（准入联动=准入通过日；线下导入=导入当天） */
   effectiveFrom: string
   status: RelationshipStatus
+  /** 关系来源：access=服务商准入审核通过联动（缺省值，存量兼容）；manual=药厂外部已准入批量导入 */
+  source?: "access" | "manual"
+  importMeta?: RelationshipImportMeta
   pausedAt?: string
   terminatedAt?: string
   /** 只填适合对外展示的文案（生产为原因码→标准文案映射） */
   pausedReason?: string
   terminatedReason?: string
   lastUsedAt?: string
+}
+
+/** 关系来源展示标签（2026-10-20 服务商管理整合：manual=外部准入 / access=平台准入） */
+export function relationshipSourceLabel(source?: "access" | "manual"): string {
+  return source === "manual" ? "外部准入" : "平台准入"
 }
 
 /** 业务授权（药厂 → 服务商：品种/项目/区域资格） */
@@ -394,7 +412,8 @@ export interface CooperationCooperationAudit {
 }
 
 interface CooperationState {
-  version: 1
+  /** v2：2026-10-16 东方恒业品种授权扩到 20 个（任务创建多选规模演示），旧存储自动重播种子 */
+  version: 2
   relationships: ProviderPharmaRelationship[]
   authorizations: BusinessAuthorization[]
   filings: FilingRecord[]
@@ -404,7 +423,7 @@ const STORAGE_KEY = "baiyee-cooperation-v1"
 
 function buildSeedState(): CooperationState {
   return {
-    version: 1,
+    version: 2,
     relationships: [
       // 东方恒业（org-provider-east）与四家药厂
       { id: "rel-baiyi-east", pharmaTenantId: "org-pharma", providerTenantId: "org-provider-east", effectiveFrom: "2026-05-01", status: "active", lastUsedAt: "2026-09-10 18:32" },
@@ -413,17 +432,40 @@ function buildSeedState(): CooperationState {
       { id: "rel-kangning-east", pharmaTenantId: "org-pharma-kangning", providerTenantId: "org-provider-east", effectiveFrom: "2026-07-01", status: "paused", pausedAt: "2026-08-31", pausedReason: "合作已暂停，待续签后恢复" },
       // 泽康：业务授权已撤销演示（合作生效，但品种资格被药厂收回）
       { id: "rel-zekang-east", pharmaTenantId: "org-pharma-zekang", providerTenantId: "org-provider-east", effectiveFrom: "2026-07-20", status: "active" },
-      // 智联科技与百益
-      { id: "rel-baiyi-smart", pharmaTenantId: "org-pharma", providerTenantId: "org-provider-smart", effectiveFrom: "2026-05-15", status: "active" },
+      // 智联科技与百益：外部准入演示行（2026-10-20 服务商管理整合——种子按外部已准入
+      // 导入口径演示「合作中 / 外部准入」；仅无存量存储的新浏览器生效，不清空已有演示数据）
+      {
+        id: "rel-baiyi-smart",
+        pharmaTenantId: "org-pharma",
+        providerTenantId: "org-provider-smart",
+        effectiveFrom: "2026-05-15",
+        status: "active",
+        source: "manual",
+        importMeta: {
+          importBatchId: "imp-seed-2026-05-15",
+          importedAt: "2026-05-15 10:20",
+          importedBy: "李航",
+          declaration: "本批次服务商均已由本厂完成准入审核，相关材料在本厂自有系统或线下渠道留存备查，审核责任由本厂承担。",
+        },
+      },
       // 康晟云服 / 永泰汇通与百益（统一业务授权后承载既有任务链口径）
       { id: "rel-baiyi-kangsheng", pharmaTenantId: "org-pharma", providerTenantId: "org-provider-kangsheng", effectiveFrom: "2026-03-01", status: "active", lastUsedAt: "2026-09-02 15:10" },
       { id: "rel-baiyi-yongtai", pharmaTenantId: "org-pharma", providerTenantId: "org-provider-yongtai", effectiveFrom: "2026-02-01", status: "active", lastUsedAt: "2026-08-28 10:00" },
+      // 泰合医学与百益（2026-09-21 准入演示）：合作生效但无任何业务授权——
+      // 演示「准入通过后待品种授权」衔接提示（门页/任务过滤按 品种授权 拦截）
+      { id: "rel-baiyi-taihe", pharmaTenantId: "org-pharma", providerTenantId: "org-rt-taihe", effectiveFrom: "2026-08-05", status: "active" },
     ],
     authorizations: [
       // 百益 × 东方恒业：品种行级区域对齐任务链口径（阿托伐他汀·陕西 / 氨氯地平·广东 / 奥美拉唑·广东）
       { id: "ba-01", relationshipId: "rel-baiyi-east", kind: "variety", items: ["阿托伐他汀钙片"], lineRegions: ["陕西省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:00" },
       { id: "ba-01b", relationshipId: "rel-baiyi-east", kind: "variety", items: ["氨氯地平片"], lineRegions: ["广东省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:01" },
       { id: "ba-01c", relationshipId: "rel-baiyi-east", kind: "variety", items: ["奥美拉唑肠溶胶囊"], lineRegions: ["广东省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:01" },
+      // 2026-10-16 扩容：东方恒业品种授权到 20 个，演示任务创建「多品种可搜索多选」规模
+      // （品种见 mockData V-007~V-020；雷贝拉唑挂专科价目表=跨表演示，氟伐他汀/瑞舒伐他汀/辛伐他汀无有效价目表=禁选演示）。
+      // demoBizPairs（拜访/绩效演示矩阵）未跟扩：新品种无历史拜访/绩效数据属预期。
+      { id: "ba-01d", relationshipId: "rel-baiyi-east", kind: "variety", items: ["二甲双胍缓释片", "缬沙坦胶囊", "硝苯地平控释片", "美托洛尔缓释片", "氯沙坦钾片", "非洛地平缓释片", "格列美脲片", "瑞格列奈片", "西格列汀片", "达格列净片", "铝碳酸镁咀嚼片", "莫沙必利片", "恩替卡韦分散片"], lineRegions: ["陕西省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:05" },
+      { id: "ba-01e", relationshipId: "rel-baiyi-east", kind: "variety", items: ["雷贝拉唑钠肠溶片"], lineRegions: ["陕西省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:06" },
+      { id: "ba-01f", relationshipId: "rel-baiyi-east", kind: "variety", items: ["瑞舒伐他汀钙片", "辛伐他汀片", "氟伐他汀钠胶囊"], lineRegions: ["陕西省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:07" },
       { id: "ba-02", relationshipId: "rel-baiyi-east", kind: "region", items: ["陕西省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:02" },
       { id: "ba-03", relationshipId: "rel-baiyi-east", kind: "project", items: ["百益陕西推广项目"], status: "active", grantedBy: "李航", grantedAt: "2026-05-06 10:04" },
       { id: "ba-04", relationshipId: "rel-huakang-east", kind: "variety", items: ["奥美拉唑肠溶胶囊"], lineRegions: ["陕西省", "甘肃省"], status: "active", grantedBy: "华康-王岚", grantedAt: "2026-06-15 09:30" },
@@ -473,7 +515,7 @@ function loadState(): CooperationState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return buildSeedState()
     const parsed = JSON.parse(raw) as CooperationState
-    if (parsed?.version !== 1 || !Array.isArray(parsed.relationships)) return buildSeedState()
+    if (parsed?.version !== 2 || !Array.isArray(parsed.relationships)) return buildSeedState()
     return parsed
   } catch {
     return buildSeedState()
@@ -534,7 +576,9 @@ export function relationshipsOfPharma(pharmaTenantId: string): ProviderPharmaRel
 }
 
 export function relationshipBetween(pharmaTenantId: string, providerTenantId: string): ProviderPharmaRelationship | undefined {
-  return state.relationships.find((r) => r.pharmaTenantId === pharmaTenantId && r.providerTenantId === providerTenantId)
+  // 取该方向「最新」一条：终止后重建的历史记录在前（append 顺序），旧 terminated 不应遮蔽新关系
+  const of = state.relationships.filter((r) => r.pharmaTenantId === pharmaTenantId && r.providerTenantId === providerTenantId)
+  return of[of.length - 1]
 }
 
 export function authorizationsOfRelationship(relationshipId: string): BusinessAuthorization[] {
@@ -559,6 +603,17 @@ export function activeAuthSummaryOfRelationship(relationshipId: string): { varie
 
 export function relationshipStatusLabel(status: RelationshipStatus): string {
   return { active: "合作生效", paused: "合作暂停", terminated: "合作终止" }[status]
+}
+
+/**
+ * 药厂 × 服务商方向的品种授权衔接判定（准入通过后的闭环检查）：
+ * granted = 合作生效且已有有效品种授权（服务商可承接业务）
+ * missing = 合作生效但无品种授权（服务商无法进入药厂业务，需在「业务授权」配置）
+ */
+export function varietyAuthStateOf(pharmaTenantId: string, providerTenantId: string): "granted" | "missing" {
+  const rel = relationshipBetween(pharmaTenantId, providerTenantId)
+  if (!rel || rel.status !== "active") return "missing"
+  return hasActiveAuthorization(rel.id, "variety") ? "granted" : "missing"
 }
 
 export function businessAuthKindLabel(kind: BusinessAuthKind): string {
@@ -830,6 +885,7 @@ export function ensureRelationshipFromAccess(input: {
       providerTenantId: input.providerTenantId,
       effectiveFrom: todayIso(),
       status: "active",
+      source: "access",
     }
     commit({ relationships: [...state.relationships, created] })
     return {
@@ -874,6 +930,7 @@ export function ensureRelationshipFromAccess(input: {
     providerTenantId: input.providerTenantId,
     effectiveFrom: todayIso(),
     status: "active",
+    source: "access",
   }
   commit({ relationships: [...state.relationships, created] })
   return {
@@ -885,6 +942,105 @@ export function ensureRelationshipFromAccess(input: {
       detail: `准入审核通过（操作者：${input.actor}）· 历史合作已终止，已新建生效合作关系；终止记录保留供审计`,
     }],
   }
+}
+
+/**
+ * 药厂线下准入批量导入 → 直接建立生效合作关系（2026-10-16：存量合作商标识审查
+ * 已线下完成，跳过系统准入流程）。与准入联动不同：
+ * - 已生效 → 报错（导入校验层应已拦截，此处防御）；
+ * - 已暂停 → 报错引导走「恢复合作」（不静默恢复，避免绕过暂停原因管理）；
+ * - 已终止 → 新建生效关系（历史保留）；
+ * - 无关系 → 新建生效关系（source=manual，合作生效日=导入当天）。
+ */
+export function createRelationshipDirect(input: {
+  pharmaTenantId: string
+  providerTenantId: string
+  actor: string
+}): CoopOpResult & { created?: boolean } {
+  const rel = relationshipBetween(input.pharmaTenantId, input.providerTenantId)
+  if (rel?.status === "active") {
+    return { ok: false, error: `与「${tenantNameOf(rel.providerTenantId)}」的合作关系已生效，无需重复建立`, audits: [] }
+  }
+  if (rel?.status === "paused") {
+    return { ok: false, error: `与「${tenantNameOf(rel.providerTenantId)}」的合作处于暂停中，请恢复合作而非重复导入`, audits: [] }
+  }
+  const created: ProviderPharmaRelationship = {
+    id: `rel-manual-${Date.now().toString(36)}`,
+    pharmaTenantId: input.pharmaTenantId,
+    providerTenantId: input.providerTenantId,
+    effectiveFrom: todayIso(),
+    status: "active",
+    source: "manual",
+  }
+  commit({ relationships: [...state.relationships, created] })
+  return {
+    ok: true,
+    created: true,
+    audits: [{
+      reasonCode: rel ? "COOPERATION_RECREATED_BY_MANUAL_IMPORT" : "COOPERATION_CREATED_BY_MANUAL_IMPORT",
+      target: `${tenantNameOf(input.providerTenantId)} × ${tenantNameOf(input.pharmaTenantId)}`,
+      detail: `线下准入批量导入（操作者：${input.actor}）${rel ? "· 历史合作已终止，已新建生效合作关系" : "· 已建立并生效合作关系；药厂可配置品种业务授权"}`,
+    }],
+  }
+}
+
+/**
+ * 外部已准入批量导入（2026-10-20 服务商管理整合）：与逐行 createRelationshipDirect 不同，
+ * 在同一份内存快照上**先全量复验、后一次性 commit**——任一行不通过则整批不写入，
+ * 从 store 层杜绝「预览校验通过但提交中途状态变化」造成的半批导入。
+ * 每行生成一条审计（含历史终止重建场景）；导入批次、时间、操作人、声明写入 importMeta。
+ */
+export function importRelationshipsBatch(input: {
+  pharmaTenantId: string
+  rows: Array<{ providerTenantId: string }>
+  actor: string
+  importBatchId: string
+  declaration: string
+}): CoopOpResult & { created?: ProviderPharmaRelationship[] } {
+  if (input.rows.length === 0) return { ok: false, error: "导入名单为空", audits: [] }
+  if (!input.declaration.trim()) return { ok: false, error: "缺少导入声明", audits: [] }
+  // 第一遍：对同一份 state 全量复验（active 阻止 / paused 引导恢复 / 名单内重复），
+  // 同时记下各行是否存在历史终止关系（commit 前捕获，供审计 reasonCode 判定）
+  const seen = new Set<string>()
+  const hadTerminatedOf: boolean[] = []
+  for (const row of input.rows) {
+    const name = tenantNameOf(row.providerTenantId)
+    if (seen.has(row.providerTenantId)) {
+      return { ok: false, error: `名单内重复：${name}`, audits: [] }
+    }
+    seen.add(row.providerTenantId)
+    const rel = relationshipBetween(input.pharmaTenantId, row.providerTenantId)
+    hadTerminatedOf.push(rel?.status === "terminated")
+    if (rel?.status === "active") {
+      return { ok: false, error: `与「${name}」的合作关系已生效（${relationshipSourceLabel(rel.source)}），无需重复导入`, audits: [] }
+    }
+    if (rel?.status === "paused") {
+      return { ok: false, error: `与「${name}」的合作处于暂停中，请恢复合作而非重复导入`, audits: [] }
+    }
+  }
+  // 第二遍：构建全部新关系，一次 commit（整批原子）
+  const importedAt = nowStampLocal()
+  const created: ProviderPharmaRelationship[] = input.rows.map((row) => ({
+    id: `rel-manual-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000)}`,
+    pharmaTenantId: input.pharmaTenantId,
+    providerTenantId: row.providerTenantId,
+    effectiveFrom: todayIso(),
+    status: "active" as const,
+    source: "manual" as const,
+    importMeta: {
+      importBatchId: input.importBatchId,
+      importedAt,
+      importedBy: input.actor,
+      declaration: input.declaration.trim(),
+    },
+  }))
+  commit({ relationships: [...state.relationships, ...created] })
+  const audits = created.map((c, i) => ({
+    reasonCode: hadTerminatedOf[i] ? "COOPERATION_RECREATED_BY_MANUAL_IMPORT" : "COOPERATION_CREATED_BY_MANUAL_IMPORT",
+    target: `${tenantNameOf(c.providerTenantId)} × ${tenantNameOf(input.pharmaTenantId)}`,
+    detail: `外部已准入导入（批次 ${input.importBatchId} · 操作者：${input.actor}）${hadTerminatedOf[i] ? "· 历史合作已终止，已新建生效合作关系；终止记录保留供审计" : "· 已建立并生效合作关系；品种业务授权另行配置"}`,
+  }))
+  return { ok: true, created, audits }
 }
 
 export function grantBusinessAuth(input: GrantBusinessAuthInput): CoopOpResult {
@@ -1025,8 +1181,16 @@ export function servingBizScopeOfAssignment(
   assignment: RoleAssignment,
   pharmaTenantId: string,
 ): { varietyNames: string[]; regions: string[] } | null {
-  if (!assignment.pharmaTenantIds || assignment.pharmaTenantIds.length === 0) return null
-  if (!assignment.pharmaTenantIds.includes(pharmaTenantId)) return null
+  // PROVIDER 档（服务商管理员）不配置 pharmaTenantIds：与门页 grantedPharmasForUser
+  // 同口径——名下药厂 = 本服务商全部有效授权药厂，范围 = 当前药厂的全部有效品种
+  // 授权（品种级收窄 varietyNames 仍生效；授权失效时下方 lines 为空自然拒绝）。
+  const providerAdminScope =
+    (!assignment.pharmaTenantIds || assignment.pharmaTenantIds.length === 0) &&
+    ([...PRESET_ROLES, ...seedCustomRoles].find((r) => r.id === assignment.roleId)?.defaultScope === "PROVIDER")
+  if (!providerAdminScope) {
+    if (!assignment.pharmaTenantIds || assignment.pharmaTenantIds.length === 0) return null
+    if (!assignment.pharmaTenantIds.includes(pharmaTenantId)) return null
+  }
   const lines = authorizedVarietyLinesOfPharma(assignment.tenantId, pharmaTenantId)
   if (lines.length === 0) return null
   const limit = assignment.varietyNames && assignment.varietyNames.length > 0 ? assignment.varietyNames : undefined

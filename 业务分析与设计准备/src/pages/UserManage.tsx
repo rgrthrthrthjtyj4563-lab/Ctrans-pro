@@ -149,7 +149,7 @@ export function UserManage({ addToast }: Props) {
     const f = createUserOpen;
     const miss: string[] = [];
     if (!f.photoFile) miss.push('照片');
-    if (!f.idNo) miss.push('证件号');
+    if (!f.idNo) miss.push('身份证号');
     if (!EDU_OPTIONS.includes(f.education)) miss.push('学历须大专及以上');
     if (!f.major) miss.push('专业');
     if (!f.school) miss.push('毕业院校');
@@ -197,7 +197,7 @@ export function UserManage({ addToast }: Props) {
     if (createUserOpen.createRep) {
       const miss = missingRepFields();
       if (miss.length) return fail(`服务专员备案档案仍缺必填项：${miss.join('、')}`);
-      if (repFiling.reps.some(r => r.idNo === createUserOpen.idNo.trim())) return fail('证件号已存在于代表备案档案，须唯一');
+      if (repFiling.reps.some(r => r.idNo === createUserOpen.idNo.trim())) return fail('身份证号已存在于代表备案留底档案，须唯一');
     }
     const result = store.createUser({ name, account, phone, email, orgId: createUserOpen.orgId });
     if (!result.ok) return fail(result.error || '新建用户失败');
@@ -227,13 +227,12 @@ export function UserManage({ addToast }: Props) {
         pledgeDate: createUserOpen.pledgeDate,
         pledgeFile: createUserOpen.pledgeFile.trim(),
         filingNo: '',
-        filingReceipt: '',
         filingValidUntil: '',
-        status: '待审核',
-        operations: [{ at: nowText(), by: principal.name, action: '提交审核', note: '创建服务专员用户时生成备案档案' }],
+        status: '未备案',
+        operations: [{ at: nowText(), by: principal.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' }],
       };
       repFiling.addRep(rep);
-      addToast({ type: 'success', title: '已新建服务专员', description: `${name} · ${account} · 备案档案待合规审核；角色与可处理药厂请在「角色与数据范围」授予（REP：${rep.id}）` });
+      addToast({ type: 'success', title: '已新建服务专员', description: `${name} · ${account} · 备案留底档案已生成（未备案）；药厂在国家平台完成备案后，可在「服务人员备案」同步状态（REP：${rep.id}）` });
     } else {
       addToast({ type: 'success', title: '已新建用户', description: `${name} · ${account} · 未分配角色，可在「角色与数据范围」对应角色的「已授权成员」页签授予` });
     }
@@ -659,7 +658,7 @@ export function UserManage({ addToast }: Props) {
             </Field>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', cursor: 'pointer' }}>
               <input type="checkbox" checked={createUserOpen.createRep} onChange={e => setCreateUserOpen({ ...createUserOpen, createRep: e.target.checked })} style={{ accentColor: 'var(--color-brand)', width: 15, height: 15 }} />
-              同时生成服务专员备案档案（该成员将从事学术拜访业务；备案状态由合规审核）
+              同时生成服务专员备案留底档案（该成员将从事学术拜访业务；备案由药厂在国家平台操作，系统留底并同步状态）
             </label>
             {createUserOpen.createRep && (
               <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, display: 'grid', gap: 12 }}>
@@ -668,7 +667,7 @@ export function UserManage({ addToast }: Props) {
                     <select value={createUserOpen.gender} onChange={e => setCreateUserOpen({ ...createUserOpen, gender: e.target.value as '男' | '女' })} style={inputStyle}><option>男</option><option>女</option></select>
                   </Field>
                   <Field label="照片" required><input value={createUserOpen.photoFile} onChange={e => setCreateUserOpen({ ...createUserOpen, photoFile: e.target.value })} style={inputStyle} placeholder="照片文件名" /></Field>
-                  <Field label="证件号" required><input value={createUserOpen.idNo} onChange={e => setCreateUserOpen({ ...createUserOpen, idNo: e.target.value })} style={inputStyle} /></Field>
+                  <Field label="身份证号" required><input value={createUserOpen.idNo} onChange={e => setCreateUserOpen({ ...createUserOpen, idNo: e.target.value })} style={inputStyle} /></Field>
                   <Field label="所属服务商" hint="按所属组织自动推导">
                     <input value={deriveEmployment(orgs, createUserOpen.orgId).providerName} disabled style={{ ...inputStyle, color: '#667085', background: '#F9FAFB' }} />
                   </Field>

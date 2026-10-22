@@ -91,15 +91,17 @@ const SEED_MENU_ITEMS: MenuSeedItem[] = [
   item({ id: 'menu-baiyee-ai', name: 'baiyee-AI', type: 'page', parentId: 'group-biz', pageId: 'baiyee-ai', sort: 7, workspace: 'pharma' }),
 
   // ── 药厂：合作与授权 ───────────────────────────────────────────────────────
+  // 2026-10-20 还原两页版：「服务商准入」（准入任务/审核）与「合作关系」（台账/导入）分列。
   item({ id: 'group-coop', name: '合作与授权', type: 'group', parentId: null, section: '', iconKey: 'handshake', sort: 3, workspace: 'pharma' }),
   item({ id: 'menu-vendor-access', name: '服务商准入', type: 'page', parentId: 'group-coop', pageId: 'vendor-access', sort: 1, workspace: 'pharma' }),
   item({ id: 'menu-pharma-cooperation', name: '合作关系', type: 'page', parentId: 'group-coop', pageId: 'pharma-cooperation', sort: 2, workspace: 'pharma' }),
   item({ id: 'menu-variety-auth', name: '业务授权', type: 'page', parentId: 'group-coop', pageId: 'variety-auth', sort: 3, workspace: 'pharma' }),
   item({ id: 'menu-rep-filing', name: '服务人员备案', type: 'page', parentId: 'group-coop', pageId: 'rep-filing', sort: 4, workspace: 'pharma' }),
+  item({ id: 'menu-contract-management', name: '合同管理', type: 'page', parentId: 'group-coop', pageId: 'contract-management', sort: 5, workspace: 'pharma' }),
 
   // ── 药厂：基础数据 ─────────────────────────────────────────────────────────
   item({ id: 'group-basedata', name: '基础数据', type: 'group', parentId: null, section: '', iconKey: 'database', sort: 4, workspace: 'pharma' }),
-  item({ id: 'menu-varieties', name: '品种信息', type: 'page', parentId: 'group-basedata', pageId: 'varieties', sort: 1, workspace: 'pharma' }),
+  item({ id: 'menu-varieties', name: '品种管理', type: 'page', parentId: 'group-basedata', pageId: 'varieties', sort: 1, workspace: 'pharma' }),
   item({ id: 'menu-doctors', name: '医生主数据', type: 'page', parentId: 'group-basedata', pageId: 'doctors', sort: 2, workspace: 'pharma' }),
   item({ id: 'menu-price-config', name: '价目表配置', type: 'page', parentId: 'group-basedata', pageId: 'price-config', sort: 3, workspace: 'pharma' }),
   item({ id: 'menu-execution-chain', name: '执行链路配置', type: 'page', parentId: 'group-basedata', pageId: 'execution-chain', sort: 4, workspace: 'pharma' }),
@@ -120,7 +122,7 @@ const SEED_MENU_ITEMS: MenuSeedItem[] = [
 
   // ── 服务商：合作管理 ───────────────────────────────────────────────────────
   item({ id: 'group-provider-coop', name: '合作管理', type: 'group', parentId: null, section: '', iconKey: 'handshake', sort: 3, workspace: 'provider' }),
-  item({ id: 'menu-p-vendor-access', name: '准入申请', type: 'page', parentId: 'group-provider-coop', pageId: 'vendor-access', sort: 1, workspace: 'provider' }),
+  item({ id: 'menu-p-vendor-access', name: '准入任务', type: 'page', parentId: 'group-provider-coop', pageId: 'vendor-access', sort: 1, workspace: 'provider' }),
   item({ id: 'menu-p-vendor-records', name: '提交记录', type: 'page', parentId: 'group-provider-coop', pageId: 'vendor-access-records', sort: 2, workspace: 'provider' }),
   item({ id: 'menu-provider-partners', name: '合作药厂与业务授权', type: 'page', parentId: 'group-provider-coop', pageId: 'provider-partners', sort: 3, workspace: 'provider' }),
 

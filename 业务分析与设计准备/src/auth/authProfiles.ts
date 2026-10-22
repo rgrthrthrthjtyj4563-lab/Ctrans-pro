@@ -121,7 +121,7 @@ export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
   // ── 药厂侧（百益制药） ──
   { userId: "u-shenyue", account: "shenyue", name: "沈悦", roleName: "企业管理员", orgName: "信息技术部", group: "pharma", tags: ["组织/用户/角色授权主线"], enterpriseCode: "E9K4P7X2", phone: "13901350121", scene: "药厂企业管理主线：本药厂组织架构、用户、角色与数据范围（唯一授权入口）" },
   { userId: "u-lihang", account: "lihang", name: "李航", roleName: "企业管理员 + 药厂区域销售经理", orgName: "西北大区", group: "pharma", tags: ["多角色权限合并"], enterpriseCode: "E9K4P7X2", phone: "13901350102", scene: "同企业多角色自动合并：登录不选角色，直接获得「企业管理员」+「药厂区域销售经理」权限并集（顶栏身份行显示双角色并集 · 企业，如「企业管理员 + 药厂区域销售经理 · 百益制药」）" },
-  { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "企业管理员", orgName: "合规部", group: "pharma", tags: ["备案/准入审核"], enterpriseCode: "E9K4P7X2", phone: "13901350103", scene: "「企业管理员 · 合规部」：备案审核、服务商准入审核（通过即创建合作关系）与合作关系暂停" },
+  { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "企业管理员", orgName: "合规部", group: "pharma", tags: ["备案留底/准入审核"], enterpriseCode: "E9K4P7X2", phone: "13901350103", scene: "「企业管理员 · 合规部」：备案留底台账与国家平台状态同步、考核培训留底、服务商准入审核（通过即创建合作关系）与合作关系暂停" },
   // ── 服务商侧 ──
   { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", group: "provider", tags: ["双企业身份", "配药厂范围"], enterpriseCode: "W6HK2T9V", phone: "13809120104", scene: "双企业身份：东方恒业编码登录=服务商管理员（可演示给员工配不同药厂范围）；百益制药编码（E9K4P7X2）登录=企业管理员 · 合规部" },
   { userId: "u-liuyang", account: "liuyang", name: "刘洋", roleName: "工作组组长", orgName: "工作组一", group: "provider", tags: ["任务分派与初审"], enterpriseCode: "F3JN7QX4", phone: "13809120105", scene: "工作组分派与初审（智联科技成员；用百益编码登录可演示非成员防枚举）" },

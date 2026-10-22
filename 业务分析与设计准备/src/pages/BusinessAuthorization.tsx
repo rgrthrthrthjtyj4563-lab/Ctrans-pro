@@ -1,8 +1,8 @@
 /**
  * 业务授权（药厂侧，原「品种授权」归位扩展）：药厂向服务商授予
  * 品种 / 项目 / 区域等业务服务资格（企业间授权）。
- * 列表与表单按独立字段呈现：服务提供方 / 药品上市许可持有人（本厂，只读）/
- * 授权内容（资格类型）/ 品种名称 / 授权区域 / 授权状态 / 生效期。
+ * 列表按独立字段呈现：授权内容（资格类型）/ 品种名称 / 授权区域 / 授权状态 / 生效期；
+ * 服务提供方（左栏已选）与药品上市许可持有人（本厂）为常量，仅在新建授权表单内只读展示。
  * 只有合作关系生效时可新增或撤销授权（模型层兜底 + 按钮禁用双保险）；
  * 撤销与生效期到期即时影响服务商全员（员工授权无法绕过）。
  * 服务商员工的实际处理范围由服务商在「角色与数据范围 · 已授权成员」授予（只收窄）。
@@ -58,9 +58,12 @@ export function BusinessAuthorization({ addToast, focusProviderTenantId }: Props
 
   const [grant, setGrant] = useState<{ relationshipId: string; providerName: string; kind: BusinessAuthKind; items: string[]; lineRegions: string[]; effectiveFrom: string; effectiveTo: string; reason: string; error: string } | null>(null);
   const [revoke, setRevoke] = useState<{ authId: string; label: string; reason: string; error: string } | null>(null);
-  const [selectedRel, setSelectedRel] = useState<string>(
-    focusProviderTenantId ? rels.find(r => r.providerTenantId === focusProviderTenantId)?.id ?? '' : '',
-  );
+  const [selectedRel, setSelectedRel] = useState<string>(() => {
+    // 定位预选：优先生效周期，其次最新周期（终止后重建会产生同服务商多条关系，不能选中旧终止周期）
+    if (!focusProviderTenantId) return '';
+    const of = rels.filter(r => r.providerTenantId === focusProviderTenantId);
+    return of.find(r => r.status === 'active')?.id ?? of[of.length - 1]?.id ?? '';
+  });
   const [expanded] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState('');
 
@@ -212,21 +215,19 @@ export function BusinessAuthorization({ addToast, focusProviderTenantId }: Props
                   </span>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1020 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
                     <thead>
-                      <tr>{['服务提供方', '上市许可持有人', '授权内容', '品种名称', '授权区域', '授权状态', '生效期', '授予人 · 时间', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                      <tr>{['授权内容', '品种名称', '授权区域', '授权状态', '生效期', '授予人 · 时间', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
                     </thead>
                     <tbody>
                       {filteredAuths.length === 0 ? (
-                        <tr><td colSpan={9} style={{ padding: 0 }}><EmptyState title={query ? '没有匹配的授权记录' : '尚无业务授权'} description={query ? '调整搜索条件后重试。' : '点击右上角「新建授权」向该服务商授予资格。'} /></td></tr>
+                        <tr><td colSpan={7} style={{ padding: 0 }}><EmptyState title={query ? '没有匹配的授权记录' : '尚无业务授权'} description={query ? '调整搜索条件后重试。' : '该服务商暂无任何授权——配置品种授权后才能承接本厂业务；点击右上角「新建授权」开始。'} /></td></tr>
                       ) : (
                         filteredAuths.map(a => {
                           const runtime = businessAuthRuntimeStatus(a);
                           const regions = authRegionsOf(a, relRegions);
                           return (
                             <tr key={a.id}>
-                              <td style={tdStyle}>{tenantNameOf(activeRel.providerTenantId)}</td>
-                              <td style={tdStyle}>{pharmaName}</td>
                               <td style={tdStyle}>{businessAuthKindLabel(a.kind)}</td>
                               <td style={tdStyle}>{a.kind === 'variety' ? a.items.join('、') : '—'}</td>
                               <td style={{ ...tdStyle, color: regions.length ? undefined : '#9CA3AF' }}>{regions.length ? regions.join('、') : '不限'}</td>

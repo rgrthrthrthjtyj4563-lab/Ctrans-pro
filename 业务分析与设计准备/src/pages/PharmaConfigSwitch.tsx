@@ -1,162 +1,526 @@
-import { useMemo, useState } from "react";
+/**
+ * 药厂配置开关（业务规则版）：由药厂维护业务规则、费用控制、审核流程与版本记录。
+ * - 配置范围：药厂统一 + 指定合作服务商差异（服务商列表来自真实合作关系，稳定租户 ID）
+ * - 草稿制：所有修改先入草稿，「发布配置」校验通过后更新生效值、递增版本、保留快照
+ * - 成果验收流程接入既有 AcceptanceContext：草稿阶段不生效，确认发布后再同步共享上下文
+ * - 权限：复用 can("business-switch", "view"/"edit")；发布沿用 edit 权限
+ * 本页为前端原型：本地持久化、无后端、AI 为本地交互演示。
+ */
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Bot, ShieldCheck } from "lucide-react"
+import { Button } from "../components/Button"
+import { ConfirmDialog } from "../components/ConfirmDialog"
+import { Modal } from "../components/Modal"
+import { PageHeader } from "../components/PageHeader"
+import { Tag } from "../components/StatusTag"
+import type { ToastMessage } from "../components/Toast"
+import { usePermission } from "../context/PermissionContext"
+import { useAcceptance } from "../context/AcceptanceContext"
+import { PHARMA_ACCEPT_DEPARTMENTS } from "../data/acceptanceData"
+import { relationshipsOfPharma, subscribeCooperation, tenantNameOf } from "../data/cooperationModel"
+import { usePharmaSwitchConfig } from "../hooks/usePharmaSwitchConfig"
 import {
-  Activity,
-  AlertTriangle,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  FileText,
-  History,
-  MapPin,
-  Save,
-  ShieldCheck,
-  X,
-} from "lucide-react";
-import { Button } from "../components/Button";
-import { usePermission } from "../context/PermissionContext";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { PageHeader } from "../components/PageHeader";
-import { Tag } from "../components/StatusTag";
-import type { ToastMessage } from "../components/Toast";
-import type { Role } from "../types";
+  ACCEPTANCE_RULE,
+  FEE_BASE_RULES,
+  FEE_SCENE,
+  PHARMA_SWITCH_SCENARIOS,
+  REVIEW_BASE_RULE,
+  REVIEW_SCENE,
+  UNIFIED_OWNER,
+  UNIFIED_OWNER_LABEL,
+  differencesOf,
+  encodeAcceptanceRule,
+  feeRuleOf,
+  getRule,
+  hasFeeDraft,
+  parseAcceptanceRule,
+  rulesForScene,
+  sameRule,
+  type SwitchProviderRef,
+  type SwitchRule,
+  type SwitchSnapshot,
+} from "../data/pharmaSwitchRules"
+import { AIConfigAssistant } from "./pharma-config-switch/AIConfigAssistant"
+import { BusinessRules } from "./pharma-config-switch/BusinessRules"
+import { FeeControl } from "./pharma-config-switch/FeeControl"
+import { PublishDialog } from "./pharma-config-switch/PublishDialog"
+import { ReviewFlow } from "./pharma-config-switch/ReviewFlow"
+import { RuleEditor } from "./pharma-config-switch/RuleEditor"
+import { VersionDetailDialog, VersionHistory } from "./pharma-config-switch/VersionHistory"
+import type { NavigateFn, Role } from "../types"
+import "./pharma-config-switch/pharma-config-switch.css"
 
-type Mode = "strict" | "standard" | "free";
+type TabId = "rules" | "fee" | "review" | "version"
+type Scope = "unified" | "provider"
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: "rules", label: "业务规则" },
+  { id: "fee", label: "费用控制" },
+  { id: "review", label: "审核流程" },
+  { id: "version", label: "版本记录" },
+]
 
 interface Props {
-  addToast: (msg: Omit<ToastMessage, "id">) => void;
-  currentRole?: Role;
+  addToast: (msg: Omit<ToastMessage, "id">) => void
+  currentRole?: Role
+  navigate?: NavigateFn
 }
 
-const MODE: Record<Mode, { label: string; description: string; icon: typeof ShieldCheck; lines: string[]; risk?: boolean }> = {
-  strict: {
-    label: "严格合规",
-    description: "适用于高监管、强合规要求的药厂业务场景",
-    icon: ShieldCheck,
-    lines: ["完整留痕校验，缺失必要证据时不可提交", "地图位置不可随意拖拽，位置需与实际匹配", "轨迹与速度异常自动拦截"],
-  },
-  standard: {
-    label: "常规合规",
-    description: "适用于常规推广业务，保留核心留痕校验",
-    icon: FileText,
-    lines: ["保留核心留痕校验，允许合理调整", "地图允许有限范围调整，超限触发提示", "异常轨迹触发复核提示，不强制拦截"],
-  },
-  free: {
-    label: "自由模式",
-    description: "允许较高业务灵活度，适用于低约束业务场景",
-    icon: Activity,
-    risk: true,
-    lines: ["允许较高业务灵活度，仍保留操作留痕", "关键放宽操作需二次确认并记录日志", "保留风险提醒，不强制拦截"],
-  },
-};
+export function PharmaConfigSwitch({ addToast, navigate }: Props) {
+  const { principal, can, logAudit } = usePermission()
+  const readOnly = !can("business-switch", "edit")
+  const pharmaTenantId = principal.realm === "TENANT" ? principal.tenantId : ""
+  const pharmaName = principal.realm === "TENANT" ? principal.tenantName : ""
 
-const box: React.CSSProperties = { background: "#fff", border: "1px solid var(--color-border)", borderRadius: 8, padding: 20 };
-const sectionTitle: React.CSSProperties = { fontSize: "var(--fs-16)", fontWeight: 600, color: "var(--color-text-1)" };
-const hint: React.CSSProperties = { marginTop: 4, fontSize: "var(--fs-12)", color: "#667085", lineHeight: 1.55 };
+  // 合作生效的服务商（真实合作关系，按稳定租户 ID；合作暂停/终止自动退出差异配置）
+  const [coopRev, setCoopRev] = useState(0)
+  useEffect(() => subscribeCooperation(() => setCoopRev((r) => r + 1)), [])
+  const providers = useMemo<SwitchProviderRef[]>(() => {
+    if (!pharmaTenantId) return []
+    return relationshipsOfPharma(pharmaTenantId)
+      .filter((r) => r.status === "active")
+      .map((r) => ({ id: r.providerTenantId, name: tenantNameOf(r.providerTenantId) }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pharmaTenantId, coopRev])
 
-function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
-  return <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} style={{ width: 36, height: 20, border: "none", borderRadius: 999, background: checked ? "var(--color-brand)" : "#CBD5E1", position: "relative", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? .5 : 1, padding: 0 }}>
-    <span style={{ position: "absolute", left: 2, top: 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transform: checked ? "translateX(16px)" : "none", transition: "transform 160ms ease" }} />
-  </button>;
-}
+  const { state, merged, version, draftCount, conflicts, storageError, saveRule, discardDrafts, publish } =
+    usePharmaSwitchConfig(pharmaTenantId, providers)
 
-function NumberField({ label, unit, value, setValue, help, disabled }: { label: string; unit: string; value: string; setValue: (value: string) => void; help: string; disabled?: boolean }) {
-  return <label style={{ display: "block" }}>
-    <span style={{ display: "block", fontSize: "var(--fs-13)", fontWeight: 500, color: "#374151", marginBottom: 6 }}>{label} <em style={{ fontStyle: "normal", color: "#9CA3AF", fontFamily: "var(--font-mono)", fontWeight: 400 }}>{unit}</em></span>
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <input type="number" min="0" value={value} disabled={disabled} onChange={(event) => setValue(event.target.value)} style={{ width: 116, height: 32, padding: "0 10px", border: "1px solid var(--color-border)", borderRadius: 6, fontFamily: "var(--font-mono)", color: "var(--color-text-1)", background: disabled ? "#F9FAFB" : "#fff" }} />
-      <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF" }}>{help}</span>
-    </div>
-  </label>;
-}
+  const [tab, setTab] = useState<TabId>("rules")
+  const [scope, setScope] = useState<Scope>("unified")
+  const [providerKey, setProviderKey] = useState("")
+  const [scenario, setScenario] = useState("医院拜访")
+  const [onlyDiff, setOnlyDiff] = useState(false)
+  const [editing, setEditing] = useState<SwitchRule | null>(null)
+  const [feeFocus, setFeeFocus] = useState("库存信息")
+  const [dialog, setDialog] = useState<null | "publish" | "diff" | "differences" | "discard">(null)
+  const [versionDetail, setVersionDetail] = useState<SwitchSnapshot | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
 
-function RuleGroup({ title, summary, open, onToggle, children }: { title: string; summary: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
-  return <section style={{ ...box, padding: 0, overflow: "hidden" }}>
-    <button type="button" onClick={onToggle} aria-expanded={open} style={{ cursor: "pointer", width: "100%", padding: "14px 20px", border: "none", background: "#fff", display: "flex", alignItems: "center", textAlign: "left" }}>
-      <span style={sectionTitle}>{title}</span><span style={{ fontSize: "var(--fs-12)", color: "#667085", marginLeft: 12 }}>{summary}</span><span style={{ marginLeft: "auto", color: "#9CA3AF", display: "grid" }}>{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
-    </button>
-    {open && <div style={{ borderTop: "1px solid #F3F4F6", padding: 20, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "20px 40px" }}>{children}</div>}
-  </section>;
-}
+  useEffect(() => {
+    if (scope === "provider" && !providerKey && providers.length) setProviderKey(providers[0].id)
+  }, [scope, providerKey, providers])
 
-export function PharmaConfigSwitch({ addToast, currentRole }: Props) {
-  const [savedMode, setSavedMode] = useState<Mode>("standard");
-  const [mode, setMode] = useState<Mode>("standard");
-  const [showDiff, setShowDiff] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [open, setOpen] = useState<Record<string, boolean>>({ trace: true, map: false, track: false, data: false });
-  const [duration, setDuration] = useState("15");
-  const [contentWords, setContentWords] = useState("50");
-  const [feedbackWords, setFeedbackWords] = useState("20");
-  const [radius, setRadius] = useState("500");
-  const [distance, setDistance] = useState("200");
-  const [minSpeed, setMinSpeed] = useState("0");
-  const [maxSpeed, setMaxSpeed] = useState("60");
-  const [photo, setPhoto] = useState(true);
-  const [mapDrag, setMapDrag] = useState(false);
-  const [track, setTrack] = useState(true);
-  // 按角色页面权限判定（无编辑权限即只读；不再用旧角色名称字符串）
-  const { can } = usePermission();
-  const readOnly = !can("business-switch", "edit");
-  const changed = mode !== savedMode;
-  const setGroup = (key: string) => setOpen((current) => ({ ...current, [key]: !current[key] }));
+  const selectedProvider = providers.find((p) => p.id === providerKey)
+  const ownerKey = scope === "unified" ? UNIFIED_OWNER : providerKey
+  const ownerLabel = scope === "unified" ? UNIFIED_OWNER_LABEL : selectedProvider?.name ?? providerKey
 
-  const preview = useMemo<{ duration: string; map: string; evidence: string; track: string; active: string[] }>(() => ({
-    strict: { duration: "≥ 20 分钟", map: "不允许", evidence: "拍照、定位、客户反馈", track: "严格校验", active: ["定位/地图", "现场记录", "提交校验"] },
-    standard: { duration: "≥ 15 分钟", map: "有限允许", evidence: "拍照、定位", track: "标准校验", active: ["现场记录"] },
-    free: { duration: "由规则设定", map: "允许调整", evidence: "定位记录", track: "提示复核", active: [] },
-  })[mode], [mode]);
+  // ── 成果验收（接入 AcceptanceContext，统一走草稿发布） ──
+  const { config: acceptConfig, saveConfig: saveAcceptanceConfig } = useAcceptance()
+  const acceptBase = useMemo(
+    () => encodeAcceptanceRule(acceptConfig.levels, acceptConfig.departments),
+    [acceptConfig],
+  )
+  const acceptRule = getRule(merged, UNIFIED_OWNER, REVIEW_SCENE, acceptBase)
+  const acceptParsed = parseAcceptanceRule(acceptRule)
+  // 部门满配三档：解析值（草稿/覆盖）优先，缺档回填当前生效配置，切换级数时下拉始终有值
+  const acceptDepartments = Array.from({ length: 3 }, (_, i) => {
+    if (acceptParsed && i < acceptParsed.levels) return acceptParsed.departments[i] ?? "销售部"
+    return acceptConfig.departments[i] ?? PHARMA_ACCEPT_DEPARTMENTS[i] ?? "销售部"
+  })
+  const acceptEditing = {
+    levels: acceptParsed?.levels ?? acceptConfig.levels,
+    departments: acceptDepartments,
+  }
+  const acceptanceDirty = !sameRule(acceptRule, acceptBase)
 
-  function save() {
-    if (!duration || Number(duration) < 1 || Number(duration) > 120) {
-      addToast({ type: "error", title: "无法保存", description: "最短拜访时长需为 1–120 分钟。" });
-      return;
+  /** 草稿/差异表里的规则基线解析（含费用控制、审核流程两个伪场景） */
+  const resolveBase = useCallback(
+    (scene: string, name: string, next: SwitchRule): SwitchRule => {
+      if (scene === FEE_SCENE) return FEE_BASE_RULES.find((r) => r.name === name) ?? next
+      if (scene === REVIEW_SCENE) return name === REVIEW_BASE_RULE.name ? REVIEW_BASE_RULE : acceptBase
+      return rulesForScene(scene).find((r) => r.name === name) ?? next
+    },
+    [acceptBase],
+  )
+
+  const autoReview = getRule(merged, ownerKey, REVIEW_SCENE, REVIEW_BASE_RULE).value === "合格自动通过"
+
+  const handleSaveRule = (rule: SwitchRule) => {
+    saveRule(ownerKey, scenario, rule, resolveBase(scenario, rule.name, rule))
+    setEditing(null)
+    addToast({ type: "success", title: "已保存到草稿", description: "发布前不改变当前生效配置。" })
+  }
+  const handleInherit = () => {
+    if (!editing) return
+    saveRule(ownerKey, scenario, getRule(merged, UNIFIED_OWNER, scenario, editing), editing)
+    setEditing(null)
+    addToast({ type: "success", title: "恢复沿用已加入草稿", description: "发布后生效，并将跟随药厂统一配置的后续调整。" })
+  }
+  /** 费用控制页签：选项变更 → 统一草稿流（发布后生效） */
+  const handleFeeChange = (base: SwitchRule, option: { value: string; result: string }) => {
+    saveRule(ownerKey, FEE_SCENE, { ...base, value: option.value, result: option.result }, base)
+  }
+  /** 业务规则页「费用设置」→ 费用控制对应场景（库存信息 / 流向信息） */
+  const handleGoFee = (scene: string) => {
+    setFeeFocus(scene)
+    setTab("fee")
+  }
+  const handleAutoReviewChange = (auto: boolean) => {
+    saveRule(ownerKey, REVIEW_SCENE, { ...REVIEW_BASE_RULE, value: auto ? "合格自动通过" : "默认人工" }, REVIEW_BASE_RULE)
+  }
+  const handleAcceptanceChange = (levels: number, departments: string[]) => {
+    saveRule(UNIFIED_OWNER, REVIEW_SCENE, encodeAcceptanceRule(levels, departments), acceptBase)
+  }
+
+  const publishHint = draftCount
+    ? `已有${draftCount}项待发布修改。保存草稿不会改变当前生效配置。`
+    : "暂无待发布修改。点击规则右侧「修改」，保存到草稿后即可发布。"
+
+  const doPublish = () => {
+    if (!draftCount) return
+    const errors = [...conflicts]
+    if (acceptanceDirty) {
+      const parsed = parseAcceptanceRule(acceptRule)
+      if (!parsed || (parsed.levels > 1 && parsed.departments.length < parsed.levels)) {
+        errors.push("成果验收流程配置不完整：每级需对应一个验收部门")
+      }
     }
-    setConfirmOpen(true);
+    if (errors.length) {
+      addToast({ type: "error", title: "暂不能发布", description: errors[0] })
+      return
+    }
+    // 成果验收同步共享上下文：失败则中止发布（不显示发布成功）
+    if (acceptanceDirty) {
+      try {
+        saveAcceptanceConfig({ levels: acceptEditing.levels, departments: acceptEditing.departments })
+      } catch {
+        addToast({ type: "error", title: "发布失败", description: "成果验收流程保存失败，发布已中止，请重试。" })
+        return
+      }
+    }
+    const result = publish()
+    if (!result.ok) {
+      addToast({ type: "error", title: "发布失败", description: result.errors[0] ?? "未知错误" })
+      return
+    }
+    logAudit({
+      module: "药厂配置开关",
+      action: "发布配置",
+      target: `V${result.version}（${result.count}项调整）`,
+      resource: "business-switch.edit",
+      decision: "允许",
+      reason: "药厂管理员发布业务规则草稿",
+      result: "成功",
+    })
+    setDialog(null)
+    addToast({
+      type: "success",
+      title: `V${result.version}已发布`,
+      description: "仅影响新业务；已开始、已提交的记录保留原规则（本地原型）。",
+    })
   }
-  function confirmSave() {
-    setSavedMode(mode); setConfirmOpen(false);
-    addToast({ type: "success", title: "配置已保存", description: "新规则将应用于后续业务，历史记录保留原规则快照。" });
-  }
-  function restore() { setMode(savedMode); addToast({ type: "info", title: "已恢复", description: "未保存的模式变更已恢复为上次保存状态。" }); }
 
-  return <div style={{ display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
-    <PageHeader title="药厂配置开关" description="选择业务合规模式并维护关键校验规则；配置变更将按生效范围应用。" updatedAt="2026-09-08 10:30 · 李航" actions={<><Tag label={`当前生效：${MODE[savedMode].label}`} color="brand" /><Button variant="outline" size="md" icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>查看变更记录</Button></>} />
-    <main style={{ flex: 1, overflow: "auto", padding: 16, paddingBottom: 82 }}>
-      <div style={{ width: "100%" }}>
-        <section style={{ ...box, marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 16 }}><div><div style={sectionTitle}>业务合规模式</div><p style={hint}>选择一种模式以决定服务专员的规则约束强度；模式变更需保存后生效。</p></div>{changed && <Tag label="待保存变更" color="warning" />}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
-            {(Object.keys(MODE) as Mode[]).map((item) => { const config = MODE[item]; const Icon = config.icon; const selected = mode === item; return <button key={item} type="button" disabled={readOnly} onClick={() => setMode(item)} aria-pressed={selected} style={{ cursor: readOnly ? "not-allowed" : "pointer", opacity: readOnly ? .7 : 1, position: "relative", minHeight: 214, padding: 16, textAlign: "left", borderRadius: 8, border: selected ? "2px solid var(--color-brand)" : "1px solid var(--color-border)", background: selected ? "var(--color-brand-subtle)" : "#fff", transition: "border-color 160ms ease, background-color 160ms ease" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 32, height: 32, display: "grid", placeItems: "center", borderRadius: 6, background: selected ? "var(--color-brand)" : "#F3F4F6", color: selected ? "#fff" : "#667085" }}><Icon size={16} /></span><strong style={{ fontSize: "var(--fs-14)", color: "#1F2937" }}>{config.label}</strong>{item === "standard" && <Tag label="默认" />}{item === "strict" && <Tag label="推荐" color="brand" />}<span style={{ marginLeft: "auto", width: 16, height: 16, border: selected ? "5px solid var(--color-brand)" : "2px solid #D1D5DB", borderRadius: "50%" }} /></div>
-              {selected && <span style={{ position: "absolute", top: 14, right: 40 }}><Tag label="当前选择" color="brand" /></span>}
-              <p style={{ ...hint, minHeight: 38 }}>{config.description}</p>
-              <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0" }}>{config.lines.map((line) => <li key={line} style={{ display: "flex", gap: 5, fontSize: "var(--fs-12)", color: "#374151", marginTop: 5, lineHeight: 1.45 }}><Check size={13} color="#248A5A" style={{ flex: "none", marginTop: 2 }} />{line}</li>)}</ul>
-              {config.risk && <div style={{ marginTop: 9, padding: "6px 8px", border: "1px solid #FDE68A", borderRadius: 4, color: "#C77A16", fontSize: "var(--fs-12)", lineHeight: 1.45 }}><AlertTriangle size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />关键规则放宽后将记录至变更日志。</div>}
-            </button>; })}
-          </div>
-          <button type="button" onClick={() => setShowDiff(!showDiff)} style={{ cursor: "pointer", marginTop: 14, border: 0, background: "none", color: "var(--color-brand)", fontSize: "var(--fs-12)", padding: 0 }}>查看规则差异 {showDiff ? "⌃" : "⌄"}</button>
-          {showDiff && <table style={{ marginTop: 10, width: "100%", borderCollapse: "collapse", fontSize: "var(--fs-12)", border: "1px solid var(--color-border)" }}><thead><tr style={{ background: "#F9FAFB", textAlign: "left" }}>{["规则项", "严格合规", "常规合规", "自由模式"].map((item) => <th key={item} style={{ padding: "9px 12px", borderBottom: "1px solid var(--color-border)", color: "#374151" }}>{item}</th>)}</tr></thead><tbody>{[["地图拖拽", "禁止", "有限允许", "允许调整"], ["拜访证据", "完整必选", "核心必选", "建议填写"], ["轨迹校验", "严格拦截", "标准校验", "提示复核"]].map((row) => <tr key={row[0]}>{row.map((cell) => <td key={cell} style={{ padding: "9px 12px", borderBottom: "1px solid #F3F4F6", color: "#374151" }}>{cell}</td>)}</tr>)}</tbody></table>}
-        </section>
-
-        <section style={{ ...box, marginBottom: 16 }}><div style={sectionTitle}>当前模式下的业务体验 {changed && <Tag label="预览新模式效果" color="info" />}</div><p style={hint}>以下为服务专员完成一次拜访时的规则预览，实际以保存后的具体参数为准。</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginTop: 14 }}>{[[Clock3, "预计最短时长", preview.duration], [MapPin, "地图位置调整", preview.map], [FileText, "必要证据要求", preview.evidence], [Activity, "轨迹/速度校验", preview.track]].map(([Icon, label, value]) => { const C = Icon as typeof Clock3; return <div key={label as string} style={{ border: "1px solid var(--color-border)", borderRadius: 8, padding: 14 }}><div style={{ display: "flex", alignItems: "center", gap: 6, color: "#667085", fontSize: "var(--fs-12)" }}><C size={14} />{label as string}</div><div style={{ marginTop: 9, color: "#1F2937", fontSize: "var(--fs-13)", fontWeight: 600, lineHeight: 1.4 }}>{value as string}</div></div>; })}</div>
-          <div style={{ marginTop: 12, padding: 14, border: "1px solid var(--color-border)", borderRadius: 8 }}><div style={{ fontSize: "var(--fs-12)", color: "#667085", marginBottom: 10 }}>服务专员拜访流程预览</div><div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>{["开始拜访", "定位/地图", "现场记录", "反馈与附件", "提交校验"].map((step, index) => <span key={step} style={{ display: "contents" }}><span style={{ padding: "4px 9px", fontSize: "var(--fs-12)", borderRadius: 4, border: preview.active.includes(step) ? "1px solid var(--color-brand)" : "1px solid var(--color-border)", background: preview.active.includes(step) ? "var(--color-brand-subtle)" : "#F9FAFB", color: preview.active.includes(step) ? "var(--color-brand)" : "#667085" }}>{step}</span>{index < 4 && <ChevronRight size={14} color="#9CA3AF" />}</span>)}</div></div>
-        </section>
-
-        <div style={{ marginBottom: 16 }}><div style={{ ...sectionTitle, marginBottom: 10 }}>详细规则</div><div style={{ display: "grid", gap: 10 }}>
-          <RuleGroup title="拜访留痕" summary="已配置 4 项" open={open.trace} onToggle={() => setGroup("trace")}><NumberField label="最短拜访时长" unit="分钟" value={duration} setValue={setDuration} help="建议 15–30" disabled={readOnly} /><NumberField label="客户内容字数" unit="字" value={contentWords} setValue={setContentWords} help="0 为不限制" disabled={readOnly} /><NumberField label="客户反馈字数" unit="字" value={feedbackWords} setValue={setFeedbackWords} help="0 为不限制" disabled={readOnly} /><div><div style={{ fontSize: "var(--fs-13)", fontWeight: 500, color: "#374151", marginBottom: 9 }}>现场拍照</div><div style={{ display: "flex", gap: 8, alignItems: "center" }}><Switch checked={photo} onChange={setPhoto} disabled={readOnly} /><span style={{ fontSize: "var(--fs-13)", color: photo ? "var(--color-brand)" : "#667085" }}>{photo ? "启用" : "停用"}</span></div></div></RuleGroup>
-          <RuleGroup title="地图与定位" summary={mode === "strict" ? "含 1 项风险规则" : "已配置 3 项"} open={open.map} onToggle={() => setGroup("map")}><div><div style={{ fontSize: "var(--fs-13)", fontWeight: 500, color: "#374151", marginBottom: 9 }}>允许拖拽位置</div>{mode === "strict" ? <><span style={{ color: "#9CA3AF", fontSize: "var(--fs-13)" }}>禁止（严格合规模式下不可修改）</span> <Tag label="不适用" /></> : <div style={{ display: "flex", gap: 8, alignItems: "center" }}><Switch checked={mapDrag} onChange={setMapDrag} disabled={readOnly} /><span style={{ fontSize: "var(--fs-13)", color: "#667085" }}>{mapDrag ? "启用" : "停用"}</span></div>}</div><NumberField label="地址搜索半径" unit="米" value={radius} setValue={setRadius} help="地图可选范围" disabled={readOnly} /><NumberField label="单日最大行程" unit="公里" value={distance} setValue={setDistance} help="0 为不限制" disabled={readOnly} /></RuleGroup>
-          <RuleGroup title="轨迹校验" summary={mode === "free" ? "提示模式" : "已配置 3 项"} open={open.track} onToggle={() => setGroup("track")}><div><div style={{ fontSize: "var(--fs-13)", fontWeight: 500, color: "#374151", marginBottom: 9 }}>校验拜访间隔</div><div style={{ display: "flex", gap: 8, alignItems: "center" }}><Switch checked={track} onChange={setTrack} disabled={readOnly || mode === "free"} /><span style={{ fontSize: "var(--fs-13)", color: "#667085" }}>{mode === "free" ? "自由模式下仅提示" : track ? "启用" : "停用"}</span></div></div><NumberField label="最小移动速度" unit="km/h" value={minSpeed} setValue={setMinSpeed} help="0 为不限制" disabled={readOnly} /><NumberField label="最大移动速度" unit="km/h" value={maxSpeed} setValue={setMaxSpeed} help="超出将触发复核" disabled={readOnly} /></RuleGroup>
-          <RuleGroup title="资料采集" summary="已配置 2 项" open={open.data} onToggle={() => setGroup("data")}><div><div style={{ fontSize: "var(--fs-13)", fontWeight: 500, color: "#374151", marginBottom: 8 }}>心血管品种要求</div><Tag label="客户反馈" color="brand" /> <Tag label="现场照片" color="brand" /> <Tag label="定位记录" color="brand" /></div><div><div style={{ fontSize: "var(--fs-13)", fontWeight: 500, color: "#374151", marginBottom: 8 }}>抗感染品种要求</div><Tag label="客户反馈" color="brand" /> <Tag label="定位记录" color="brand" /></div></RuleGroup>
-        </div></div>
-        {changed && <section style={{ padding: 14, background: "#FEF3E2", border: "1px solid #FDE68A", borderRadius: 8, display: "flex", gap: 9 }}><AlertTriangle size={16} color="#C77A16" style={{ flex: "none", marginTop: 2 }} /><div><strong style={{ color: "#C77A16", fontSize: "var(--fs-13)" }}>变更影响说明</strong><div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, marginTop: 8, fontSize: "var(--fs-12)", color: "#92400E" }}><span>影响药厂：测试药厂企业</span><span>生效：保存后对新建业务生效</span><span>历史记录：保留原规则快照</span></div></div></section>}
+  if (aiOpen) {
+    return (
+      <div className="pcs-root">
+        <PageHeader
+          title="药厂配置开关"
+          description="AI 配置助手"
+          dataRange={pharmaName || undefined}
+          updatedAt={`当前生效 V${version}${draftCount ? ` · ${draftCount}项待发布` : ""}`}
+        />
+        <AIConfigAssistant
+          ownerKey={ownerKey}
+          ownerLabel={ownerLabel}
+          providers={providers}
+          scenario={scenario}
+          config={merged}
+          version={version}
+          hasDraft={draftCount > 0}
+          readOnly={readOnly}
+          onBack={() => setAiOpen(false)}
+          onAdd={(targetOwner, scene, rule) => {
+            saveRule(targetOwner, scene, rule, resolveBase(scene, rule.name, rule))
+            setScope(targetOwner === UNIFIED_OWNER ? "unified" : "provider")
+            if (targetOwner !== UNIFIED_OWNER) setProviderKey(targetOwner)
+            setScenario(scene)
+            setOnlyDiff(false)
+            setTab("rules")
+            setAiOpen(false)
+            addToast({ type: "success", title: "建议已加入草稿", description: "请检查后发布；不会自动发布。" })
+          }}
+        />
       </div>
-    </main>
-    <footer style={{ height: 58, flex: "none", borderTop: "1px solid var(--color-border)", background: "#fff", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 -2px 8px rgba(0,0,0,.04)" }}><span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "var(--fs-13)", color: changed ? "#C77A16" : "#667085" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: changed ? "#C77A16" : "#248A5A" }} />{changed ? "当前有未保存变更" : "配置已保存，无待变更项"}</span>{readOnly ? <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF" }}>当前角色仅可查看，配置调整由拥有药厂配置开关编辑权限的企业管理员操作。</span> : <div style={{ display: "flex", gap: 8 }}><Button variant="outline" size="md" disabled={!changed} onClick={restore}>恢复上次保存</Button><Button variant="primary" size="md" icon={<Save size={14} />} disabled={!changed} onClick={save}>保存配置</Button></div>}</footer>
-    <ConfirmDialog open={confirmOpen} title="确认保存配置" description={`将业务合规模式由“${MODE[savedMode].label}”调整为“${MODE[mode].label}”。`} impact={mode === "free" ? "自由模式会放宽关键校验规则，所有变更将写入操作日志。" : "新规则将影响后续新建业务，历史记录保留原规则快照。"} variant="warning" confirmLabel="确认保存" onConfirm={confirmSave} onCancel={() => setConfirmOpen(false)} />
-    {historyOpen && <><div onClick={() => setHistoryOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", zIndex: 90 }} /><aside role="dialog" aria-label="变更记录" style={{ position: "fixed", right: 0, top: 0, bottom: 0, zIndex: 91, width: 480, background: "#fff", boxShadow: "-4px 0 24px rgba(0,0,0,.12)", display: "flex", flexDirection: "column" }}><div style={{ padding: 20, borderBottom: "1px solid var(--color-border)", display: "flex" }}><div><div style={sectionTitle}>变更记录</div><p style={hint}>按时间倒序排列，含关键字段前后值</p></div><button onClick={() => setHistoryOpen(false)} aria-label="关闭变更记录" style={{ marginLeft: "auto", border: 0, background: "none", color: "#9CA3AF", cursor: "pointer" }}><X size={18} /></button></div><div style={{ padding: 20, overflow: "auto" }}>{[["2026-09-08 10:30", "李航", "常规合规", "严格合规", "最短拜访时长：10 分钟 → 20 分钟", "季度合规审查后按要求升级"], ["2026-08-15 14:22", "张峰", "自由模式", "常规合规", "轨迹校验：停用 → 启用", "合规部审批通过"]].map(([time, user, before, after, field, note]) => <div key={time} style={{ borderLeft: "1px solid var(--color-border)", padding: "0 0 20px 18px", position: "relative" }}><span style={{ position: "absolute", left: -5, top: 2, width: 9, height: 9, borderRadius: "50%", background: "var(--color-brand)" }} /><div style={{ ...box, padding: 14 }}><div style={{ display: "flex", justifyContent: "space-between" }}><strong style={{ fontSize: "var(--fs-13)" }}>{user}</strong><span style={{ fontFamily: "var(--font-mono)", color: "#9CA3AF", fontSize: "var(--fs-12)" }}>{time}</span></div><div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}><Tag label={before} /><ChevronRight size={14} color="#9CA3AF" /><Tag label={after} color="brand" /></div><p style={{ ...hint, color: "#374151" }}>{field}</p><p style={hint}>备注：{note}</p><p style={hint}>影响范围：测试药厂企业 · 全部品种</p></div></div>)}</div></aside></>}
-  </div>;
+    )
+  }
+
+  const providerScopeUnavailable = scope === "provider" && (!providers.length || !selectedProvider)
+
+  return (
+    <div className="pcs-root">
+      <PageHeader
+        title="药厂配置开关"
+        description="由药厂配置业务要求、超限处理和计费方式；修改保存到草稿，发布后生效。"
+        dataRange={pharmaName || undefined}
+        updatedAt={`当前生效 V${version}${draftCount ? ` · ${draftCount}项待发布` : " · 无待发布"}`}
+        actions={
+          <>
+            <Button variant="secondary" icon={<Bot size={15} />} onClick={() => setAiOpen(true)}>AI 配置助手</Button>
+            <Button
+              variant="primary"
+              disabled={!draftCount || readOnly}
+              title={readOnly ? "当前身份无编辑权限" : draftCount ? "" : "暂无待发布修改，修改并保存到草稿后即可发布"}
+              onClick={() => setDialog("publish")}
+            >
+              发布配置{draftCount ? `（${draftCount}）` : ""}
+            </Button>
+          </>
+        }
+        tabs={TABS}
+        activeTab={tab}
+        onTabChange={(id) => setTab(id as TabId)}
+      />
+      <main className="pcs-main">
+        <p className="pcs-guidance">
+          {publishHint}
+          {storageError && <strong role="alert"> 本地保存失败，请勿刷新页面。</strong>}
+        </p>
+        <div className="pcs-scope-bar">
+          <div className="pcs-scope-switch">
+            <span>配置范围</span>
+            <div className="pcs-segmented">
+              <button
+                className={scope === "unified" ? "active" : ""}
+                onClick={() => { setScope("unified"); setOnlyDiff(false) }}
+              >
+                药厂统一
+              </button>
+              <button
+                className={scope === "provider" ? "active" : ""}
+                disabled={!providers.length}
+                title={providers.length ? "" : "暂无合作生效的服务商"}
+                onClick={() => { setScope("provider"); setOnlyDiff(false) }}
+              >
+                指定服务商
+              </button>
+            </div>
+          </div>
+          {scope === "provider" && (
+            providers.length ? (
+              <select
+                className="pcs-select"
+                value={providerKey}
+                onChange={(e) => { setProviderKey(e.target.value); setOnlyDiff(false) }}
+                aria-label="选择服务商"
+              >
+                {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            ) : (
+              <span style={{ fontSize: "var(--fs-12)", color: "var(--color-text-2)" }}>暂无合作生效的服务商，先在「合作与授权 › 合作关系」建立合作</span>
+            )
+          )}
+          <span className="pcs-version-chip">V{version} · 当前生效</span>
+          {draftCount > 0 && (
+            <button className="pcs-draft-chip" onClick={() => setDialog("diff")}>草稿有{draftCount}项修改</button>
+          )}
+          <button className="pcs-difference-link" onClick={() => setDialog("differences")}>查看服务商差异</button>
+        </div>
+        <div className="pcs-page-surface">
+          {tab === "rules" &&
+            (providerScopeUnavailable ? (
+              <div className="pcs-scenario-empty" style={{ padding: "60px 20px" }}>
+                {providers.length
+                  ? "所选服务商合作已暂停或终止，差异配置仅在合作生效期间可用。"
+                  : "当前药厂暂无合作生效的服务商，可先维护药厂统一规则。"}
+                <Button variant="outline" size="sm" onClick={() => setScope("unified")}>返回药厂统一</Button>
+              </div>
+            ) : (
+              <BusinessRules
+                ownerKey={ownerKey}
+                ownerLabel={ownerLabel}
+                scenario={scenario}
+                onScenarioChange={setScenario}
+                live={state.live}
+                merged={merged}
+                drafts={state.drafts}
+                onEdit={(base) => { setEditing(base) }}
+                onFee={handleGoFee}
+                onlyDiff={onlyDiff}
+                onOnlyDiffChange={setOnlyDiff}
+                readOnly={readOnly}
+                feeScenes={{
+                  库存信息: {
+                    live: feeRuleOf(state.live, ownerKey, "库存计费单位").value,
+                    merged: feeRuleOf(merged, ownerKey, "库存计费单位").value,
+                    hasDraft: hasFeeDraft(state.drafts, ownerKey, "库存计费单位"),
+                  },
+                  流向信息: {
+                    live: feeRuleOf(state.live, ownerKey, "流向计费单位").value,
+                    merged: feeRuleOf(merged, ownerKey, "流向计费单位").value,
+                    hasDraft: hasFeeDraft(state.drafts, ownerKey, "流向计费单位"),
+                  },
+                }}
+              />
+            ))}
+          {tab === "fee" && (
+            <FeeControl
+              ownerKey={ownerKey}
+              ownerLabel={ownerLabel}
+              live={state.live}
+              merged={merged}
+              drafts={state.drafts}
+              focus={feeFocus}
+              onChange={readOnly ? () => {} : handleFeeChange}
+              onOpenPriceTable={() => {
+                if (navigate) {
+                  navigate("price-config")
+                } else {
+                  addToast({ type: "info", title: "价目表配置", description: "请从左侧菜单「基础数据 › 价目表配置」进入。" })
+                }
+              }}
+              readOnly={readOnly}
+            />
+          )}
+          {tab === "review" && (
+            <ReviewFlow
+              autoReview={autoReview}
+              onAutoReviewChange={readOnly ? () => {} : handleAutoReviewChange}
+              acceptance={acceptEditing}
+              onAcceptanceChange={readOnly ? () => {} : handleAcceptanceChange}
+              acceptanceDirty={acceptanceDirty}
+              readOnly={readOnly}
+            />
+          )}
+          {tab === "version" && <VersionHistory history={state.history} onOpenDetail={setVersionDetail} />}
+        </div>
+      </main>
+      <footer className="pcs-action-bar">
+        <div>
+          <span className="pcs-action-status">
+            <ShieldCheck size={16} color={draftCount ? "var(--color-warning-fg)" : "var(--color-success-fg)"} />
+            当前生效 V{version}
+            {draftCount ? <Tag color="warning" label={`${draftCount}项待发布`} /> : <span>暂无待发布修改</span>}
+          </span>
+        </div>
+        {readOnly ? (
+          <span className="pcs-publish-hint">当前身份仅可查看，配置调整由拥有药厂配置开关编辑权限的企业管理员操作。</span>
+        ) : (
+          <div>
+            {draftCount > 0 && (
+              <Button variant="ghost" onClick={() => setDialog("discard")}>放弃草稿</Button>
+            )}
+            {draftCount > 0 && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  addToast(
+                    storageError
+                      ? { type: "warning", title: "本地保存失败", description: "请勿刷新页面。" }
+                      : { type: "info", title: "草稿已保存在此浏览器", description: "刷新后仍可继续编辑（演示原型，本地存储）。" },
+                  )
+                }
+              >
+                保存草稿
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              disabled={!draftCount}
+              title={draftCount ? "" : "暂无待发布修改，修改并保存到草稿后即可发布"}
+              onClick={() => setDialog("publish")}
+            >
+              发布配置{draftCount ? `（${draftCount}）` : ""}
+            </Button>
+          </div>
+        )}
+      </footer>
+
+      {editing && (
+        <RuleEditor
+          base={editing}
+          current={getRule(merged, ownerKey, scenario, editing)}
+          unified={getRule(merged, UNIFIED_OWNER, scenario, editing)}
+          ownerLabel={ownerLabel}
+          ownerKey={ownerKey}
+          scene={scenario}
+          onClose={() => setEditing(null)}
+          onSave={handleSaveRule}
+          onInherit={handleInherit}
+        />
+      )}
+      {(dialog === "publish" || dialog === "diff") && (
+        <PublishDialog
+          mode={dialog}
+          live={state.live}
+          drafts={state.drafts}
+          providers={providers}
+          conflicts={conflicts}
+          version={version}
+          draftCount={draftCount}
+          resolveBase={resolveBase}
+          onClose={() => setDialog(null)}
+          onConfirmPublish={doPublish}
+          onGoPublish={() => setDialog("publish")}
+        />
+      )}
+      {dialog === "discard" && (
+        <ConfirmDialog
+          open
+          title="放弃全部草稿？"
+          description={`将移除${draftCount}项待发布修改，当前生效配置不受影响。`}
+          impact="放弃后无法恢复本次草稿。"
+          variant="warning"
+          confirmLabel="确认放弃"
+          onConfirm={() => {
+            discardDrafts()
+            setDialog(null)
+            addToast({ type: "info", title: "已放弃草稿", description: "当前生效配置保持不变。" })
+          }}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+      {dialog === "differences" && (
+        <Modal
+          open
+          title="服务商差异概览"
+          onClose={() => setDialog(null)}
+          width={860}
+          footer={<Button variant="outline" onClick={() => setDialog(null)}>关闭</Button>}
+        >
+          <div style={{ fontSize: "var(--fs-12)", color: "var(--color-text-2)", marginTop: -6, marginBottom: 14 }}>
+            与药厂统一配置比较，包含待发布草稿；仅统计合作生效的服务商。
+          </div>
+          <div className="pcs-difference-table">
+            <div className="pcs-difference-head">
+              <span>服务商</span><span>差异规则</span><span>涉及场景</span><span>版本</span><span />
+            </div>
+            {providers.length === 0 && (
+              <div className="pcs-difference-row"><span style={{ color: "var(--color-text-2)" }}>暂无合作生效的服务商</span><span /><span /><span /><span /></div>
+            )}
+            {providers.map((p) => {
+              const items = [...PHARMA_SWITCH_SCENARIOS, FEE_SCENE].map((s) => ({ scene: s, count: differencesOf(merged, p.id, s).length })).filter((s) => s.count)
+              return (
+                <div className="pcs-difference-row" key={p.id}>
+                  <span>{p.name}</span>
+                  <span>{items.reduce((n, s) => n + s.count, 0)}项</span>
+                  <span style={{ overflowWrap: "anywhere" }}>{items.map((s) => `${s.scene} ${s.count}项`).join("、") || "全部沿用药厂规则"}</span>
+                  <span>V{version}{draftCount > 0 ? "＋草稿" : ""}</span>
+                  <button
+                    onClick={() => {
+                      setScope("provider")
+                      setProviderKey(p.id)
+                      setScenario(items[0]?.scene ?? "医院拜访")
+                      setOnlyDiff(items.length > 0)
+                      setTab("rules")
+                      setDialog(null)
+                    }}
+                  >
+                    查看规则
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </Modal>
+      )}
+      {versionDetail && (
+        <VersionDetailDialog
+          snapshot={versionDetail}
+          providers={providers}
+          onClose={() => setVersionDetail(null)}
+        />
+      )}
+    </div>
+  )
 }

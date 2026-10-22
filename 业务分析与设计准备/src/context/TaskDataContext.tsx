@@ -107,7 +107,7 @@ const ROLE_ACTOR: Record<Role, string> = {
   服务提供商: "服务商",
 }
 
-interface MutationResult<T = void> {
+export interface MutationResult<T = void> {
   ok: boolean
   error?: string
   warning?: string
@@ -394,6 +394,11 @@ interface TaskDataContextValue {
     patch: { yearAmount?: number; months?: number[] },
   ) => MutationResult<BudgetPlan>
   createTask: (input: CreateTaskInput, role?: Role) => MutationResult<Task>
+  /** 多服务商批量发包：一次提交为多家服务商各建一条独立任务，行级失败不中断 */
+  createTaskBatch: (
+    inputs: CreateTaskInput[],
+    role?: Role,
+  ) => MutationResult<Task>[]
   revokeTask: (id: string) => MutationResult<Task>
   confirmTask: (id: string) => MutationResult<Task>
   unconfirmProvider: (id: string) => MutationResult<Task>
@@ -844,9 +849,11 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
 
   // ─── 任务：创建不做任何预算校验 ───
 
-  const createTask = useCallback(
+  /** 单条任务的校验 + Task 组装（不含落库）：seq 为任务序号，由调用方分配并递增 */
+  const buildTaskFromInput = useCallback(
     (
       input: CreateTaskInput,
+      seq: number,
       role: Role = "药厂销售部门",
     ): MutationResult<Task> => {
       if (role !== "药厂销售部门")
@@ -938,7 +945,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       })
       const first = picked[0]
       const planAmount = items.reduce((s, it) => s + it.amount, 0)
-      const n = tasks.length + 1
+      const n = seq
       const id = `TR-${pad(n)}`
       const snapshot = snapshotPriceBook(bookCheck.book)
       const periods = (input.settlementPeriods || []).map((p, i) => ({
@@ -995,7 +1002,6 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       }
       // 分派即选定：报告类服务项目同步生成「待上传」报告记录
       const finalized = ensurePendingReports(task)
-      setTasks((prev) => [finalized, ...prev])
       const warnings: string[] = []
       if (!rec.configured) warnings.push("未配置预算，已允许创建")
       else if (planAmount > rec.amount)
@@ -1013,10 +1019,49 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       budgetPlans,
       chain,
       priceBooks,
-      tasks,
       unitPriceAdjustRule,
       varieties,
     ],
+  )
+
+  const createTask = useCallback(
+    (
+      input: CreateTaskInput,
+      role: Role = "药厂销售部门",
+    ): MutationResult<Task> => {
+      const res = buildTaskFromInput(input, tasks.length + 1, role)
+      const created = res.data
+      if (res.ok && created) setTasks((prev) => [created, ...prev])
+      return res
+    },
+    [buildTaskFromInput, tasks],
+  )
+
+  /**
+   * 多服务商批量发包：一次提交为多家服务商各建一条独立任务。
+   * 行级失败不中断其他行；任务序号在循环内递增，
+   * 避免同一事件里循环调用单条入口导致 ID 重复。
+   */
+  const createTaskBatch = useCallback(
+    (
+      inputs: CreateTaskInput[],
+      role: Role = "药厂销售部门",
+    ): MutationResult<Task>[] => {
+      let seq = tasks.length + 1
+      const results = inputs.map((input) => {
+        const res = buildTaskFromInput(input, seq, role)
+        if (res.ok) seq += 1
+        return res
+      })
+      const created = results
+        .map((r) => (r.ok ? r.data : undefined))
+        .filter((t): t is Task => !!t)
+      if (created.length)
+        // 反序头插，与逐条创建时「后建者排最前」的顺序一致
+        setTasks((prev) => [...created.slice().reverse(), ...prev])
+      return results
+    },
+    [buildTaskFromInput, tasks],
   )
 
   const revokeTask = useCallback(
@@ -2272,6 +2317,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       createBudgetPlan,
       updateBudgetPlan,
       createTask,
+      createTaskBatch,
       revokeTask,
       confirmTask,
       unconfirmProvider,
@@ -2321,6 +2367,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       createBudgetPlan,
       updateBudgetPlan,
       createTask,
+      createTaskBatch,
       revokeTask,
       confirmTask,
       unconfirmProvider,

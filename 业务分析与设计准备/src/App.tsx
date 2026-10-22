@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, createContext, useCo
 import {
   ChevronDown,
   ChevronRight,
+  Compass,
   Menu,
   Bell,
   Search,
@@ -11,6 +12,8 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { Dashboard } from "./pages/Dashboard"
+import { STARTUP_GUIDE_TITLE, StartupGuideDrawer, type StartupGuideBannerState } from "./components/StartupGuide"
+import { useStartupGuide } from "./hooks/useStartupGuide"
 import { VisitManagement } from "./pages/VisitManagement"
 import { TaskExecution } from "./pages/TaskExecution"
 import { BudgetPlanPage } from "./pages/BudgetPlan"
@@ -23,6 +26,8 @@ import { Settlement } from "./pages/Settlement"
 import { AuditLog } from "./pages/AuditLog"
 import { RepFilingManage } from "./pages/RepFilingManage"
 import { VendorAccessManage } from "./pages/VendorAccessManage"
+import { PharmaAccessTasks } from "./pages/vendor-access/PharmaAccessTasks"
+import { PharmaCooperation } from "./pages/PharmaCooperation"
 import { RoleManage } from "./pages/RoleManage"
 import { RolePreview } from "./pages/RolePreview"
 import { ExecutionChainConfig } from "./pages/ExecutionChainConfig"
@@ -43,8 +48,8 @@ import { TenantPackageManagement } from "./pages/TenantPackageManagement"
 import { OrgStructure } from "./pages/OrgStructure"
 import { UserManage } from "./pages/UserManage"
 import { WorkGroupManage } from "./pages/WorkGroupManage"
-import { PharmaCooperation } from "./pages/PharmaCooperation"
 import { ProviderPartners } from "./pages/ProviderPartners"
+import { ContractManagement } from "./pages/ContractManagement"
 import { CooperationSupervision } from "./pages/CooperationSupervision"
 import { TalkScriptProvider } from "./context/TalkScriptContext"
 import { AICreditProvider } from "./context/AICreditContext"
@@ -56,9 +61,11 @@ import { ToastContainer } from "./components/Toast"
 import type { ToastMessage } from "./components/Toast"
 import { getRoleDashboardData } from "./data/mockData"
 import { TaskDataProvider } from "./context/TaskDataContext"
+import { AcceptanceProvider } from "./context/AcceptanceContext"
 import { DisplayPreferenceProvider } from "./context/DisplayPreferenceContext"
 import { PermissionProvider, usePermission } from "./context/PermissionContext"
 import { VendorAccessProvider } from "./context/VendorAccessContext"
+import { ContractProvider } from "./context/ContractContext"
 import { RepFilingProvider } from "./context/RepFilingContext"
 import { RESOURCE_PAGES, identityLabel } from "./data/permissions"
 import { buildNavGroups, seedMenuItems, workspaceOfPrincipal, type MenuSeedItem, type NavItem } from "./data/menus"
@@ -84,9 +91,10 @@ const pageLabels: Record<string, string> = {
   analytics: "预算执行分析",
   "task-dispatch": "任务执行",
   doctors: "医生主数据",
-  varieties: "品种信息",
+  varieties: "品种管理",
   "variety-auth": "业务授权",
   "pharma-cooperation": "合作关系",
+  "contract-management": "合同管理",
   "provider-partners": "合作药厂与业务授权",
   "rep-filing": "服务人员备案",
   "vendor-access": "服务商准入",
@@ -132,6 +140,7 @@ const pageSections: Record<string, string> = {
   varieties: "基础数据",
   "variety-auth": "合作与授权",
   "pharma-cooperation": "合作与授权",
+  "contract-management": "合作与授权",
   "provider-partners": "合作管理",
   "rep-filing": "合作与授权",
   "vendor-access": "合作与授权",
@@ -727,17 +736,21 @@ function Workbench({ principal }: { principal: AuthPrincipal }) {
   return (
     <DisplayPreferenceProvider>
       <TaskDataProvider>
-        <PermissionProvider principal={principal}>
-          <VendorAccessProvider>
-            <RepFilingProvider>
-              <TalkScriptProvider>
-                <AICreditProvider>
-                  <AppShell />
-                </AICreditProvider>
-              </TalkScriptProvider>
-            </RepFilingProvider>
-          </VendorAccessProvider>
-        </PermissionProvider>
+        <AcceptanceProvider>
+          <PermissionProvider principal={principal}>
+            <VendorAccessProvider>
+              <ContractProvider>
+                <RepFilingProvider>
+                  <TalkScriptProvider>
+                    <AICreditProvider>
+                      <AppShell />
+                    </AICreditProvider>
+                  </TalkScriptProvider>
+                </RepFilingProvider>
+              </ContractProvider>
+            </VendorAccessProvider>
+          </PermissionProvider>
+        </AcceptanceProvider>
       </TaskDataProvider>
     </DisplayPreferenceProvider>
   )
@@ -757,6 +770,8 @@ function AppShell() {
   } = usePermission()
   const { session, setSession, signOut } = useAuth()
   const dashboardVariant = dashboardVariantOf(principal)
+  /** 新手引导「业务启动步骤」：胶囊入口（AppShell）+ 工作台欢迎卡 + 右侧抽屉，仅药厂会话暴露；完成态按各板块数据现查现算 */
+  const startupGuide = useStartupGuide(principal)
   /** 两域统一显示量：角色名（多角色并集展示）/ 工作空间名 / 当前服务药厂 / 组织标签 / 数据范围摘要 */
   const principalRole = principal.realm === "PLATFORM" ? principal.platformRoleName : principal.roleNames.join(" + ")
   /**
@@ -948,14 +963,26 @@ function AppShell() {
             navigate={navigate}
             variant={dashboardVariant}
             addToast={addToast}
+            startupGuide={
+              dashboardVariant === "pharma"
+                ? {
+                    userName: principal.name,
+                    completedCount: startupGuide.completedCount,
+                    total: startupGuide.total,
+                    visible: startupGuide.bannerVisible,
+                    onOpen: startupGuide.openDrawer,
+                    onDismiss: startupGuide.dismissBanner,
+                  }
+                : undefined
+            }
           />
         )
       case "hospital-visits":
-        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} />
+        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} navFocus={navFocus} />
       case "commercial-visits":
-        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} />
+        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} navFocus={navFocus} />
       case "pharmacy-visits":
-        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} />
+        return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} navFocus={navFocus} />
       case "budget-plan":
         return (
           <BudgetPlanPage
@@ -984,7 +1011,7 @@ function AppShell() {
       case "doctors":
         return <DoctorMaster />
       case "varieties":
-        return <VarietyManage addToast={addToast} currentRole={currentRole ?? undefined} />
+        return <VarietyManage addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} />
       case "variety-auth":
         return <BusinessAuthorization addToast={addToast} focusProviderTenantId={navFocus?.businessAuthProviderTenantId} />
       case "pharma-cooperation":
@@ -995,6 +1022,10 @@ function AppShell() {
               navigate("variety-auth", { businessAuthProviderTenantId: providerTenantId })
             }
           />
+        )
+      case "contract-management":
+        return (
+          <ContractManagement addToast={addToast} navigate={navigate} navFocus={navFocus} />
         )
       case "provider-partners":
         return <ProviderPartners addToast={addToast} />
@@ -1025,8 +1056,12 @@ function AppShell() {
       case "rep-filing":
         return <RepFilingManage addToast={addToast} currentRole={currentRole ?? undefined} />
       case "vendor-access":
+        // 药厂工作空间＝准入任务列表（发起/准入码/审核）；服务商工作空间＝领取与提交
+        if (principal.realm === "TENANT" && principal.tenantKind === "pharma") {
+          return <PharmaAccessTasks addToast={addToast} navigate={navigate} />
+        }
         return (
-          <VendorAccessManage addToast={addToast} currentRole={currentRole ?? undefined} />
+          <VendorAccessManage addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} />
         )
       case "vendor-access-records":
         return (
@@ -1057,7 +1092,7 @@ function AppShell() {
       case "performance-settings":
         return <PerformanceSettings addToast={addToast} operator={principal.name} />
       case "business-switch":
-        return <PharmaConfigSwitch addToast={addToast} currentRole={currentRole ?? undefined} />
+        return <PharmaConfigSwitch addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} />
       case "biz-detail-export":
         return (
           <BizDetailExport addToast={addToast} currentRole={currentRole ?? undefined} />
@@ -1482,6 +1517,21 @@ function AppShell() {
                   工作台
                 </span>
               )}
+              {dashboardVariant === "pharma" && (
+                <button
+                  type="button"
+                  className="startup-guide-entry"
+                  onClick={startupGuide.openDrawer}
+                  title={`查看${STARTUP_GUIDE_TITLE}`}
+                  style={viewport.isNarrow ? { display: "none" } : undefined}
+                >
+                  <Compass size={15} strokeWidth={2.2} aria-hidden="true" />
+                  <span>新手引导</span>
+                  <span className="startup-guide-entry__count">
+                    {startupGuide.completedCount}/{startupGuide.total}
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 className="project-intro-entry"
@@ -1643,6 +1693,17 @@ function AppShell() {
           {renderPage()}
         </main>
       </div>
+
+      {/* 新手引导「业务启动步骤」抽屉（药厂会话；胶囊/欢迎卡共用入口，完成态由数据推导） */}
+      <StartupGuideDrawer
+        open={startupGuide.drawerOpen}
+        onClose={startupGuide.closeDrawer}
+        completedSteps={startupGuide.completedSteps}
+        onNavigate={(page) => {
+          startupGuide.closeDrawer()
+          navigate(page)
+        }}
+      />
 
       {mobileDemoOpen && (
         <div

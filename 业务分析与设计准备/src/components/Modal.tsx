@@ -9,6 +9,8 @@ interface ModalProps {
   footer?: ReactNode;
   width?: number | string;
   maxHeight?: string;
+  /** 标题下方的小字提示行（如自动保存说明）；不传则不渲染 */
+  titleNote?: ReactNode;
 }
 
 // 打开中的弹窗栈：Esc 只关最上层一个（叠层弹窗逐个关闭，不连锁）
@@ -22,6 +24,7 @@ export function Modal({
   footer,
   width = 640,
   maxHeight = '86vh',
+  titleNote,
 }: ModalProps) {
   const keyRef = useRef<symbol | null>(null);
   if (open && keyRef.current === null) keyRef.current = Symbol('modal');
@@ -83,7 +86,14 @@ export function Modal({
           borderBottom: '1px solid var(--color-border)',
           flexShrink: 0,
         }}>
-          <h3 style={{ margin: 0, fontSize: 'var(--fs-16)', fontWeight: 600, color: 'var(--color-text-1)' }}>{title}</h3>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: 'var(--fs-16)', fontWeight: 600, color: 'var(--color-text-1)' }}>{title}</h3>
+            {titleNote && (
+              <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.4, color: '#8A94A5', fontWeight: 400 }}>
+                {titleNote}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={onClose}

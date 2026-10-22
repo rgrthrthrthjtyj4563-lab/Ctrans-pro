@@ -159,6 +159,70 @@ export interface VisitRecord {
   auditComment: string
   amount: number
   visitCategory: string
+  /** 归属任务 id（成果验收材料包按 任务×月份 归集推广记录；未挂任务的散点记录不进材料包） */
+  taskId?: string
+}
+
+// ===== 成果验收（前端原型：材料包 = 任务 × 服务月份；不接后端） =====
+
+/** 药厂级验收链配置（localStorage 持久化） */
+export interface AcceptanceChainConfig {
+  /** 审批级数 1–3 */
+  levels: number
+  /** 第 N 级（下标 N-1）验收部门名 */
+  departments: string[]
+  updatedAt?: string
+  updatedBy?: string
+}
+
+/** 单条验收留痕（append-only） */
+export interface AcceptanceReviewLog {
+  id: string
+  /** 材料条目 id：推广记录 id 或报告 id */
+  itemId: string
+  itemType: "推广记录" | "报告"
+  level: number
+  department: string
+  reviewer: string
+  decision: "通过" | "驳回"
+  comment: string
+  time: string
+}
+
+/** 按批次的验收记录（时间线条目；驳回明细逐条列出） */
+export interface AcceptanceBatchLog {
+  id: string
+  taskId: string
+  serviceMonth: string
+  level: number
+  department: string
+  reviewer: string
+  time: string
+  passedCount: number
+  rejectedCount: number
+  batchComment: string
+  /** 驳回明细：条目名 + 原因 */
+  rejections: { itemName: string; reason: string }[]
+}
+
+/** 单条材料的验收进度：已通过级数 + 是否整改中 */
+export interface AcceptanceItemState {
+  /** 已连续通过的级数（0 = 未开始） */
+  passedLevels: number
+  /** 被驳回退回中；重新提交后清零回第 1 级 */
+  rectifying: boolean
+}
+
+/** 一个材料包（任务×月份）的验收数据 */
+export interface AcceptancePackage {
+  taskId: string
+  serviceMonth: string
+  /** 条目状态：itemId → 进度 */
+  items: Record<string, AcceptanceItemState>
+  /** 本包全部验收留痕（含历史轮次，只增不改） */
+  logs: AcceptanceReviewLog[]
+  /** 时间线用批次记录（只增不改） */
+  batches: AcceptanceBatchLog[]
 }
 
 // ===== 预算计划（只表达企业计划，不阻断任务创建/执行/结算） =====
@@ -569,11 +633,17 @@ export interface CreateAuthInput {
 
 export interface NavFocus {
   taskId?: string
+  /** 跳「医院拜访」验收：预置拜访月份过滤（YYYY-MM，与服务商联用） */
+  serviceMonth?: string
+  /** 跳「医院拜访」验收：预置服务提供商过滤（任务承接方全称，与 serviceMonth 联用） */
+  provider?: string
   budgetAnalysis?: { budgetPlanId: string; year: number; provider: string }
   /** 跳转「用户与组织」时按角色筛选人员列表（来自角色管理「已授权用户」跳转） */
   userOrgRoleId?: string
-  /** 跳转「业务授权」时预选的服务商（来自合作关系页「查看授权」） */
+  /** 跳转「业务授权」时预选的服务商（来自合作关系/准入详情「查看授权」） */
   businessAuthProviderTenantId?: string
+  /** 跳转「合同管理」时直接打开该服务商的上传合同弹窗（来自准入通过承接引导，对象不可改选） */
+  contractUploadProviderTenantId?: string
 }
 
 export type NavigateFn = (page: PageId, focus?: NavFocus) => void
@@ -616,7 +686,7 @@ export interface AuditLogEntry {
  * - 系统管理后台新增 菜单管理 / 合作关系监管 / 系统审计日志（软件服务方唯一预置角色=贝医系统管理员）。
  * 菜单显示统一由 ResourcePage.realms/tenantTypes + 角色 pagePerms 判定，不再按旧视角隐藏。
  */
-export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "cooperation-supervision" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management" | "tenant-package"
+export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "cooperation-supervision" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management" | "tenant-package" | "contract-management"
 
 // ===== 话术管理（品种话术维护 + baiyee-AI 生成场景） =====
 
@@ -969,7 +1039,11 @@ export interface RepFilingAnalysis {
 
 // ===== 医药代表备案（最简版） / 服务商准入 =====
 
-export type RepresentativeStatus = "待审核" | "已驳回" | "已备案" | "已停用"
+/**
+ * 备案留底存储态：备案动作均由药厂在国家平台操作，系统只留底并同步状态。
+ * 展示态（即将到期 / 已过期）由授权截止日期推导，不落库。
+ */
+export type RepresentativeStatus = "未备案" | "已备案" | "已注销"
 
 export type EmploymentType = "MAH直聘" | "服务商派遣"
 
@@ -1119,15 +1193,33 @@ export interface Representative {
   pledgeDate: string
   pledgeFile: string
   filingNo: string
-  filingReceipt: string
-  /** 备案到期日；审核通过时必填，默认审核当日 +1 年 */
+  /** 授权截止日期：国家无统一备案年限，药厂按合同期 / 授权期限设置 */
   filingValidUntil: string
-  filingApprovedAt?: string
-  filingApprovedBy?: string
+  /** 最近一次向国家平台同步备案状态的时间 */
+  syncedAt?: string
   status: RepresentativeStatus
-  reviewNote?: string
-  stopReason?: string
+  /** 已注销时的注销原因（离职 / 停止授权等，来自国家平台同步） */
+  cancelReason?: string
   operations: RepOperation[]
+}
+
+export interface TrainingLink {
+  name: string
+  url: string
+}
+
+/** 考核 / 培训留底记录：药厂定期上传，附件支持文档与外部链接 */
+export interface TrainingRecord {
+  id: string
+  kind: "考核" | "培训"
+  title: string
+  repIds: string[]
+  date: string
+  note?: string
+  files: string[]
+  links: TrainingLink[]
+  uploadedBy: string
+  uploadedAt: string
 }
 
 export interface ComplianceIncident {
@@ -1257,14 +1349,49 @@ export interface EligibilityResult {
   hits: EligibilityHit[]
 }
 
-// ── 服务商准入（服务商提交 / 药厂合规审核 双角色最小闭环）──────────────────
-// 旧 Vendor 类型仍供代表备案等页面使用；本节为准入页的最小读取模型。
+// ── 服务商准入（准入码制：药厂只选模板生成一次性准入码，服务商输码发起准入，2026-09-21）──
+// 旧 Vendor 类型仍供代表备案等页面使用；本节为准入页的读取模型。
+// 系统不提供任何服务商检索/发现（撮合完全线下）：药厂创建任务即得准入码，
+// 通过线下渠道告知服务商；服务商输入码后任务立刻与其主体绑定生效。
 
-export type VendorAccessStatus = "草稿" | "待提交" | "已通过" | "已驳回"
+/**
+ * 准入任务状态机（药厂为发起方与审核决定方；2026-10-16 起审核=按项标记通过/驳回）：
+ * 待领取 →(服务商输准入码)→ 待服务商提交 →(服务商提交)→ 审核中 →(全部项通过)→ 已准入
+ *                                                        └→(存在驳回项)→ 已驳回（非终态）
+ * 已驳回 →(服务商仅修改驳回项后重新提交)→ 审核中（通过项结论保留、驳回项复审）
+ * 待领取/待服务商提交/审核中 →(撤回任务)→ 已撤回；已准入 → 已失效 / 已撤销（UI 暂无入口）
+ * 准入码一次性（发起即失效，重新生成则旧码作废）；彻底终止流程走撤回任务。
+ */
+export type VendorAccessStatus =
+  | "待领取"
+  | "待服务商提交"
+  | "审核中"
+  | "已准入"
+  | "已驳回"
+  | "已撤回"
+  | "已失效"
+  | "已撤销"
+
+/** 项级审核结论（key=快照项 key；通过项重提时锁定，驳回项须修改后重新提交） */
+export interface AccessItemVerdict {
+  verdict: "pass" | "reject"
+  /** 驳回原因（verdict=reject 时必填，服务商按项查看改什么） */
+  reason?: string
+}
 
 export interface VendorAccessHistory {
   id: string
-  action: "保存草稿" | "提交" | "通过" | "驳回"
+  action:
+    | "创建任务"
+    | "发起"
+    | "提交"
+    | "通过"
+    | "驳回"
+    | "撤回"
+    | "续期"
+    | "失效"
+    | "撤销"
+    | "重新生成码"
   operator: string
   /** 展示值（新口径：药厂侧身份统一「企业管理员 · 部门」，部门不是角色） */
   role: "服务提供商" | "企业管理员 · 合规部" | "药厂合规部门"
@@ -1272,29 +1399,166 @@ export interface VendorAccessHistory {
   comment?: string
 }
 
-/** 选传附件（资质/补充说明等），营业执照仍走 businessLicenseFile 必传字段 */
-export interface VendorAccessAttachments {
-  contract?: string
-  qualification?: string
-  supplement?: string
+/**
+ * 项类型（2026-09-21 收敛）：上传类 2（文件类=仅一份 / 图片类=一至多张）+ 填写类 4 + 核查类 1；
+ * 未知 kind 由界面降级为文本展示。
+ */
+export type AccessItemKind =
+  | "file"
+  | "image"
+  | "form-text"
+  | "form-number"
+  | "form-date"
+  | "form-select"
+  | "checklist"
+
+/** 模板/快照内的一个配置项（上传、填写、核查统一结构） */
+export interface AccessTemplateItem {
+  /** 模板内唯一，申请作答（itemResponses/attachments）按此关联 */
+  key: string
+  /** 分组名（证照资质/人员与社保…），清单按此分区渲染 */
+  group: string
+  name: string
+  kind: AccessItemKind
+  required: boolean
+  /** 图片类：最少张数（数量由药厂设置；文件类固定一份，不使用本字段） */
+  minCount?: number
+  /** 上传类：单件大小上限（原型 mock 提示） */
+  maxSizeMb?: number
+  /** 参考材料；enforced=必须使用该模板文件 */
+  templateRef?: { fileName: string; note?: string; enforced?: boolean }
+  /** 审核点（多行文本：服务商提交前可见，审核员逐条对照） */
+  checkPoints?: string
+  /** 资料用途说明 */
+  purpose?: string
+  /** form-select 选项 */
+  options?: string[]
+  /** 来自系统内置默认模板的项（仅展示角标，无规则约束） */
+  builtin?: boolean
 }
 
-export interface VendorAccessRecord {
+/** 药厂准入模板（一厂多套，同时仅一套 enabled；内容变更升版，任务快照固化版本） */
+export interface PharmaAccessTemplate {
   id: string
-  /** 关联旧 Vendor 主数据的 id（不改动其字段） */
-  vendorId: string
+  name: string
+  items: AccessTemplateItem[]
+  enabled: boolean
+  /** 模板版本号（内容增删改递增；任务创建时固化到 templateVersion） */
+  version?: number
+  updatedAt?: string
+  updatedBy?: string
+  /** 历史出现过的分组名（大项整组删除后仍保留，新建项时可重新选择） */
+  knownGroups?: string[]
+}
+
+/** 任务创建时点的生效清单快照（在途任务不受模板后续调整影响） */
+export interface AccessRequirementSnapshot {
+  templateName: string
+  /** 任务创建时模板版本（如 V2），与 templateVersion 冗余固化在快照内 */
+  templateVersion?: string
+  items: AccessTemplateItem[]
+}
+
+/**
+ * 准入任务（准入码制）：taskId=id；药厂创建任务（只选模板）即生成一次性准入码，
+ * 不指定任何服务商——待领取状态下 providerTenantId 为空，服务商输入码后绑定其主体。
+ * 服务商仅能在「待服务商提交 / 已驳回（退回修改）」状态窗口内提交材料（重提时通过项锁定）。
+ */
+export interface VendorAccessRecord {
+  /** taskId */
+  id: string
+  /** 服务商租户 org id（待领取时为空；领取后锁定为输码的服务商主体，服务商侧归属过滤的权威字段） */
+  providerTenantId?: string
   vendorName: string
   creditCode: string
   legalRep: string
   address: string
   contactName: string
   contactMobile: string
-  businessLicenseFile: string
-  attachments?: VendorAccessAttachments
+  /** 发起药厂租户 org id（审核隔离：药厂只能查看/操作 pharmaTenantId === 本厂的任务） */
+  pharmaTenantId: string
+  /** 发起药厂名称（展示冗余，权威引用为 pharmaTenantId；服务商侧只读） */
+  pharmaName: string
+  /** 发起药厂企业码（展示冗余；不作为任何授权依据） */
+  pharmaCode?: string
+  /** 一次性准入码（8 位大写字母数字；创建即生成，发起或重新生成后旧码作废） */
+  admissionCode?: string
+  /** 任务创建时间（药厂创建即生成准入码） */
+  createdAt?: string
+  /** 服务商发起时间（输入准入码绑定主体） */
+  claimedAt?: string
+  /** 任务创建时选定的模板 id */
+  templateId: string
+  /** 任务创建时模板版本（与快照同源固化；展示用） */
+  templateVersion: string
   status: VendorAccessStatus
+  requirementSnapshot: AccessRequirementSnapshot
+  /** 填写项应答（itemKey → 值） */
+  itemResponses: Record<string, string>
+  /** 上传附件（itemKey → 文件名数组，支持成套多文件/图片组） */
+  attachments: Record<string, string[]>
+  /** 项级审核结论（itemKey → 通过/驳回+原因；驳回退回与重提锁定均以此为准） */
+  itemVerdicts?: Record<string, AccessItemVerdict>
+  /** 服务商最近一次提交时间 */
   submittedAt?: string
+  /** 药厂最近一次审核动作时间（驳回/通过） */
   reviewedAt?: string
+  /** 药厂审核人 */
   reviewedBy?: string
+  /** 准入通过时间 */
+  approvedAt?: string
+  /** 准入有效期（已准入状态展示；续期更新 effectiveTo） */
+  effectiveFrom?: string
+  effectiveTo?: string
+  /** 整单驳回原因（2026-10-16 前旧数据存量兼容展示；新审核走 itemVerdicts 逐项原因） */
   rejectionReason?: string
+  /** 撤回原因（选填） */
+  withdrawalReason?: string
+  /** 撤销准入原因（必填） */
+  revocationReason?: string
+  /** 失效原因（失效管理必填） */
+  invalidationReason?: string
+  /** 任务创建人（药厂侧操作人） */
+  createdBy?: string
   history: VendorAccessHistory[]
+}
+
+// ── 服务商合同管理（药厂归档双方线下签署合同，2026-09-21）──────────────────────
+// 合同状态机只有两态：待上传 ──(药厂上传合同)──→ 已归档。
+// AI 价目整理是后台辅助能力（见 ContractAiJob），不是合同业务状态：
+// 合同页不展示任何 AI 分析状态/进度，归档不依赖解析完成。
+
+export type ContractArchiveStatus = "待上传" | "已归档"
+
+/** 合同记录：归属一个确定的「药厂 × 服务商」关系，不能只按服务商名称关联 */
+export interface ProviderContractRecord {
+  id: string
+  pharmaTenantId: string
+  providerTenantId: string
+  /** 来源准入任务 id（已准入记录）；线下准入导入建立的合作关系无准入任务，允许为空 */
+  vendorAccessRecordId?: string
+  archiveStatus: ContractArchiveStatus
+  contractFileName?: string
+  /** 原型不保存真实文件：仅记文件名（生产为存储引用） */
+  contractFileRef?: string
+  uploadedBy?: string
+  /** yyyy-MM-dd HH:mm；刚上传的行展示为「刚刚」 */
+  uploadedAt?: string
+}
+
+/**
+ * AI 价目整理后台任务（仅供防重/衔接展示，不是合同状态）：
+ * 成功 → 价目表草稿带来源（合同文件导入）；失败 → 合同仍为已归档，仅通知。
+ */
+export interface ContractAiJob {
+  contractId: string
+  pharmaTenantId: string
+  providerTenantId: string
+  contractFileName: string
+  status: "processing" | "done" | "failed"
+  /** 成功时可唯一匹配带入价目草稿的项数 */
+  importedCount?: number
+  /** 成功时待人工完善项数 */
+  pendingCount?: number
+  finishedAt?: string
 }
