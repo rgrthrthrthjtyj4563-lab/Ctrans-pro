@@ -24,6 +24,7 @@ import type {
   VendorAccessStatus,
 } from '../types';
 import { usePermission } from './PermissionContext';
+import { useMessageCenter, providerAdminOf } from './MessageCenterContext';
 
 /**
  * 服务商准入共享 store（2026-09-21 准入码制）
@@ -736,6 +737,8 @@ function loadPersisted(): PersistState | null {
 
 export function VendorAccessProvider({ children }: { children: ReactNode }) {
   const { principal, can, logAudit } = usePermission();
+  // 消息中心：审核结果投影给服务商侧具体收件人（收件人解析失败则静默丢弃，演示口径）
+  const { push: mcPush } = useMessageCenter();
   const initial = useRef<PersistState | null>(null);
   if (initial.current === null) initial.current = loadPersisted();
 
@@ -1196,9 +1199,26 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
         ),
       );
       auditAccess('准入审核驳回', `${task.pharmaName} × ${task.vendorName}`, summary, `状态：审核中 → 已驳回（退回修改） · ${now} · ${rejects.length} 项驳回 / ${passes} 项通过`);
+      // 消息投影：驳回 → 服务商补正人待办（仅需修改驳回项后重提；通过项已锁定）
+      const fixerId = providerAdminOf(task.providerTenantId);
+      if (fixerId && task.providerTenantId) {
+        mcPush({
+          id: `mc-va-reject-${task.id}-${Date.now()}`,
+          recipientUserId: fixerId,
+          workspaceKey: task.providerTenantId,
+          tab: '待办',
+          type: '准入',
+          title: `准入被驳回：${rejects.length} 项需修改`,
+          desc: `${task.pharmaName} · 其余 ${passes} 项已通过锁定，仅需修改驳回项后重新提交`,
+          status: 'pending',
+          deadline: '建议 3 个工作日内重新提交',
+          level: 'before3',
+          target: { page: 'vendor-access' },
+        });
+      }
       return { ok: true };
     },
-    [auditAccess, isReviewer, operator.name, pharmaGuard, pushHistory],
+    [auditAccess, isReviewer, operator.name, pharmaGuard, pushHistory, mcPush],
   );
 
   const approveTask = useCallback(
@@ -1248,9 +1268,24 @@ export function VendorAccessProvider({ children }: { children: ReactNode }) {
           `合作关系生效 · 生效起点 ${now}`,
         );
       }
+      // 消息投影：准入通过 → 服务商侧通知（合作关系已生效）
+      const approvedNotifyId = providerAdminOf(task.providerTenantId);
+      if (approvedNotifyId && task.providerTenantId) {
+        mcPush({
+          id: `mc-va-approve-${task.id}-${Date.now()}`,
+          recipientUserId: approvedNotifyId,
+          workspaceKey: task.providerTenantId,
+          tab: '通知',
+          type: '准入',
+          title: '准入已通过，合作关系已生效',
+          desc: `${task.pharmaName} · 有效期 ${effectiveFrom} 至 ${effectiveTo}`,
+          jump: true,
+          target: { page: 'vendor-access' },
+        });
+      }
       return { ok: true, coopCreated: !!coop.created };
     },
-    [auditAccess, isReviewer, operator.name, pharmaGuard, pushHistory],
+    [auditAccess, isReviewer, operator.name, pharmaGuard, pushHistory, mcPush],
   );
 
   const renewAdmission = useCallback(

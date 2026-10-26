@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react"
 import { effectiveProviderAuthRows, subscribeCooperation } from "../data/cooperationModel"
+import { useMessageCenter, providerAdminOf, providerOrgByName } from "./MessageCenterContext"
 import {
   DEMO_HOLDER,
   DEMO_PROVIDER,
@@ -480,6 +481,8 @@ interface TaskDataContextValue {
 const TaskDataContext = createContext<TaskDataContextValue | null>(null)
 
 export function TaskDataProvider({ children }: { children: ReactNode }) {
+  // 消息中心：发包成功 → 承接服务商管理员待办「待确认承接」（按 provider 分组合并推送）
+  const { push: mcPush } = useMessageCenter()
   const [tasks, setTasks] = useState<Task[]>(() =>
     clone(seedTasks).map(ensurePendingReports),
   )
@@ -1059,9 +1062,37 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       if (created.length)
         // 反序头插，与逐条创建时「后建者排最前」的顺序一致
         setTasks((prev) => [...created.slice().reverse(), ...prev])
+      // 消息投影：发包成功 → 各承接服务商管理员待办（同一服务商多任务合并为一条）
+      const byProvider = new Map<string, Task[]>()
+      for (const t of created) {
+        const list = byProvider.get(t.provider) ?? []
+        list.push(t)
+        byProvider.set(t.provider, list)
+      }
+      for (const [providerName, group] of byProvider) {
+        const org = providerOrgByName(providerName)
+        const recipient = providerAdminOf(org)
+        if (!org || !recipient) continue
+        mcPush({
+          id: `mc-task-batch-${group[0].id}-${Date.now()}`,
+          recipientUserId: recipient,
+          workspaceKey: org,
+          tab: "待办",
+          type: "任务",
+          title:
+            group.length > 1
+              ? `${group.length} 项新任务待确认承接`
+              : "1 项新任务待确认承接",
+          desc: `${group[0].taskName}${group.length > 1 ? ` 等 ${group.length} 项` : ""} · 确认前药厂可撤销`,
+          status: "pending",
+          deadline: "2 天内确认，逾期可被撤销",
+          level: "before1",
+          target: { page: "task-dispatch", focus: { taskId: group[0].id } },
+        })
+      }
       return results
     },
-    [buildTaskFromInput, tasks],
+    [buildTaskFromInput, tasks, mcPush],
   )
 
   const revokeTask = useCallback(

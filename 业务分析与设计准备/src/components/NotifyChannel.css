@@ -1,0 +1,204 @@
+/* 通知渠道层（跨平台投递）—— nc- 前缀全量隔离（2026-10-26 批次）
+   配色沿用消息中心 mc- 口径：#176B5B 主绿 / #C73A3A 危险红 / 四级截止色。 */
+
+/* ── 渠道设置面板 ───────────────────────────────────────────── */
+.nc-overlay {
+  position: fixed; inset: 0; z-index: 70;
+  background: #0717144d;
+  display: grid; place-items: center;
+  padding: 20px;
+  animation: nc-fade .16s ease-out;
+}
+@keyframes nc-fade { from { opacity: 0; } }
+
+.nc-panel {
+  width: min(580px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px #16281f3d;
+  padding: 20px 22px 22px;
+}
+
+.nc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.nc-head h3 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.2px; color: #17211f; }
+.nc-head p { margin: 5px 0 0; font-size: 11px; color: #76817f; line-height: 1.5; }
+.nc-close {
+  border: 0; background: transparent; color: #40504c; cursor: pointer;
+  padding: 5px; border-radius: 6px; flex: 0 0 auto;
+}
+.nc-close:hover { background: #f3f6f5; }
+
+.nc-section { margin-top: 18px; border-top: 1px solid #edf0ef; padding-top: 15px; }
+.nc-section-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+.nc-section-title b { font-size: 13px; color: #26332f; }
+.nc-hint { font-size: 11px; color: #8b9692; line-height: 1.55; }
+
+.nc-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 9px;
+  background: #eef1f0; color: #5d6a66; flex: 0 0 auto;
+}
+.nc-badge.ok { background: #e3f2ec; color: #176b5b; }
+.nc-badge.warn { background: #fdf1e2; color: #a35a09; }
+.nc-badge.bad { background: #fbeaea; color: #a12f2f; }
+
+/* 浏览器通知卡片 */
+.nc-browser {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px; border: 1px solid #e3e9e6; border-radius: 10px; background: #fafcfb;
+}
+.nc-browser-icon {
+  width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto;
+  display: grid; place-items: center; background: #e8f3f0; color: #176b5b;
+}
+.nc-browser-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.nc-browser-main b { font-size: 13px; color: #26332f; }
+.nc-browser-main span { font-size: 11px; color: #8b9692; }
+
+.nc-btn {
+  border: 1px solid #b9d0ca; background: #fff; color: #176b5b;
+  border-radius: 7px; padding: 7px 11px; font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; flex: 0 0 auto;
+}
+.nc-btn:hover { background: #f4f9f7; }
+.nc-btn.primary { background: #176b5b; border-color: #176b5b; color: #fff; }
+.nc-btn.primary:hover { background: #135a4c; }
+.nc-btn:disabled { border-color: #dfe5e3; color: #9aa5a2; background: #fff; cursor: default; }
+.nc-btn:disabled:hover { background: #fff; }
+
+/* 三方渠道行 */
+.nc-channel {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 12px; border: 1px solid #e3e9e6; border-radius: 10px;
+  margin-bottom: 8px; background: #fff;
+}
+.nc-channel:last-child { margin-bottom: 0; }
+.nc-dot-brand { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.nc-channel-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.nc-channel-main b { font-size: 13px; color: #26332f; }
+.nc-channel-main span { font-size: 11px; color: #8b9692; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.nc-switch {
+  width: 38px; height: 21px; border-radius: 9999px; position: relative;
+  border: 0; cursor: pointer; flex: 0 0 auto; background: #d7dedb; transition: background .16s;
+}
+.nc-switch.on { background: #176b5b; }
+.nc-switch i {
+  position: absolute; top: 2px; left: 2px; width: 17px; height: 17px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #16281f33; transition: left .16s;
+}
+.nc-switch.on i { left: 19px; }
+
+.nc-demo {
+  padding: 12px; border: 1px solid #cde3dc; border-radius: 10px;
+  background: #f2f9f7; display: flex; flex-direction: column; gap: 10px;
+}
+.nc-demo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.nc-note {
+  margin-top: 14px; padding: 10px 12px; border-radius: 8px;
+  background: #f5f7f9; border: 1px solid #e6ebe9;
+  font-size: 11px; color: #6e7976; line-height: 1.6;
+}
+.nc-note b { color: #4a5955; }
+
+/* ── 模拟办公客户端窗口 ─────────────────────────────────────── */
+.nc-sim {
+  /* 贴左下但避开侧栏（展开态 240px），使抽屉（右）与模拟客户端（左）可同屏对照 */
+  position: fixed; left: 264px; bottom: 22px; z-index: 65;
+  width: 366px; max-width: calc(100vw - 32px);
+  max-height: min(600px, calc(100vh - 110px));
+  background: #fff; border-radius: 14px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 55px #14261f38;
+  animation: nc-pop .2s ease-out;
+}
+@keyframes nc-pop { from { opacity: 0; transform: translateY(14px); } }
+
+.nc-sim-head { padding: 12px 13px 0; border-bottom: 1px solid #e9edec; background: #fff; }
+.nc-sim-head-top { display: flex; align-items: center; gap: 9px; }
+.nc-sim-logo {
+  width: 26px; height: 26px; border-radius: 7px; flex: 0 0 auto;
+  display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 800;
+}
+.nc-sim-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nc-sim-title b { font-size: 13px; color: #17211f; }
+.nc-sim-title span { font-size: 10px; color: #8b9692; }
+.nc-sim-tabs { display: flex; gap: 4px; margin-top: 11px; }
+.nc-sim-tabs button {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 7px 10px 8px; font-size: 12px; color: #66736f;
+  border-bottom: 2px solid transparent; position: relative;
+}
+.nc-sim-tabs button.active { font-weight: 700; border-bottom-color: currentColor; }
+.nc-sim-tabs .nc-sim-tabcount {
+  margin-left: 4px; font-size: 10px; background: #eef1f0; color: #5d6a66;
+  border-radius: 7px; padding: 1px 5px;
+}
+
+.nc-sim-body { flex: 1; overflow-y: auto; padding: 13px; background: #f4f6f8; }
+
+.nc-chat { display: flex; gap: 9px; margin-bottom: 14px; }
+.nc-chat:last-child { margin-bottom: 0; }
+.nc-chat-avatar {
+  width: 28px; height: 28px; border-radius: 7px; flex: 0 0 auto;
+  display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 800;
+}
+.nc-chat-main { flex: 1; min-width: 0; }
+.nc-chat-name { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #8b9692; margin-bottom: 5px; }
+.nc-chat-name b { font-size: 11px; color: #5d6a66; font-weight: 600; }
+
+.nc-card {
+  background: #fff; border: 1px solid #e3e9e6; border-radius: 9px;
+  padding: 11px 12px; box-shadow: 0 1px 3px #16281f0f;
+}
+.nc-card-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.nc-card-type {
+  font-size: 10px; font-weight: 700; color: #176b5b; background: #e5f2ee;
+  padding: 2px 5px; border-radius: 4px; flex: 0 0 auto;
+}
+.nc-card-title { font-size: 13px; font-weight: 650; color: #17211f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-card-desc { font-size: 11px; color: #6e7976; margin-top: 6px; line-height: 1.45; }
+.nc-card-dl {
+  display: flex; align-items: center; gap: 5px; margin-top: 7px;
+  padding: 4px 7px; border-left: 3px solid; border-radius: 3px; font-size: 11px;
+}
+.nc-card-dl.before3 { border-color: #2f6bce; background: #eef4fc; color: #274f92; }
+.nc-card-dl.before1 { border-color: #b45309; background: #fff8ed; color: #93470a; }
+.nc-card-dl.hour    { border-color: #ea580c; background: #fff4ec; color: #b04309; }
+.nc-card-dl.overdue { border-color: #c73a3a; background: #fff1f1; color: #a12f2f; }
+.nc-card-foot { display: flex; justify-content: flex-end; margin-top: 9px; }
+.nc-card-btn {
+  display: flex; align-items: center; gap: 3px; cursor: pointer;
+  border: 1px solid #b9d0ca; background: #fff; color: #176b5b;
+  border-radius: 6px; padding: 4px 9px; font-size: 11px; font-weight: 600;
+}
+.nc-card-btn:hover { background: #f4f9f7; }
+.nc-card-fail { font-size: 11px; color: #8b9492; text-decoration: line-through; }
+
+.nc-sim-empty {
+  min-height: 168px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; color: #8b9692; text-align: center;
+}
+.nc-sim-empty b { font-size: 12px; color: #52605c; }
+.nc-sim-empty span { font-size: 11px; }
+
+.nc-sim-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 13px; border-top: 1px solid #e9edec; background: #fff; flex-shrink: 0;
+}
+.nc-sim-foot .nc-btn { padding: 6px 10px; font-size: 11px; }
+.nc-sim-foot .nc-ghost {
+  margin-left: auto; border: 0; background: transparent; color: #8b9692;
+  font-size: 11px; cursor: pointer; padding: 6px;
+}
+.nc-sim-foot .nc-ghost:hover { color: #5d6a66; }
+
+/* 键盘焦点（与 mc- 同规范） */
+.nc-panel button:focus-visible, .nc-sim button:focus-visible { outline: 2px solid #176b5b; outline-offset: 2px; }
+
+/* 窄屏：客户端窗口改为贴底全宽 */
+@media (max-width: 767px) {
+  .nc-sim { left: 12px; right: 12px; bottom: 12px; width: auto; max-height: calc(100vh - 90px); }
+  .nc-panel { border-radius: 12px; padding: 16px; }
+}

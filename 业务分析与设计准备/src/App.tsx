@@ -5,6 +5,7 @@ import {
   Compass,
   Menu,
   Bell,
+  Megaphone,
   Search,
   Archive,
   ChevronLeft,
@@ -57,9 +58,14 @@ import { BrandLogo } from "./components/Brand"
 import { DisplaySettingsMenu } from "./components/DisplaySettingsMenu"
 import { UserMenu } from "./components/UserMenu"
 import { AccountSecurityModal } from "./components/AccountSecurityModal"
+import { MessageCenterDrawer } from "./components/MessageCenterDrawer"
+import { MessageCenterProvider, useMessageCenter } from "./context/MessageCenterContext"
+import { BotSimulator } from "./components/BotSimulator"
+import { NotifyChannelPanel } from "./components/NotifyChannelPanel"
+import { NotifyChannelProvider, useNotifyChannel } from "./context/NotifyChannelContext"
+import type { OutboundPush } from "./context/NotifyChannelContext"
 import { ToastContainer } from "./components/Toast"
 import type { ToastMessage } from "./components/Toast"
-import { getRoleDashboardData } from "./data/mockData"
 import { TaskDataProvider } from "./context/TaskDataContext"
 import { AcceptanceProvider } from "./context/AcceptanceContext"
 import { DisplayPreferenceProvider } from "./context/DisplayPreferenceContext"
@@ -672,7 +678,12 @@ function Root() {
 
   return (
     <SessionToastContext.Provider value={addToast}>
-      {content}
+      {/* 消息中心挂 Root 层：跨账号切换存活（Workbench key=session.id 会整体重挂，
+          放 Workbench 内会把事件生成的消息在「切换账号→收件人查看」演示链路上清掉） */}
+      <MessageCenterProvider>
+        {/* 通知渠道层（跨平台投递）：订阅站内信 push 做 fan-out，故必须包在消息中心之内 */}
+        <NotifyChannelProvider principal={session?.principal ?? null}>{content}</NotifyChannelProvider>
+      </MessageCenterProvider>
       <ToastContainer messages={toasts} onDismiss={dismissToast} />
     </SessionToastContext.Provider>
   )
@@ -735,6 +746,8 @@ function useViewport() {
 function Workbench({ principal }: { principal: AuthPrincipal }) {
   return (
     <DisplayPreferenceProvider>
+      {/* 消息中心 Provider 在 Root 层（见 Root），此处只包业务 Context；
+          各业务 Context 仍可通过 useMessageCenter 拿到 push */}
       <TaskDataProvider>
         <AcceptanceProvider>
           <PermissionProvider principal={principal}>
@@ -1119,7 +1132,36 @@ function AppShell() {
   }
 
   const SIDEBAR_W = sidebarCollapsed ? 60 : 240
-  const notificationCount = getRoleDashboardData(currentRole ?? '药厂销售部门').unreadCount
+  // 消息中心：铃铛角标 = 当前「人 × 工作空间」三类未读之和（全派生；
+  // 2026-10-26 起替换 getRoleDashboardData().unreadCount 写死值 11/4/8，该字段工作台侧不再消费）
+  const mc = useMessageCenter()
+  const notificationCount = mc.unreadTotalFor(principal.userId, principal.workspaceId)
+  const [msgCenterOpen, setMsgCenterOpen] = useState(false)
+  const bellRef = useRef<HTMLButtonElement>(null)
+  const closeMsgCenter = useCallback(() => {
+    setMsgCenterOpen(false)
+    requestAnimationFrame(() => bellRef.current?.focus())
+  }, [])
+  // 通知渠道层（跨平台投递）：渠道设置面板入口 + 模拟办公客户端
+  const nc = useNotifyChannel()
+  /** 模拟客户端卡片「去处理」：与抽屉同口径（标已读 → 关窗 → 定位业务页） */
+  const handleBotAction = useCallback(
+    (p: OutboundPush) => {
+      mc.markRead(principal.userId, principal.workspaceId, p.messageId)
+      nc.setSimulatorOpen(false)
+      if (p.stale) {
+        addToast({
+          type: "info",
+          title: "该事项状态已变化",
+          description: "已为你定位到最新列表，可在列表中查看处理结果。",
+        })
+      } else {
+        addToast({ type: "info", title: "已定位到业务对象", description: p.title })
+      }
+      if (p.target) navigate(p.target.page, p.target.focus)
+    },
+    [mc, nc, principal.userId, principal.workspaceId, addToast, navigate],
+  )
 
   // 面包屑优先取当前身份可见的菜单项名称与所属目录（vendor-access 双域各有入口名）
   const menuMetaByPage = useMemo(() => {
@@ -1587,9 +1629,11 @@ function AppShell() {
               onNotice={(title) => addToast({ type: "info", title })}
             />
 
-            {/* Notification */}
+            {/* Notification（消息中心入口：真实派生未读，点击打开抽屉） */}
             <button
-              aria-label={`消息中心，当前 ${notificationCount} 条待处理`}
+              ref={bellRef}
+              aria-label={`消息中心，当前 ${notificationCount} 条未读`}
+              onClick={() => setMsgCenterOpen(true)}
               style={{
                 position: "relative",
                 display: "flex",
@@ -1613,27 +1657,80 @@ function AppShell() {
               }}
             >
               <Bell size={16} />
-              <span
-                style={{
-                  position: "absolute",
-                  top: 3,
-                  right: 3,
-                  minWidth: 16,
-                  height: 16,
-                  borderRadius: "9999px",
-                  background: "#C73A3A",
-                  border: "1px solid #fff",
-                  color: "#fff",
-                  fontSize: "var(--fs-10)",
-                  fontWeight: 700,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "0 3px",
-                }}
-              >
-                {notificationCount > 99 ? "99+" : notificationCount}
-              </span>
+              {notificationCount > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 3,
+                    right: 3,
+                    minWidth: 16,
+                    height: 16,
+                    borderRadius: "9999px",
+                    background: "#C73A3A",
+                    border: "1px solid #fff",
+                    color: "#fff",
+                    fontSize: "var(--fs-10)",
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "0 3px",
+                  }}
+                >
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              )}
+            </button>
+
+            {/* 通知渠道（跨平台投递：浏览器通知 + 企微/飞书/钉钉机器人）
+                徽标=机器人已推送数，故点击打开模拟客户端（推送所在处），设置面板由客户端内进入 */}
+            <button
+              aria-label={`机器人推送，已推送 ${nc.outbox.length} 条`}
+              onClick={() => nc.setSimulatorOpen(true)}
+              style={{
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 36,
+                height: 36,
+                borderRadius: "8px",
+                background: "none",
+                border: "1px solid var(--color-border)",
+                cursor: "pointer",
+                color: "#6B7280",
+              }}
+              onMouseEnter={(e) => {
+                ;(e.currentTarget as HTMLButtonElement).style.background = "#F9FAFB"
+              }}
+              onMouseLeave={(e) => {
+                ;(e.currentTarget as HTMLButtonElement).style.background = "none"
+              }}
+            >
+              <Megaphone size={16} />
+              {nc.outbox.length > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 3,
+                    right: 3,
+                    minWidth: 16,
+                    height: 16,
+                    borderRadius: "9999px",
+                    background: "#176B5B",
+                    border: "1px solid #fff",
+                    color: "#fff",
+                    fontSize: "var(--fs-10)",
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "0 3px",
+                  }}
+                >
+                  {nc.outbox.length > 99 ? "99+" : nc.outbox.length}
+                </span>
+              )}
             </button>
 
             {/* Enterprise + role pill 已砍（2026-09-18）：工作空间/身份/服务药厂信息
@@ -1785,6 +1882,24 @@ function AppShell() {
           onClick={() => setShowUserMenu(false)}
         />
       )}
+
+      {/* 消息中心抽屉：遮罩+抽屉均 fixed 于顶栏之下（2026-10-26） */}
+      {msgCenterOpen && (
+        <>
+          <div className="mc-overlay" onClick={closeMsgCenter} />
+          <MessageCenterDrawer
+            principal={principal}
+            mobile={viewport.isNarrow}
+            onClose={closeMsgCenter}
+            navigate={navigate}
+            addToast={addToast}
+          />
+        </>
+      )}
+
+      {/* 通知渠道层（2026-10-26 跨平台投递）：设置面板 + 模拟办公客户端，均 fixed 自持开关 */}
+      <NotifyChannelPanel />
+      <BotSimulator onHandle={handleBotAction} />
     </div>
   )
 }

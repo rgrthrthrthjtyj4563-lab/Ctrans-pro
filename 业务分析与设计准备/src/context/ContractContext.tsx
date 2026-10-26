@@ -10,6 +10,7 @@ import {
 } from 'react';
 import type { ContractAiJob, ProviderContractRecord } from '../types';
 import { usePermission } from './PermissionContext';
+import { useMessageCenter, providerAdminOf } from './MessageCenterContext';
 
 /**
  * 服务商合同管理共享 store（2026-09-21）
@@ -135,6 +136,8 @@ function matchOutcomeOf(fileName: string): { status: 'done' | 'failed'; imported
 
 export function ContractProvider({ children }: { children: ReactNode }) {
   const { principal, logAudit } = usePermission();
+  // 消息中心：归档结果投影给服务商侧（通知，不需要服务商操作）
+  const { push: mcPush } = useMessageCenter();
   const initial = useRef<PersistState | null>(null);
   if (initial.current === null) initial.current = loadPersisted();
 
@@ -213,9 +216,24 @@ export function ContractProvider({ children }: { children: ReactNode }) {
           ? `归档状态：已归档（替换） · ${now} · 后台价目整理已重新入队；已生成价目表草稿保留`
           : `归档状态：待上传 → 已归档 · ${now} · 后台价目整理已入队`,
       });
+      // 消息投影：归档完成 → 服务商侧通知（合同页在药厂工作空间，服务商仅获知结果）
+      const contractNotifyId = providerAdminOf(input.providerTenantId);
+      if (contractNotifyId) {
+        mcPush({
+          id: `mc-ct-archive-${created.id}`,
+          recipientUserId: contractNotifyId,
+          workspaceKey: input.providerTenantId,
+          tab: '通知',
+          type: '合同',
+          title: isReplace ? '合同已重新归档' : '合同已归档',
+          desc: `${principal.realm === 'TENANT' ? principal.tenantName : '药厂'}已完成《${name}》归档`,
+          jump: false,
+          body: '药厂已完成合同归档，可线下留存扫描件；AI 价目整理结果将同步给药厂侧价目表配置。',
+        });
+      }
       return { ok: true, contractId: created.id };
     },
-    [logAudit, myPharmaTenantId, principal.name],
+    [logAudit, myPharmaTenantId, principal.name, mcPush, principal],
   );
 
   const deleteContract = useCallback(

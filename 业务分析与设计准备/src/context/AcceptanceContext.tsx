@@ -26,6 +26,8 @@ import {
   packageKey,
   persistAcceptanceConfig,
 } from "../data/acceptanceData"
+import { useTaskData } from "./TaskDataContext"
+import { useMessageCenter, providerAdminOf, providerOrgByName } from "./MessageCenterContext"
 
 export interface BatchReviewInput {
   taskId: string
@@ -64,6 +66,9 @@ export function nowLocalStamp() {
 }
 
 export function AcceptanceProvider({ children }: { children: ReactNode }) {
+  // 消息投影需要任务承接方反查收件人（AcceptanceProvider 位于 TaskDataProvider 内层）
+  const { tasks } = useTaskData()
+  const { push: mcPush } = useMessageCenter()
   const [config, setConfig] = useState<AcceptanceChainConfig>(
     () => loadAcceptanceConfig() ?? DEFAULT_ACCEPTANCE_CONFIG,
   )
@@ -152,8 +157,44 @@ export function AcceptanceProvider({ children }: { children: ReactNode }) {
       }
       return { ...prev, [key]: next }
     })
+    // 消息投影：验收结果 → 任务承接方（驳回=待办整改重报；整批通过=通知）
+    const reviewTask = tasks.find((t) => t.id === input.taskId)
+    const reviewOrg = providerOrgByName(reviewTask?.provider)
+    const reviewRecipient = providerAdminOf(reviewOrg)
+    if (reviewRecipient && reviewOrg) {
+      const rejected = input.items.filter((it) => it.decision === "驳回").length
+      const passed = input.items.length - rejected
+      const focus = { serviceMonth: input.serviceMonth, ...(reviewTask ? { provider: reviewTask.provider } : {}) }
+      if (rejected > 0) {
+        mcPush({
+          id: `mc-ac-reject-${key}-${Date.now()}`,
+          recipientUserId: reviewRecipient,
+          workspaceKey: reviewOrg,
+          tab: "待办",
+          type: "验收",
+          title: "成果验收被驳回，待整改重报",
+          desc: `${input.taskId} · ${input.serviceMonth} · ${rejected} 条被驳回（${passed} 条通过）`,
+          status: "pending",
+          deadline: "请尽快整改后重新提交",
+          level: "before1",
+          target: { page: "hospital-visits", focus },
+        })
+      } else {
+        mcPush({
+          id: `mc-ac-pass-${key}-${Date.now()}`,
+          recipientUserId: reviewRecipient,
+          workspaceKey: reviewOrg,
+          tab: "通知",
+          type: "验收",
+          title: "成果验收已通过",
+          desc: `${input.taskId} · ${input.serviceMonth} · ${passed} 条材料全部通过`,
+          jump: true,
+          target: { page: "hospital-visits", focus },
+        })
+      }
+    }
     return { ok: true }
-  }, [])
+  }, [tasks, mcPush])
 
   const resubmitItem = useCallback(
     (taskId: string, serviceMonth: string, itemId: string) => {
