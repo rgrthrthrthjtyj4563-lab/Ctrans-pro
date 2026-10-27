@@ -181,6 +181,13 @@ export interface PermOrg {
   name: string
   type: "platform" | "pharma" | "provider" | "group" | "department"
   parentId?: string
+  /**
+   * 药厂侧部门管理区域（2026-10-27 D1/D2）：省级短名（与 constants.PROVINCES 同词表）或
+   * 单独一项「全国」。成员可见的区域业务数据 = 所属部门的 managedRegions；
+   * 父子部门不自动继承、不向上汇总；缺省/空数组 = 未配置（普通成员默认拒绝）。
+   * 仅药厂租户的部门节点使用；服务商侧区域由品种授权派生，不走本字段。
+   */
+  managedRegions?: string[]
 }
 
 /**
@@ -942,42 +949,49 @@ export const PERM_ORGS: PermOrg[] = [
     name: "信息技术部",
     type: "department",
     parentId: "org-pharma",
+    // 未配置区域：信息化部不该看区域业务数据（默认拒绝的空态演示）
   },
   {
     id: "org-dept-sales",
     name: "销售部",
     type: "department",
     parentId: "org-pharma",
+    managedRegions: ["全国"],
   },
   {
     id: "org-dept-northwest",
     name: "西北大区",
     type: "department",
     parentId: "org-dept-sales",
+    managedRegions: ["陕西", "甘肃", "青海", "宁夏"],
   },
   {
     id: "org-dept-shaanxi",
     name: "陕西办事处",
     type: "department",
     parentId: "org-dept-northwest",
+    managedRegions: ["陕西", "宁夏"],
   },
   {
     id: "org-dept-sichuan",
     name: "四川办事处",
     type: "department",
     parentId: "org-dept-northwest",
+    // 未配置区域（空态演示：成员登录后业务页为「无可见区域」）
   },
   {
     id: "org-dept-east",
     name: "华东大区",
     type: "department",
     parentId: "org-dept-sales",
+    managedRegions: ["江苏", "浙江", "上海"],
   },
   {
     id: "org-dept-compliance",
     name: "合规部",
     type: "department",
     parentId: "org-pharma",
+    managedRegions: ["全国"],
   },
   // 服务商与药厂是合作关系而非上下级：服务商作为独立企业根节点呈现（§2.3）
   {

@@ -52,6 +52,7 @@ import {
   tenantNameOf,
   visiblePharmasForUser,
 } from "../data/cooperationModel"
+import { hasPharmaAdminAssignment, pharmaRegionScopeOfMember, regionScopeLabel } from "../data/pharmaRegionScope"
 import {
   AUTH_PROFILES,
   DEMO_PASSWORD,
@@ -298,15 +299,20 @@ function buildTenantPrincipal(
   const orgUnit = allOrgs().find((o) => o.id === orgUnitId)
   const allIds = new Set(opts.flatMap((o) => o.assignmentIds))
   const assignments = allAssignments().filter((a) => allIds.has(a.id))
-  // 数据范围明细：按「范围根 × 档位」去重后的并集（展示用；行级过滤按授权全集计算）
-  const scopeSeen = new Set<string>()
-  const dataScopes = assignments.reduce<{ scope: ScopeType; scopeOrgId: string; scopeOrgName: string }[]>((acc, a) => {
-    const key = `${a.scopeOrgId}|${a.scope}`
-    if (scopeSeen.has(key)) return acc
-    scopeSeen.add(key)
-    acc.push({ scope: a.scope, scopeOrgId: a.scopeOrgId, scopeOrgName: a.scopeOrgName })
-    return acc
-  }, [])
+  const tenantKind = opts[0].tenantKind ?? tenantKindOfRoot(allOrgs().find((o) => o.id === workspaceId)) ?? "pharma"
+  // 药厂侧数据范围 = 所属部门管理区域（D1/D2）；企业管理员固定全量。登录只拍快照供展示，
+  // 业务页实时过滤走 usePharmaRegionScope（部门区域改动对已登录会话即时生效）。
+  const pharmaRegionScope =
+    tenantKind === "pharma"
+      ? pharmaRegionScopeOfMember({
+          orgs: allOrgs(),
+          orgUnitId,
+          isPharmaAdmin: hasPharmaAdminAssignment(assignments, workspaceId),
+        })
+      : undefined
+  const dataScopeSummary = pharmaRegionScope
+    ? `数据区域：${regionScopeLabel(pharmaRegionScope)} · ${orgUnit?.name ?? "未分配部门"}`
+    : opts.map((o) => o.scopeSummary).join("；")
   const perspective =
     roles.map((r) => perspectiveRoleOf(r)).find((p): p is NonNullable<ReturnType<typeof perspectiveRoleOf>> => Boolean(p)) ??
     "药厂销售部门"
@@ -321,14 +327,14 @@ function buildTenantPrincipal(
     orgName: orgUnit?.name ?? user.orgName,
     tenantId: workspaceId,
     tenantName: opts[0].tenantName ?? tenantNameOf(workspaceId),
-    tenantKind: opts[0].tenantKind ?? tenantKindOfRoot(allOrgs().find((o) => o.id === workspaceId)) ?? "pharma",
+    tenantKind,
     membershipId: membership?.id ?? "",
     roleIds: roles.map((r) => r.id),
     roleNames: roles.map((r) => r.name),
     jobTitle: membership?.jobTitle,
     effectiveAssignmentIds: [...allIds],
-    dataScopes,
-    dataScopeSummary: opts.map((o) => o.scopeSummary).join("；"),
+    pharmaRegionScope,
+    dataScopeSummary,
     perspective,
   }
 }

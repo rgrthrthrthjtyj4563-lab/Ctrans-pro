@@ -56,12 +56,15 @@ import {
   upsertMembership,
 } from '../data/cooperationModel';
 import {
+  allOrgs,
   getTenantRegistrySnapshot,
   isAccountTakenInWorkspace,
   isPhoneTakenInWorkspace,
   subscribeTenantRegistry,
   tenantQuotaInfo,
+  upsertRuntimeOrg,
 } from '../data/tenantRegistry';
+import { canonicalRegionName, canonicalRegions } from '../data/pharmaRegionScope';
 import {
   getTenantPackagesSnapshot,
   subscribeTenantPackages,
@@ -137,6 +140,8 @@ interface PermissionStore {
   rejoinTenantMember: (input: { userId: string; orgId: string }) => { ok: boolean; error?: string };
   addDepartment: (input: { name: string; parentId: string }) => { ok: boolean; error?: string; org?: PermOrg };
   updateDepartment: (input: { orgId: string; name?: string; parentId?: string; reason?: string }) => { ok: boolean; error?: string };
+  /** 药厂部门管理区域（D1）：省级短名 / 「全国」；空数组 = 未配置（默认拒绝） */
+  setOrgManagedRegions: (input: { orgId: string; regions: string[]; reason?: string }) => { ok: boolean; error?: string; regions?: string[] };
   /** 服务商内部业务团队（工作组）管理：只表达团队归属，不承载权限域概念 */
   addWorkGroup: (input: { name: string; reason?: string }) => { ok: boolean; error?: string; org?: PermOrg };
   renameWorkGroup: (input: { orgId: string; name: string; reason?: string }) => { ok: boolean; error?: string };
@@ -172,7 +177,9 @@ const LOGIN_AUDIT_BUFFER_CAP = 200;
 export function PermissionProvider({ principal, children }: { principal: AuthPrincipal; children: ReactNode }) {
   const [roles, setRoles] = useState<SysRole[]>(() => [...PRESET_ROLES, ...seedCustomRoles]);
   const [assignments, setAssignments] = useState<RoleAssignment[]>(() => [...seedAssignments]);
-  const [orgs, setOrgs] = useState<PermOrg[]>(() => [...PERM_ORGS]);
+  // 组织树从 registry 统一读口径水合（种子 + 运行时覆盖），与登录链路同源；
+  // 部门 CRUD / 管理区域经 upsertRuntimeOrg 回写，刷新与重新登录后不丢（2026-10-27 P1）
+  const [orgs, setOrgs] = useState<PermOrg[]>(() => allOrgs());
   const [users, setUsers] = useState<PermUser[]>(() => [...PERM_USERS]);
   // createAssignment 等回调需要读取「同一次事件里刚创建」的用户，闭包 state 会过期
   const usersRef = useRef(users);
@@ -896,6 +903,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       parentId: parent.id,
     };
     setOrgs(prev => [...prev, org]);
+    upsertRuntimeOrg(org);
     logAudit({
       module: MOD_ORG,
       action: '新建部门',
@@ -925,6 +933,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       return { ok: false, error: '该上级下已存在同名部门' };
     }
     setOrgs(prev => prev.map(o => (o.id === current.id ? { ...o, name, parentId } : o)));
+    upsertRuntimeOrg({ ...current, name, parentId });
     if (renamed) {
       setUsers(prev => prev.map(u => (u.orgId === current.id ? { ...u, orgName: name } : u)));
       setAssignments(prev => prev.map(a => (a.scopeOrgId === current.id ? { ...a, scopeOrgName: name } : a)));
@@ -940,6 +949,43 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     });
     return { ok: true };
   }, [logAudit, orgs, preview]);
+
+  /**
+   * 配置部门管理区域（2026-10-27 D1）：仅药厂租户的部门节点。输入经 canonicalRegions 归一
+   * （短名、去重；「全国」与具体省份互斥时只保留「全国」）；父子部门不自动继承；
+   * 空数组 = 清空为未配置（该部门普通成员随即看不到区域业务数据）。
+   */
+  const setOrgManagedRegions = useCallback((input: { orgId: string; regions: string[]; reason?: string }) => {
+    if (preview) return { ok: false, error: '预览模式禁止写操作' };
+    const current = orgs.find(o => o.id === input.orgId);
+    if (!current) return { ok: false, error: '部门不存在' };
+    if (current.type !== 'department') return { ok: false, error: '只能为部门节点配置管理区域' };
+    const root = enterpriseRootOf(orgs, current.id);
+    if (!root || root.type !== 'pharma') {
+      return { ok: false, error: '管理区域仅适用于药厂租户的部门（服务商区域由品种授权派生，不单独配置）' };
+    }
+    if (realm === 'TENANT' && root.id !== principalTenantId) {
+      return { ok: false, error: '只能配置本企业组织树内的部门（租户边界）' };
+    }
+    const invalid = input.regions.filter(r => r.trim() && canonicalRegionName(r) === null);
+    if (invalid.length > 0) return { ok: false, error: `无法识别的区域：${invalid.join('、')}` };
+    const regions = canonicalRegions(input.regions);
+    const before = canonicalRegions(current.managedRegions ?? []);
+    if (before.join('|') === regions.join('|')) return { ok: true, regions };
+    const next: PermOrg = { ...current, managedRegions: regions };
+    setOrgs(prev => prev.map(o => (o.id === current.id ? next : o)));
+    upsertRuntimeOrg(next);
+    logAudit({
+      module: MOD_ORG,
+      action: '配置管理区域',
+      target: current.name,
+      resource: 'orgs.regions',
+      reason: input.reason,
+      beforeSummary: before.length > 0 ? before.join('、') : '未配置',
+      afterSummary: regions.length > 0 ? regions.join('、') : '未配置',
+    });
+    return { ok: true, regions };
+  }, [logAudit, orgs, preview, principalTenantId, realm]);
 
   const addWorkGroup = useCallback((input: { name: string; reason?: string }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
@@ -1149,6 +1195,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     rejoinTenantMember,
     addDepartment,
     updateDepartment,
+    setOrgManagedRegions,
     addWorkGroup,
     renameWorkGroup,
     deleteWorkGroup,

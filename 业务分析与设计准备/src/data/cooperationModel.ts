@@ -19,7 +19,7 @@ import type { BlockedKind, ServingPharma, TenantPrincipal, WarningKind } from ".
 import { PLATFORM_WORKSPACE_NAME } from "../auth/authTypes"
 import type { PermAuditEvent, PlatformRoleBinding, RoleAssignment, TenantKind, TenantMembership } from "./permissions"
 import { PLATFORM_BINDINGS, PRESET_ROLES, TENANT_MEMBERSHIPS, enterpriseRootOf, nextId, nowStamp, seedCustomRoles } from "./permissions"
-import { allOrgs, allUsers, allAssignments, tenantLoginAllowed } from "./tenantRegistry"
+import { allOrgs, allUsers, allAssignments, persistRuntimeMemberships, runtimeMemberships, tenantLoginAllowed } from "./tenantRegistry"
 
 // ─── 系统角色绑定（运行期内存态；登录网关与软件服务方账号页共享同一事实源） ─────────
 
@@ -169,12 +169,35 @@ export function tenantNameOf(id: string): string {
  * 租户成员关系运行时 store：种子 TENANT_MEMBERSHIPS + 软件服务方侧运行时租户成员派生。
  * 这是「用户属于哪个租户、挂在哪个部门」的唯一权威——授权、调岗、列表展示
  * 一律从这里读，不得再用 User.orgId / enterpriseRootOf(User.orgId) 反推。
+ *
+ * 持久化（2026-10-27）：每次变更把全量快照落进 tenantRegistry（persistRuntimeMemberships），
+ * 启动时用快照按 id 覆盖种子、追加种子外的记录——调岗 / 建档 / 移除刷新与重新登录后不丢。
  */
-let tenantMembershipState: TenantMembership[] = TENANT_MEMBERSHIPS.map((m) => ({ ...m }))
+function hydrateMemberships(): TenantMembership[] {
+  const stored = runtimeMemberships()
+  if (stored.length === 0) return TENANT_MEMBERSHIPS.map((m) => ({ ...m }))
+  const byId = new Map(stored.map((m) => [m.id, m] as const))
+  const seedIds = new Set(TENANT_MEMBERSHIPS.map((m) => m.id))
+  const merged = TENANT_MEMBERSHIPS.map((m) => ({ ...(byId.get(m.id) ?? m) }))
+  for (const m of stored) {
+    if (!seedIds.has(m.id)) merged.push({ ...m })
+  }
+  return merged
+}
+
+let tenantMembershipState: TenantMembership[] = hydrateMemberships()
 const membershipListeners = new Set<() => void>()
+let membershipRev = 0
 
 function notifyMembershipChange(): void {
+  membershipRev += 1
+  persistRuntimeMemberships(tenantMembershipState)
   membershipListeners.forEach((cb) => cb())
+}
+
+/** 成员身份修订号（供 useSyncExternalStore 读取；仅因成员变更而变化） */
+export function membershipRevision(): number {
+  return membershipRev
 }
 
 /** 全量成员身份（含运行时租户按用户组织归属根派生的成员关系） */
