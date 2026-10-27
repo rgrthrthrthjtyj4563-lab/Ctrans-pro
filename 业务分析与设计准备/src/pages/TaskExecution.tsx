@@ -256,8 +256,10 @@ export function TaskExecution({
     if (navFocus?.taskId) {
       setHighlightId(navFocus.taskId)
       const t = tasks.find((x) => x.id === navFocus.taskId)
-      if (t) setDetail(t)
+      // 直开详情也必须过会话范围（区域/业务范围）：不能通过链接绕过可见性（2026-10-27 §五.2）
+      if (t && taskInSessionScope(t)) setDetail(t)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navFocus?.taskId, tasks])
 
   const live = (t: Task | null) =>

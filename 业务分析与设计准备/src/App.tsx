@@ -84,6 +84,7 @@ import { LoginBackdrop } from "./auth/LoginBackdrop"
 // import { EnterpriseSwitchGate } from "./auth/EnterpriseSwitchGate" // 2026-09-18 切换企业入口已砍，组件沉睡可回滚
 import { currentPharmaOf, principalWorkspaceName, type AuthPrincipal, type AuthSession, type ServingPharma, type TenantPrincipal } from "./auth/authTypes"
 import { useCooperationRevision } from "./hooks/useServingBizScope"
+import { usePharmaRegionScope } from "./hooks/usePharmaRegionScope"
 import type { MenuItem, NavFocus, NavigateFn, PageId } from "./types"
 
 const pageLabels: Record<string, string> = {
@@ -798,7 +799,14 @@ function AppShell() {
       ? identityLabel(principalRole, principal.workspaceName)
       : identityLabel(principalRole, principal.tenantName)
   const servingPharma = principal.realm === "TENANT" ? currentPharmaOf(principal) : undefined
-  const dataScopeLabel = principal.realm === "PLATFORM" ? principal.dutyScope : principal.dataScopeSummary
+  // 药厂顶栏「数据区域」实时化：编辑负责区域/调岗后，已登录会话的标签即时更新（区域源=成员身份）
+  const regionScope = usePharmaRegionScope()
+  const dataScopeLabel =
+    principal.realm === "PLATFORM"
+      ? principal.dutyScope
+      : principal.realm === "TENANT" && principal.tenantKind === "pharma"
+        ? `数据区域：${regionScope.label} · ${principal.orgName}`
+        : principal.dataScopeSummary
   const [currentPage, setCurrentPage] = useState<PageId>(() => homePageOf(principal))
   // 响应式壳层（清单 §11.4）：≥1200 完整侧栏；768–1199 默认收起（图标模式）；<768 抽屉侧栏
   const viewport = useViewport()
@@ -1085,11 +1093,11 @@ function AppShell() {
           />
         )
       case "roles":
-        return <RoleManage addToast={addToast} />
+        return <RoleManage addToast={addToast} navigate={navigate} />
       case "role-preview":
         return <RolePreview addToast={addToast} navigate={navigate} />
       case "org-structure":
-        return <OrgStructure addToast={addToast} />
+        return <OrgStructure addToast={addToast} navigate={navigate} />
       case "user-manage":
         return <UserManage addToast={addToast} navFocus={navFocus} />
       case "workgroup-manage":
