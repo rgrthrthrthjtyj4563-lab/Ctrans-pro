@@ -1006,6 +1006,16 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       // 分派即选定：报告类服务项目同步生成「待上传」报告记录
       const finalized = ensurePendingReports(task)
       const warnings: string[] = []
+      if (
+        input.filledAmount != null &&
+        input.filledAmount > 0 &&
+        Math.abs(planAmount - input.filledAmount) > 0.5
+      ) {
+        const diff = planAmount - input.filledAmount
+        warnings.push(
+          `按整数次数调整后计划总金额 ${formatCNY(planAmount)}（填写 ${formatCNY(input.filledAmount)}，${diff > 0 ? "上调" : "下调"} ${formatCNY(Math.abs(diff))}，可在创建页继续调整）`,
+        )
+      }
       if (!rec.configured) warnings.push("未配置预算，已允许创建")
       else if (planAmount > rec.amount)
         warnings.push(

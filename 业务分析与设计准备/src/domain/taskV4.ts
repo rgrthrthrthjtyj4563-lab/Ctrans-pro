@@ -109,7 +109,15 @@ export function lastDayOfMonth(year: number, month: number): string {
 }
 
 export function monthsCovered(startDate: string, endDate: string): string[] {
-  if (!startDate || !endDate || endDate < startDate) return []
+  // 日期异常（空值/历史脏数据非字符串）时返回空，交由结算周期校验给出提示而非崩溃
+  if (
+    !startDate ||
+    !endDate ||
+    typeof startDate !== "string" ||
+    typeof endDate !== "string" ||
+    endDate < startDate
+  )
+    return []
   const months: string[] = []
   let y = Number(startDate.slice(0, 4))
   let m = Number(startDate.slice(5, 7))
@@ -238,7 +246,7 @@ export function nearestTier(amount: number, unitPrice: number): {
     }
   }
   const rawQty = amount / unitPrice
-  const qty = Math.round(rawQty)
+  const qty = Math.floor(rawQty)
   const nextAmount = qty * unitPrice
   const rounded = Math.abs(rawQty - qty) > 1e-9 || nextAmount !== amount
   return {
@@ -247,7 +255,7 @@ export function nearestTier(amount: number, unitPrice: number): {
     rounded,
     rawQty,
     reason: rounded
-      ? `金额无法被单价整除（${formatCNY(amount)} ÷ ${formatCNY(unitPrice)} = ${rawQty.toFixed(2)}），已按最近可选档位取整为数量 ${qty}`
+      ? `金额无法被单价整除（${formatCNY(amount)} ÷ ${formatCNY(unitPrice)} = ${rawQty.toFixed(2)}），已按 ${qty} 次计算，金额调整为 ${formatCNY(nextAmount)}`
       : "",
   }
 }

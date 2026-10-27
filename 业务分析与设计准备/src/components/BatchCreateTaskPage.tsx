@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { ArrowLeft } from "lucide-react"
 import { Modal } from "./Modal"
 import { ConfirmDialog } from "./ConfirmDialog"
 import { Button } from "./Button"
@@ -27,12 +28,12 @@ import type {
 import type { ToastMessage } from "./Toast"
 
 /**
- * 多服务商批量发包（两步）：
+ * 多服务商批量发包（两步，应用内整页：任务执行页点「创建任务」整体切换进来）：
  * ① 多选品种（限同一张价目表）→ 带出授权地区与可承接服务商（可移除/重加）→ 勾服务类别 → 调整统一业务比例
  * ② 逐家填任务总金额与各类拆分金额（可单家覆盖比例）→ 一次提交
  * 提交后每家服务商生成一条独立任务（含全部所选品种），走原有确认 / 拆解 / 审核 / 结算链路。
- * 不设批次概念：结果反馈为弹窗内会话态。
- * 关闭弹窗时自动保存未完成草稿（localStorage），下次打开恢复；提交全部成功后草稿清除。
+ * 不设批次概念：结果反馈为页面内会话态。
+ * 离开页面时自动保存未完成草稿（localStorage），下次进入恢复；提交全部成功后草稿清除。
  */
 
 const MEMORY_KEY = "by-create-task-memory"
@@ -44,7 +45,7 @@ const STEP_LABELS = ["品种、地区、比例与服务商", "逐家金额与提
 const AI_STEPS = ["梳理本企业往期任务", "检查本次业务比例", "归纳同类任务配置特征"]
 const AI_QUOTA_TOTAL = 10
 
-/** 本期不提供的价目类别：价目表内若含其规则，本弹窗一律不露出 */
+/** 本期不提供的价目类别：价目表内若含其规则，本页一律不露出 */
 const EXCLUDED_CATEGORY: ServiceCategory = "问卷调研与分析服务"
 
 const DEFAULT_CAT_ON: Record<string, boolean> = {
@@ -78,6 +79,7 @@ interface BatchDraft {
   removed: string[]
   amounts: Record<string, AmountEntry>
   customRatiosMap: Record<string, Record<string, number>>
+  customQtyMap: Record<string, Record<string, number>>
   vendorSearch: string
   invalidOnly: boolean
   pasteText: string
@@ -131,7 +133,6 @@ interface SubmitOutcome {
 }
 
 interface Props {
-  open: boolean
   onClose: () => void
   addToast: (msg: Omit<ToastMessage, "id">) => void
   /** 创建任务的服务委托方（本厂）名称；任务随会话按本厂隔离 */
@@ -156,7 +157,7 @@ const bctCss = `
 .bct-category-checks{display:flex;gap:24px;align-items:center;color:#44536C;font-size:13px}
 .bct-category-checks label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;white-space:nowrap}
 .bct-category-checks input{accent-color:var(--color-brand)}
-.bct-ratio-list{display:flex;flex-direction:column;gap:12px;max-height:340px;overflow-y:auto;padding-right:4px}
+.bct-ratio-list{display:flex;flex-direction:column;gap:12px}
 .bct-ratio-group{border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}
 .bct-ratio-group-head{display:flex;align-items:center;justify-content:space-between;background:#F7FAF9;padding:10px 14px}
 .bct-ratio-group-head b{font-size:13px}
@@ -166,6 +167,7 @@ const bctCss = `
 .bct-ratio-grid label{display:flex;align-items:center;gap:4px;justify-content:flex-end}
 .bct-ratio-grid input{height:30px;width:78px;border:1px solid #D7DEE9;border-radius:5px;text-align:right;padding:0 8px;font:inherit}
 .bct-money-input{height:32px;width:120px;border:1px solid var(--color-border);border-radius:5px;text-align:right;padding:0 9px;font:inherit;font-variant-numeric:tabular-nums}
+.bct-money-readonly{height:32px;width:120px;display:inline-flex;align-items:center;justify-content:flex-end;padding:0 9px;font-variant-numeric:tabular-nums;font-weight:600;color:var(--color-text-1);background:#F7F9FB;border:1px solid #EEF1F5;border-radius:5px}
 .bct-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:0;background:var(--color-brand-subtle);border:1px solid #D8EAE5;border-radius:10px;padding:14px 8px;margin-bottom:14px}
 .bct-summary>div{position:relative;padding:0 18px;border-right:1px solid #D8EAE5;min-width:0}
 .bct-summary>div:last-child{border:0}
@@ -196,11 +198,14 @@ table.bct-table{width:100%;border-collapse:collapse;font-size:12px;min-width:920
 .bct-link:hover{text-decoration:underline}
 .bct-paste-area{width:100%;min-height:220px;border:1px solid var(--color-border);border-radius:6px;padding:12px;resize:vertical;font:inherit;margin-top:10px;box-sizing:border-box}
 .bct-drawer-meta{display:grid;grid-template-columns:1fr 1fr;background:#F5F7FA;padding:10px 12px;border-radius:6px;gap:8px;margin:14px 0 18px;color:#657185;font-size:12px}
-.bct-drawer-row{display:grid;grid-template-columns:1fr 100px 120px 120px;align-items:center;border-bottom:1px solid #E9ECF0;padding:10px 0;gap:12px;font-size:12px}
+.bct-drawer-row{display:grid;grid-template-columns:1.2fr 90px 110px 110px 110px;align-items:center;border-bottom:1px solid #E9ECF0;padding:10px 0;gap:10px;font-size:12px}
 .bct-drawer-row small{display:block;color:#8590A1;margin-top:3px}
 .bct-drawer-row label{display:flex;border:1px solid #D9DFE7;border-radius:5px;align-items:center;padding-right:6px;justify-self:end}
 .bct-drawer-row input{border:0;width:64px;height:30px;text-align:right;font:inherit}
 .bct-drawer-row>b{text-align:right}
+.bct-drawer-row .bct-adj{color:#B45309;font-size:11px;margin-top:2px;text-align:right}
+.bct-drawer-row .bct-manual-tag{color:var(--color-brand);font-size:11px;margin-top:2px;text-align:right}
+.bct-drawer-row .bct-insufficient{grid-column:1/-1;color:#B45309;font-size:11px;background:#FEF7EC;border:1px solid #F5E3C2;border-radius:4px;padding:4px 8px;margin-top:6px}
 .bct-combo{position:relative;max-width:420px}
 /* 组合框嵌在 .bct-field 内：先反转 .bct-field input 罩进来的 100% 宽 / 34 高 / 边框内边距 */
 .bct-combo input{width:auto;height:auto;border:0;padding:0;margin:0;background:transparent;box-shadow:none}
@@ -287,10 +292,19 @@ table.bct-table{width:100%;border-collapse:collapse;font-size:12px;min-width:920
 .bct-ai-ghost:hover{background:#F9FAFB}
 .bct-ai-primary{height:32px;border-radius:6px;border:0;background:var(--color-brand);color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:0 14px}
 .bct-ratio-grid input.bct-adopted{border-color:var(--color-brand);background:var(--color-brand-subtle)}
+/* ─── 整页模式（应用壳内页面，侧边栏/顶栏保留）：页头条带返回、内容区滚动、底部固定操作条 ─── */
+.bct-shell{display:flex;flex-direction:column;height:100%}
+.bct-head{background:#fff;border-bottom:1px solid var(--color-border);padding:13px 24px;display:flex;align-items:center;gap:13px}
+.bct-back{border:0;background:transparent;cursor:pointer;color:#6B7280;width:30px;height:30px;border-radius:6px;display:grid;place-items:center;flex-shrink:0}
+.bct-back:hover{background:#F3F4F6;color:var(--color-text-1)}
+.bct-head h3{margin:0;font-size:17px;font-weight:600;color:var(--color-text-1);line-height:1.35}
+.bct-head-note{margin-top:3px;font-size:12px;color:#8A94A5}
+.bct-body{flex:1;min-height:0;overflow-y:auto;padding:14px 24px 20px}
+.bct-footbar{background:#fff;border-top:1px solid var(--color-border);padding:11px 24px;display:flex;align-items:center;gap:10px;flex-shrink:0}
 `
 
-export function BatchCreateTaskModal({
-  open,
+/** 应用内整页：由任务执行页条件渲染（进入 = 挂载、返回 = 卸载），onClose 即「返回任务列表」 */
+export function BatchCreateTaskPage({
   onClose,
   addToast,
   holderPharma,
@@ -312,10 +326,17 @@ export function BatchCreateTaskModal({
   const [customRatiosMap, setCustomRatiosMap] = useState<
     Record<string, Record<string, number>>
   >({})
+  /** 手改计划次数（按服务商→业务项目名），与比例覆盖同模式持久化 */
+  const [customQtyMap, setCustomQtyMap] = useState<
+    Record<string, Record<string, number>>
+  >({})
   const [vendorSearch, setVendorSearch] = useState("")
   const [invalidOnly, setInvalidOnly] = useState(false)
   const [ratioDrawerFor, setRatioDrawerFor] = useState<string | null>(null)
   const [drawerDraft, setDrawerDraft] = useState<Record<string, string>>({})
+  /** 比例弹窗会话态：手改次数草稿（业务项目名→输入值）与手改标记 */
+  const [drawerQtyDraft, setDrawerQtyDraft] = useState<Record<string, string>>({})
+  const [drawerQtyTouched, setDrawerQtyTouched] = useState<Record<string, boolean>>({})
   const [pasteOpen, setPasteOpen] = useState(false)
   /** 清空重填二次确认 */
   const [confirmClear, setConfirmClear] = useState(false)
@@ -438,6 +459,7 @@ export function BatchCreateTaskModal({
     total: number
     catAmounts: Partial<Record<ServiceCategory, number>>
     customRatios: Record<string, number> | null
+    customQtys: Record<string, number> | null
   }
 
   const rows: RowView[] = candidateRows.map((c) => ({
@@ -446,6 +468,7 @@ export function BatchCreateTaskModal({
     total: amounts[c.provider]?.total ?? 0,
     catAmounts: amounts[c.provider]?.catAmounts ?? {},
     customRatios: customRatiosMap[c.provider] ?? null,
+    customQtys: customQtyMap[c.provider] ?? null,
   }))
   const selectedRows = rows.filter((r) => r.included)
   const outcomeOf = (provider: string) =>
@@ -507,8 +530,6 @@ export function BatchCreateTaskModal({
       )
     )
       return "金额与已选服务类别不一致，请重新填写"
-    if (Math.abs(cents(values.reduce((s, v) => s + v, 0)) - row.total) > 0.001)
-      return "任务总金额须等于各类服务金额之和"
     const ratios = ratiosOf(row)
     for (const g of pickedCats) {
       if ((row.catAmounts[g.category] ?? 0) <= 0) continue
@@ -552,6 +573,33 @@ export function BatchCreateTaskModal({
             const weightSum =
               g.rules.reduce((s, r) => s + (ratios[r.name] ?? 0), 0) || 1
             g.rules.forEach((r) => {
+              // 手改次数：总次数按品种×地区均摊（余数给前几个组合），金额=次数×单价
+              const manualQty = row.customQtys?.[r.name]
+              if (Number.isFinite(manualQty)) {
+                const combos = varietyCount * row.regions.length
+                const comboIdx =
+                  varietySel.indexOf(varietyName) * row.regions.length +
+                  row.regions.indexOf(region)
+                const qty =
+                  Math.floor(manualQty! / combos) +
+                  (comboIdx < manualQty! % combos ? 1 : 0)
+                if (qty > 0)
+                  items.push({
+                    id: `new-${items.length}`,
+                    variety: varietyName,
+                    region,
+                    category: r.category,
+                    name: r.name,
+                    unitPrice: r.amount,
+                    unit: r.unit,
+                    qty,
+                    amount: qty * r.amount,
+                    suggestedUnitPrice: r.amount,
+                    suggestedAmount: qty * r.amount,
+                    adjustReason: "",
+                  })
+                return
+              }
               const requested =
                 (sectionAmount * (ratios[r.name] ?? 0)) / weightSum /
                 row.regions.length
@@ -628,12 +676,22 @@ export function BatchCreateTaskModal({
   /** 卸载时清掉 AI 分析的模拟定时器 */
   useEffect(() => () => aiTimers.current.forEach(clearTimeout), [])
 
+  /** 整页模式：Esc 返回列表（粘贴/抽屉/确认弹窗打开时让位，由弹窗自身处理） */
+  useEffect(() => {
+    if (ratioDrawerFor || pasteOpen || confirmClear) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") requestClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ratioDrawerFor, pasteOpen, confirmClear])
+
   /**
-   * 打开初始化：优先恢复上次关闭自动保存的草稿（品种仍可选才恢复），否则全新默认。
+   * 进入初始化：优先恢复上次离开自动保存的草稿（品种仍可选才恢复），否则全新默认。
    * 品种就绪后默认全选其授权地区并预填价目表比例（多选切换同此重置）。
    */
   useEffect(() => {
-    if (!open) return
     // 记住的推广时间（勾选「记住」上次保存的）
     let memoDates: { startDate?: string; endDate?: string } | null = null
     try {
@@ -689,8 +747,25 @@ export function BatchCreateTaskModal({
       setCatOn({ ...DEFAULT_CAT_ON, ...(draft.catOn ?? {}) })
       setRatioDraft(draft.ratioDraft ?? defaultRatiosFor(bookFor(draftSel)))
       setRemoved(draft.removed ?? [])
-      setAmounts(draft.amounts ?? {})
+      setAmounts(
+        Object.fromEntries(
+          Object.entries(draft.amounts ?? {}).map(([provider, entry]) => [
+            provider,
+            {
+              ...entry,
+              // 总金额只读派生：旧草稿按类别金额重算（历史草稿手输的 total 作废）
+              total: cents(
+                Object.values(entry.catAmounts).reduce(
+                  (s, v) => s + (v ?? 0),
+                  0,
+                ),
+              ),
+            },
+          ]),
+        ),
+      )
       setCustomRatiosMap(draft.customRatiosMap ?? {})
+      setCustomQtyMap(draft.customQtyMap ?? {})
       setVendorSearch(draft.vendorSearch ?? "")
       setInvalidOnly(!!draft.invalidOnly)
       setPasteText(draft.pasteText ?? "")
@@ -707,11 +782,12 @@ export function BatchCreateTaskModal({
     setRemoved([])
     setAmounts({})
     setCustomRatiosMap({})
+    setCustomQtyMap({})
     setVendorSearch("")
     setInvalidOnly(false)
     setPasteText("")
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [])
 
   /** 应用新品种集合：地区重置为全选新授权池、比例重预填、已填金额与结果清空 */
   function applyVarietySel(next: string[]) {
@@ -721,6 +797,7 @@ export function BatchCreateTaskModal({
     setRemoved([])
     setAmounts({})
     setCustomRatiosMap({})
+    setCustomQtyMap({})
     setOutcomes([])
     setVendorSearch("")
     setInvalidOnly(false)
@@ -809,7 +886,7 @@ export function BatchCreateTaskModal({
     })
   }
 
-  /** 改总金额：差额自动补进首个已选类别（各拆分金额仍可单独编辑） */
+  /** 改总金额：差额自动补进首个已选类别（总金额只读后仅 Excel 粘贴路径使用） */
   function patchTotal(provider: string, total: number) {
     const primary = catGroups.find((g) => catOn[g.category])?.category
     setRowAmount(provider, (entry) => {
@@ -827,15 +904,19 @@ export function BatchCreateTaskModal({
     })
   }
 
+  /** 改类别金额：任务总金额＝各类金额之和，自动重算（总金额只读派生） */
   function patchCatAmount(
     provider: string,
     category: ServiceCategory,
     value: number,
   ) {
-    setRowAmount(provider, (entry) => ({
-      total: entry.total,
-      catAmounts: { ...entry.catAmounts, [category]: value },
-    }))
+    setRowAmount(provider, (entry) => {
+      const catAmounts = { ...entry.catAmounts, [category]: value }
+      const total = cents(
+        Object.values(catAmounts).reduce((s, v) => s + (v ?? 0), 0),
+      )
+      return { total, catAmounts }
+    })
   }
 
   function pasteAmounts() {
@@ -869,6 +950,14 @@ export function BatchCreateTaskModal({
         Object.entries(ratiosOf(row)).map(([k, v]) => [k, String(v)]),
       ),
     )
+    // 手改次数会话态：已保存的覆盖回填，其余行走"分得金额÷单价"派生
+    const savedQtys = customQtyMap[provider] ?? {}
+    setDrawerQtyDraft(
+      Object.fromEntries(
+        Object.entries(savedQtys).map(([k, v]) => [k, String(v)]),
+      ),
+    )
+    setDrawerQtyTouched(Object.fromEntries(Object.keys(savedQtys).map((k) => [k, true])))
     setRatioDrawerFor(provider)
   }
 
@@ -879,7 +968,19 @@ export function BatchCreateTaskModal({
       addToast({ type: "error", title: "每类已选服务的业务比例须分别合计 100%" })
       return
     }
+    const qtys: Record<string, number> = {}
+    Object.entries(drawerQtyDraft).forEach(([name, v]) => {
+      if (!drawerQtyTouched[name]) return
+      const n = Math.floor(Number(v))
+      if (Number.isFinite(n) && n >= 0) qtys[name] = n
+    })
     setCustomRatiosMap((prev) => ({ ...prev, [ratioDrawerFor]: ratios }))
+    setCustomQtyMap((prev) => {
+      const next = { ...prev }
+      if (Object.keys(qtys).length) next[ratioDrawerFor] = qtys
+      else delete next[ratioDrawerFor]
+      return next
+    })
     setRatioDrawerFor(null)
     addToast({ type: "success", title: `${ratioDrawerFor} 的业务比例已单独保存` })
   }
@@ -1088,6 +1189,7 @@ export function BatchCreateTaskModal({
         serviceItems: items,
         settlementPeriods: defaultSettlementPeriods(startDate, endDate),
         roundingLogs,
+        filledAmount: cents(row.total),
       }
     })
     const results: MutationResult<Task>[] = createTaskBatch(inputs)
@@ -1133,6 +1235,7 @@ export function BatchCreateTaskModal({
       !removed.length &&
       !Object.keys(amounts).length &&
       !Object.keys(customRatiosMap).length &&
+      !Object.keys(customQtyMap).length &&
       !vendorSearch.trim() &&
       !invalidOnly &&
       !pasteText.trim()
@@ -1156,6 +1259,7 @@ export function BatchCreateTaskModal({
       catOn,
       ratioDraft,
       customRatiosMap,
+      customQtyMap,
       vendorSearch,
       invalidOnly,
       pasteText,
@@ -1233,8 +1337,6 @@ export function BatchCreateTaskModal({
     setAiReasons([])
     addToast({ type: "info", title: "已清空草稿，从默认开始" })
   }
-
-  if (!open) return null
 
   const pendingCount = selectedRows.filter((r) => !outcomeOf(r.provider)).length
   const shownCandidates = candidateRows.filter(
@@ -1916,7 +2018,7 @@ export function BatchCreateTaskModal({
           <div>
             <h4 style={{ margin: 0 }}>逐家填写任务金额</h4>
             <p className="bct-desc" style={{ margin: "4px 0 0" }}>
-              任务总金额及已选服务类别金额均可直接输入；每家总金额须等于各类金额之和。
+              填写各服务类别金额，任务总金额＝各类之和，自动计算（只读）。
             </p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1933,12 +2035,12 @@ export function BatchCreateTaskModal({
             <thead>
               <tr>
                 <th className="sticky-col">服务商</th>
-                <th>任务总金额</th>
                 {catGroups
                   .filter((g) => catOn[g.category])
                   .map((g) => (
                     <th key={g.category}>{CATEGORY_COLUMN[g.category] ?? g.category}</th>
                   ))}
+                <th>任务总金额</th>
                 <th>金额校验</th>
                 <th>操作</th>
               </tr>
@@ -1947,37 +2049,17 @@ export function BatchCreateTaskModal({
               {visibleStep2Rows.map((row) => {
                 const err = rowError(row)
                 const done = outcomeOf(row.provider)
-                const balance = cents(
-                  row.total -
-                    catGroups
-                      .filter((g) => catOn[g.category])
-                      .reduce((s, g) => s + (row.catAmounts[g.category] ?? 0), 0),
-                )
                 return (
                   <tr key={row.provider} className={err ? "bct-row-error" : ""}>
                     <td className="sticky-col">
                       <b>{row.provider}</b>
-                      {(row.customRatios || done) && (
+                      {(row.customRatios || row.customQtys || done) && (
                         <small className="sub">
-                          {row.customRatios ? "已单独调整比例" : ""}
-                          {row.customRatios && done ? " · " : ""}
+                          {row.customRatios || row.customQtys ? "已单独调整" : ""}
+                          {(row.customRatios || row.customQtys) && done ? " · " : ""}
                           {done ? `已创建 ${done.taskNo}` : ""}
                         </small>
                       )}
-                    </td>
-                    <td>
-                      <input
-                        className="bct-money-input"
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        aria-label={`${row.provider}任务总金额`}
-                        value={row.total}
-                        disabled={!!done}
-                        onChange={(e) =>
-                          patchTotal(row.provider, Number(e.target.value) || 0)
-                        }
-                      />
                     </td>
                     {catGroups
                       .filter((g) => catOn[g.category])
@@ -2001,20 +2083,18 @@ export function BatchCreateTaskModal({
                           />
                         </td>
                       ))}
+                    <td>
+                      <div className="bct-money-readonly">
+                        {formatCNY(row.total)}
+                      </div>
+                    </td>
                     <td className="bct-validation">
                       {done ? (
                         <Tag color="success" label={`已创建 ${done.taskNo}`} />
                       ) : err ? (
                         <>
                           <Tag color="danger" label="待调整" />
-                          <small>
-                            {err}
-                            {balance > 0.001
-                              ? ` · 尚未分配 ${formatCNY(balance)}`
-                              : balance < -0.001
-                                ? ` · 拆分超出 ${formatCNY(-balance)}`
-                                : ""}
-                          </small>
+                          <small>{err}</small>
                         </>
                       ) : (
                         <Tag color="success" label="金额与范围已通过" />
@@ -2035,7 +2115,10 @@ export function BatchCreateTaskModal({
               })}
               {!visibleStep2Rows.length && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: 30, color: "#8A94A5" }}>
+                  <td
+                    colSpan={catGroups.filter((g) => catOn[g.category]).length + 4}
+                    style={{ textAlign: "center", padding: 30, color: "#8A94A5" }}
+                  >
                     {invalidOnly ? "没有异常服务商" : "请先在第一步选择服务商"}
                   </td>
                 </tr>
@@ -2044,7 +2127,7 @@ export function BatchCreateTaskModal({
           </table>
         </div>
         <div className="bct-footnote">
-          仅显示第一步选中的服务类别。修改总金额时，差额先计入首个已选类别；各拆分金额仍可单独编辑。
+          仅显示第一步选中的服务类别。任务总金额为各类金额之和（只读）；从 Excel 粘贴的总金额将计入首个已选服务类别。
         </div>
       </div>
     </>
@@ -2122,7 +2205,14 @@ export function BatchCreateTaskModal({
                   <td>{formatCNY(row?.total ?? 0)}</td>
                   <td>
                     {o.ok ? (
-                      <Tag color="success" label="创建成功" />
+                      <>
+                        <Tag color="success" label="创建成功" />
+                        {o.warning && (
+                          <small className="sub" style={{ color: "#B45309" }}>
+                            {o.warning}
+                          </small>
+                        )}
+                      </>
                     ) : (
                       <>
                         <Tag color="danger" label="创建失败" />
@@ -2155,80 +2245,134 @@ export function BatchCreateTaskModal({
     : undefined
   const drawerRatios = drawerRow ? readRatios(drawerDraft) : null
 
+  /**
+   * 弹窗行派生：分得金额=类别金额×比例；次数=手改值或分得金额÷单价向下取整；
+   * 行金额=次数×单价（与分得金额的差额即自动调整额）
+   */
+  function drawerRowMath(
+    catAmount: number,
+    r: { name: string; amount: number },
+  ): {
+    share: number | null
+    qty: number | null
+    manual: boolean
+    rowAmount: number | null
+  } {
+    const share = drawerRatios
+      ? cents((catAmount * (drawerRatios[r.name] ?? 0)) / 100)
+      : null
+    const manual = !!drawerQtyTouched[r.name]
+    const qty = manual
+      ? Math.max(0, Math.floor(Number(drawerQtyDraft[r.name]) || 0))
+      : share !== null && r.amount > 0
+        ? Math.floor(share / r.amount)
+        : null
+    return {
+      share,
+      qty,
+      manual,
+      rowAmount: qty !== null ? qty * r.amount : null,
+    }
+  }
+
+  /** 弹窗内实时计划总额（Σ行金额），与打开时任务金额的差额即自动调整 */
+  const drawerPlannedTotal = (() => {
+    if (!drawerRow || !drawerRatios) return null
+    let total = 0
+    catGroups
+      .filter((g) => catOn[g.category])
+      .forEach((g) => {
+        g.rules.forEach((r) => {
+          const m = drawerRowMath(drawerRow.catAmounts[g.category] ?? 0, r)
+          total += m.rowAmount ?? 0
+        })
+      })
+    return cents(total)
+  })()
+
   return (
     <>
       {/* 样式表挂组件根级：粘贴/比例抽屉弹窗打开时主弹窗会隐藏卸载，挂主弹窗内会丢样式 */}
       <style>{bctCss}</style>
-      <Modal
-        open={open && !ratioDrawerFor && !pasteOpen && !confirmClear}
-        title="创建任务 · 多服务商批量发包"
-        onClose={requestClose}
-        width={1080}
-        titleNote={
-          step < 2 ? (
-            restoredAt ? (
-              <>
-                已恢复 {restoredAt} 自动保存的草稿，可直接继续填写
-                <button
-                  className="bct-link"
-                  style={{ marginLeft: 8 }}
-                  onClick={() => setConfirmClear(true)}
-                >
-                  清空重填
-                </button>
-              </>
-            ) : (
-              "关闭时自动保存已填内容，下次打开自动恢复"
-            )
-          ) : undefined
-        }
-        footer={
-          <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
-            <span style={{ marginRight: "auto", fontSize: 12, color: "#7C8798" }}>
-              {step < 2
-                ? `已选 ${selectedRows.length} 家服务商 · 各家独立生成任务`
-                : `成功 ${okOutcomes.length} 家 · 失败 ${badOutcomes.length} 家`}
-            </span>
-            {step === 0 && (
-              <>
-                <Button variant="secondary" onClick={requestClose}>
-                  取消
-                </Button>
-                <Button variant="primary" onClick={goStep1}>
-                  下一步：配置金额
-                </Button>
-              </>
-            )}
-            {step === 1 && (
-              <>
-                <Button variant="secondary" onClick={() => setStep(0)}>
-                  上一步
-                </Button>
-                <Button variant="primary" onClick={submit}>
-                  {pendingCount ? `确认发包 ${pendingCount} 家` : "查看结果"}
-                </Button>
-              </>
-            )}
-            {step === 2 && (
-              <>
-                {badOutcomes.length > 0 && (
-                  <Button variant="secondary" onClick={() => setStep(1)}>
-                    返回修改失败行
-                  </Button>
+      {/* 应用内整页：随应用壳布局（侧边栏/顶栏保留），页头带返回、内容区滚动、底部操作条常驻 */}
+      <div className="bct-shell">
+        <div className="bct-head">
+          <button
+            type="button"
+            className="bct-back"
+            aria-label="返回任务列表"
+            onClick={requestClose}
+          >
+            <ArrowLeft size={17} aria-hidden />
+          </button>
+          <div style={{ minWidth: 0 }}>
+            <h3>创建任务 · 多服务商批量发包</h3>
+            {step < 2 && (
+              <div className="bct-head-note">
+                {restoredAt ? (
+                  <>
+                    已恢复 {restoredAt} 自动保存的草稿，可直接继续填写
+                    <button
+                      className="bct-link"
+                      style={{ marginLeft: 8 }}
+                      onClick={() => setConfirmClear(true)}
+                    >
+                      清空重填
+                    </button>
+                  </>
+                ) : (
+                  "离开时自动保存已填内容，下次进入自动恢复"
                 )}
-                <Button variant="primary" onClick={requestClose}>
-                  完成并关闭
-                </Button>
-              </>
+              </div>
             )}
           </div>
-        }
-      >
-        {stepBar}
-        {step === 0 && stepScope}
-        {step === 1 && stepAmount}
-        {step === 2 && stepResult}
-      </Modal>
+        </div>
+        <div className="bct-body">
+          {stepBar}
+          {step === 0 && stepScope}
+          {step === 1 && stepAmount}
+          {step === 2 && stepResult}
+        </div>
+        <div className="bct-footbar">
+          <span style={{ marginRight: "auto", fontSize: 12, color: "#7C8798" }}>
+            {step < 2
+              ? `已选 ${selectedRows.length} 家服务商 · 各家独立生成任务`
+              : `成功 ${okOutcomes.length} 家 · 失败 ${badOutcomes.length} 家`}
+          </span>
+          {step === 0 && (
+            <>
+              <Button variant="secondary" onClick={requestClose}>
+                返回列表
+              </Button>
+              <Button variant="primary" onClick={goStep1}>
+                下一步：配置金额
+              </Button>
+            </>
+          )}
+          {step === 1 && (
+            <>
+              <Button variant="secondary" onClick={() => setStep(0)}>
+                上一步
+              </Button>
+              <Button variant="primary" onClick={submit}>
+                {pendingCount ? `确认发包 ${pendingCount} 家` : "查看结果"}
+              </Button>
+            </>
+          )}
+          {step === 2 && (
+            <>
+              {badOutcomes.length > 0 && (
+                <Button variant="secondary" onClick={() => setStep(1)}>
+                  返回修改失败行
+                </Button>
+              )}
+              <Button variant="primary" onClick={requestClose}>
+                完成并返回列表
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
 
       {confirmClear && (
         <ConfirmDialog
@@ -2265,7 +2409,7 @@ export function BatchCreateTaskModal({
           }
         >
           <p style={{ margin: "0 0 4px", color: "#68768A", fontSize: 13, lineHeight: 1.6 }}>
-            复制两列：服务商名称和金额。粘贴后按完整名称匹配已选服务商。
+            复制两列：服务商名称和金额。粘贴后按完整名称匹配已选服务商，总金额将计入首个已选服务类别。
           </p>
           <textarea
             className="bct-paste-area"
@@ -2281,7 +2425,7 @@ export function BatchCreateTaskModal({
           open={!!ratioDrawerFor}
           title={`单独调整比例 · ${drawerRow.provider}`}
           onClose={() => setRatioDrawerFor(null)}
-          width={680}
+          width={780}
           footer={
             <>
               <Button variant="secondary" onClick={() => setRatioDrawerFor(null)}>
@@ -2302,7 +2446,26 @@ export function BatchCreateTaskModal({
             </span>
             <span>地区：{drawerRow.regions.join("、")}</span>
             <span>
-              任务金额：<b>{formatCNY(drawerRow.total)}</b>
+              任务金额：
+              {drawerPlannedTotal !== null &&
+              drawerPlannedTotal !== drawerRow.total ? (
+                <>
+                  <b>{formatCNY(drawerRow.total)}</b>
+                  {" → "}
+                  <b style={{ color: "#B45309" }}>
+                    {formatCNY(drawerPlannedTotal)}
+                  </b>
+                  <small style={{ color: "#B45309", marginLeft: 4 }}>
+                    （{drawerPlannedTotal > drawerRow.total ? "+" : "−"}
+                    {formatCNY(
+                      Math.abs(drawerPlannedTotal - drawerRow.total),
+                    )}{" "}
+                    自动调整）
+                  </small>
+                </>
+              ) : (
+                <b>{formatCNY(drawerRow.total)}</b>
+              )}
             </span>
             <span>价目表：{lockedBook?.name}</span>
           </div>
@@ -2324,45 +2487,99 @@ export function BatchCreateTaskModal({
                   </div>
                   <div style={{ border: "1px solid #E2E8F0", borderTop: 0, borderRadius: "0 0 6px 6px", padding: "0 12px" }}>
                     {g.rules.map((r) => {
-                      const amount = drawerRatios
-                        ? cents(
-                            ((drawerRow.catAmounts[g.category] ?? 0) *
-                              (drawerRatios[r.name] ?? 0)) /
-                              100,
-                          )
-                        : null
-                      return (
-                        <div className="bct-drawer-row" key={r.id}>
-                          <div>
-                            <b>{r.name}</b>
-                            <small>
-                              {formatCNY(r.amount)} / {r.unit}
-                            </small>
-                          </div>
-                          <span style={{ fontSize: 12, color: "#657185" }}>
-                            {drawerRow.catAmounts[g.category] ? formatCNY(drawerRow.catAmounts[g.category]!) : "—"}
-                          </span>
-                          <label>
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={0.01}
-                              aria-label={`${drawerRow.provider}${r.name}比例`}
-                              value={drawerDraft[r.name] ?? ""}
-                              onChange={(e) =>
-                                setDrawerDraft((prev) => ({
-                                  ...prev,
-                                  [r.name]: e.target.value,
-                                }))
-                              }
-                            />
-                            %
-                          </label>
-                          <b>{amount === null ? "—" : formatCNY(amount)}</b>
+                    const m = drawerRowMath(
+                      drawerRow.catAmounts[g.category] ?? 0,
+                      r,
+                    )
+                    const gap =
+                      m.share !== null && m.rowAmount !== null
+                        ? cents(m.rowAmount - m.share)
+                        : 0
+                    const insufficient =
+                      !m.manual && m.qty === 0 && (m.share ?? 0) > 0
+                    return (
+                      <div className="bct-drawer-row" key={r.id}>
+                        <div>
+                          <b>{r.name}</b>
+                          <small>
+                            {formatCNY(r.amount)} / {r.unit}
+                          </small>
                         </div>
-                      )
-                    })}
+                        <span style={{ fontSize: 12, color: "#657185" }}>
+                          {drawerRow.catAmounts[g.category] ? formatCNY(drawerRow.catAmounts[g.category]!) : "—"}
+                        </span>
+                        <label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.01}
+                            aria-label={`${drawerRow.provider}${r.name}比例`}
+                            value={drawerDraft[r.name] ?? ""}
+                            onChange={(e) => {
+                              setDrawerDraft((prev) => ({
+                                ...prev,
+                                [r.name]: e.target.value,
+                              }))
+                              // 改比例 → 该行次数回到派生值，清除手改标记
+                              setDrawerQtyTouched((prev) => ({
+                                ...prev,
+                                [r.name]: false,
+                              }))
+                            }}
+                          />
+                          %
+                        </label>
+                        <div>
+                          <b>
+                            {m.rowAmount === null
+                              ? "—"
+                              : formatCNY(m.rowAmount)}
+                          </b>
+                          {gap !== 0 && (
+                            <div className="bct-adj">
+                              原 {formatCNY(m.share!)}，{gap > 0 ? "+" : "−"}
+                              {formatCNY(Math.abs(gap))}
+                            </div>
+                          )}
+                          {m.manual && <div className="bct-manual-tag">已手动调整</div>}
+                        </div>
+                        <label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            aria-label={`${drawerRow.provider}${r.name}计划次数`}
+                            value={
+                              m.manual
+                                ? (drawerQtyDraft[r.name] ?? "")
+                                : m.qty === null
+                                  ? ""
+                                  : String(m.qty)
+                            }
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setDrawerQtyDraft((prev) => ({
+                                ...prev,
+                                [r.name]: v,
+                              }))
+                              setDrawerQtyTouched((prev) => ({
+                                ...prev,
+                                [r.name]: true,
+                              }))
+                            }}
+                          />
+                          次
+                        </label>
+                        {insufficient && (
+                          <div className="bct-insufficient">
+                            分得 {formatCNY(m.share!)}，不够 1 次（单价{" "}
+                            {formatCNY(r.amount)}）；可直接把次数改为 1，或调整比例
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                   </div>
                 </section>
               )

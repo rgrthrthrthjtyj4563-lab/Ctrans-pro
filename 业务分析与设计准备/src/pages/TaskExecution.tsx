@@ -20,7 +20,7 @@ import { useAcceptanceReviewer } from "../hooks/useAcceptanceReviewer"
 import { StatusTag, Tag } from "../components/StatusTag"
 import { Modal } from "../components/Modal"
 import { ConfirmDialog } from "../components/ConfirmDialog"
-import { BatchCreateTaskModal } from "../components/BatchCreateTaskModal"
+import { BatchCreateTaskPage } from "../components/BatchCreateTaskPage"
 import { EmptyState } from "../components/EmptyState"
 import { Pagination } from "../components/Pagination"
 import {
@@ -486,6 +486,17 @@ export function TaskExecution({
     return detailBtn
   }
 
+  // 创建任务：整页形态（参考药厂发包原型）——点击后内容区整体切换为发包页，返回 = 回到列表
+  if (createOpen) {
+    return (
+      <BatchCreateTaskPage
+        onClose={() => setCreateOpen(false)}
+        addToast={addToast}
+        holderPharma={principal.realm === 'TENANT' && principal.tenantKind === 'pharma' ? principal.tenantName : ''}
+      />
+    )
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <PageHeader
@@ -710,13 +721,6 @@ export function TaskExecution({
         </>
         )}
       </div>
-
-      <BatchCreateTaskModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        addToast={addToast}
-        holderPharma={principal.realm === 'TENANT' && principal.tenantKind === 'pharma' ? principal.tenantName : ''}
-      />
 
       <TaskDetailModal
         task={live(detail)}

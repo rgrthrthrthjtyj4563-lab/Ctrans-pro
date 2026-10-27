@@ -614,6 +614,8 @@ export interface CreateTaskInput {
   settlementPeriods: Omit<SettlementPeriod, "id">[]
   roundingLogs?: RoundingLog[]
   priceAdjustLogs?: PriceAdjustLog[]
+  /** 药厂填写的任务总金额：与 Σ(次数×单价) 的差额生成自动调整提示 */
+  filledAmount?: number
 }
 
 export interface ConfirmSettlementInput {
