@@ -11,6 +11,7 @@ import { Timeline } from '../components/Timeline';
 import { EmptyState } from '../components/EmptyState';
 import { visitRecords, providers, workGroups, visitCategories } from '../data/mockData';
 import { useAcceptance } from '../context/AcceptanceContext';
+import { useAcceptanceReviewer } from '../hooks/useAcceptanceReviewer';
 import { itemAcceptanceLabel, pendingLevelOf, BUSINESS_TYPE_CATEGORIES } from '../data/acceptanceData';
 import { BatchReviewModal } from '../components/AcceptanceTab';
 import { Tag } from '../components/StatusTag';
@@ -153,6 +154,8 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   const { principal, can } = usePermission();
   // ── 成果验收（任务详情「去审核」跳入：预置月份/服务提供商筛选；药厂就地验收推广记录） ──
   const { config: acceptChainConfig, packageOf, reviewBatch } = useAcceptance();
+  // D7：审核人必须属于本级配置的验收部门（企业管理员可越过）；入口按钮提前禁用，reviewBatch 兜底校验
+  const reviewer = useAcceptanceReviewer();
   const [acceptBatchOpen, setAcceptBatchOpen] = useState(false);
   const [preRejectIds, setPreRejectIds] = useState<string[] | undefined>(undefined);
   const [acceptSingleRejectItems, setAcceptSingleRejectItems] = useState<{ itemId: string; itemType: '推广记录' | '报告'; itemName: string }[]>([]);
@@ -253,6 +256,11 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
     const st = ctx.pkg.items[r.id];
     return !st || (!st.rectifying && st.passedLevels < acceptChainConfig.levels);
   }
+  /** 本人对该记录当前待审级别的审核资格（部门匹配或企业管理员） */
+  function reviewGateOf(r: VisitRecord | null | undefined) {
+    const ctx = r ? recordAcceptCtx(r) : null;
+    return ctx ? reviewer.checkLevel(ctx.lv) : { ok: false as const, reason: '该记录未关联任务，不进入验收链' };
+  }
 
   const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -311,6 +319,9 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
       level: ctx.lv,
       department: ctx.department,
       reviewer: principal.name,
+      reviewerDepartment: reviewer.department,
+      reviewerDepartmentChain: reviewer.departmentChain,
+      reviewerIsAdmin: reviewer.isAdmin,
       batchComment,
       items,
     });
@@ -412,21 +423,24 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   const extraActions = (
     <>
       <Button variant="outline" size="sm" icon={<Download size={13} />}>导出</Button>
-      {!isProvider && acceptBatchItems.length > 0 && (
-        <>
-          <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {acceptBatchItems.length} 条待验收</span>
-          <Button variant="primary" size="sm" icon={<CheckCircle size={13} />} onClick={() => {
-            const first = pageData.find(r => selected.includes(r.id) && recordPendingAcceptance(r));
-            const ctx = first ? recordAcceptCtx(first) : null;
-            if (!ctx) return;
-            setAcceptBatchCtx({ taskId: ctx.taskId, month: ctx.month, lv: ctx.lv, department: ctx.department });
-            setPreRejectIds(undefined);
-            setAcceptBatchOpen(true);
-          }}>
-            批量验收（已选 {acceptBatchItems.length} 条）
-          </Button>
-        </>
-      )}
+      {!isProvider && acceptBatchItems.length > 0 && (() => {
+        const first = pageData.find(r => selected.includes(r.id) && recordPendingAcceptance(r));
+        const gate = reviewGateOf(first);
+        return (
+          <>
+            <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {acceptBatchItems.length} 条待验收</span>
+            <Button variant="primary" size="sm" icon={<CheckCircle size={13} />} disabled={!gate.ok} title={gate.ok ? undefined : gate.reason} onClick={() => {
+              const ctx = first ? recordAcceptCtx(first) : null;
+              if (!ctx) return;
+              setAcceptBatchCtx({ taskId: ctx.taskId, month: ctx.month, lv: ctx.lv, department: ctx.department });
+              setPreRejectIds(undefined);
+              setAcceptBatchOpen(true);
+            }}>
+              批量验收（已选 {acceptBatchItems.length} 条）
+            </Button>
+          </>
+        );
+      })()}
       {isProvider && selected.length > 0 && (
         <>
           <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {selected.length} 条</span>
@@ -676,16 +690,19 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
           drawerRecord ? (
             <>
               <Button variant="outline" size="md" onClick={closeDrawer}>关闭</Button>
-              {!isProvider && recordPendingAcceptance(drawerRecord) && (
-                <>
-                  <Button variant="danger" size="md" icon={<XCircle size={14} />} onClick={() => acceptSingleReject(drawerRecord)}>
-                    驳回
-                  </Button>
-                  <Button variant="primary" size="md" icon={<CheckCircle size={14} />} onClick={() => acceptSinglePass(drawerRecord)}>
-                    通过
-                  </Button>
-                </>
-              )}
+              {!isProvider && recordPendingAcceptance(drawerRecord) && (() => {
+                const gate = reviewGateOf(drawerRecord);
+                return (
+                  <>
+                    <Button variant="danger" size="md" icon={<XCircle size={14} />} disabled={!gate.ok} title={gate.ok ? undefined : gate.reason} onClick={() => acceptSingleReject(drawerRecord)}>
+                      驳回
+                    </Button>
+                    <Button variant="primary" size="md" icon={<CheckCircle size={14} />} disabled={!gate.ok} title={gate.ok ? undefined : gate.reason} onClick={() => acceptSinglePass(drawerRecord)}>
+                      通过
+                    </Button>
+                  </>
+                );
+              })()}
               {isProvider && drawerRecord.auditStatus === '待审核' && (
                 <>
                   <Button

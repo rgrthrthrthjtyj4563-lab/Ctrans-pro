@@ -182,8 +182,11 @@ export interface AcceptanceReviewLog {
   itemId: string
   itemType: "推广记录" | "报告"
   level: number
+  /** 本级配置的验收部门（验收链配置） */
   department: string
   reviewer: string
+  /** 审核人实际所属部门（2026-10-27 D7；与 department 不一致只可能是企业管理员越级审核） */
+  reviewerDepartment?: string
   decision: "通过" | "驳回"
   comment: string
   time: string
@@ -197,6 +200,8 @@ export interface AcceptanceBatchLog {
   level: number
   department: string
   reviewer: string
+  /** 审核人实际所属部门（2026-10-27 D7） */
+  reviewerDepartment?: string
   time: string
   passedCount: number
   rejectedCount: number

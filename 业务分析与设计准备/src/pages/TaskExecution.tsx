@@ -17,6 +17,7 @@ import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
 import { AcceptanceTab } from "../components/AcceptanceTab"
 import { useAcceptance } from "../context/AcceptanceContext"
+import { useAcceptanceReviewer } from "../hooks/useAcceptanceReviewer"
 import { StatusTag, Tag } from "../components/StatusTag"
 import { Modal } from "../components/Modal"
 import { ConfirmDialog } from "../components/ConfirmDialog"
@@ -168,6 +169,7 @@ export function TaskExecution({
   const ctx = useTaskData()
   const { principal, orgs, users, assignments, groupLeaders } = usePermission()
   const { config: acceptCfg, packageOf: acceptPkgOf, reviewBatch: acceptReviewBatch } = useAcceptance()
+  const acceptReviewer = useAcceptanceReviewer()
   /**
    * 组长拦截（2026-09-15 拍板）：无有效组长的工作组（未设置/被停用/调离本组/
    * 角色被回收）不得接收新的管理任务——下派控件禁用并说明原因。
@@ -924,6 +926,10 @@ export function TaskExecution({
                     level: lv,
                     department,
                     reviewer: principal.name,
+                    // D7：审核人实际部门随请求提交，reviewBatch 校验是否属于本级验收部门（企业管理员可越过）
+                    reviewerDepartment: acceptReviewer.department,
+                    reviewerDepartmentChain: acceptReviewer.departmentChain,
+                    reviewerIsAdmin: acceptReviewer.isAdmin,
                     batchComment: "",
                     items: [
                       {
