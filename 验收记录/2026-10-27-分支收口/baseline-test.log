@@ -1,0 +1,27 @@
+npm verbose cli /usr/local/bin/node /usr/local/bin/npm
+npm info using npm@11.6.2
+npm info using node@v24.13.0
+npm verbose title npm test
+npm verbose argv "test"
+npm verbose logfile logs-max:10 dir:/Users/lee/.npm/_logs/2026-10-27T08_14_04_313Z-
+npm verbose logfile could not be created: Error: EPERM: operation not permitted, open '/Users/lee/.npm/_logs/2026-10-27T08_14_04_313Z-debug-0.log'
+npm verbose logfile no logfile created
+
+> figma-make-app@1.0.0 test
+> vitest run
+
+
+ RUN  v5.0.5 /Users/lee/.codex/worktrees/integration-20261027/重构/业务分析与设计准备
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  16:14:05
+   Duration  177ms (transform 80%, import 11%, setup 4%, tests 3%, worker 2%)
+
+npm verbose cwd /Users/lee/.codex/worktrees/integration-20261027/重构/业务分析与设计准备
+npm verbose os Darwin 24.3.0
+npm verbose node v24.13.0
+npm verbose npm  v11.6.2
+npm verbose exit 0
+npm info ok

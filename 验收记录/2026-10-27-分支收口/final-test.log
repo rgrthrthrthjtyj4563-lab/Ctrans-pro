@@ -1,0 +1,9 @@
+
+ RUN  v5.0.5 /Users/lee/Developer/CompanyProjects/贝医项目/重构/业务分析与设计准备
+
+
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+   Start at  16:32:31
+   Duration  208ms (transform 75%, import 12%, tests 8%, setup 2%, worker 2%)
+

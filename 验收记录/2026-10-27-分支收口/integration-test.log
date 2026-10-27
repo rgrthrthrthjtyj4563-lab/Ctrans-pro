@@ -1,0 +1,9 @@
+
+ RUN  v5.0.5 /Users/lee/.codex/worktrees/integration-20261027/重构/业务分析与设计准备
+
+
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+   Start at  16:23:10
+   Duration  155ms (transform 45%, import 24%, tests 22%, setup 5%, worker 4%)
+

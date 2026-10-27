@@ -1,0 +1,37 @@
+{
+  "main-wip": {
+    "root": "/Users/lee/Developer/CompanyProjects/贝医项目/重构",
+    "base": "06a94cdf2c0248b99827238a8d448eae7aca4270",
+    "commit": "8b42429a1dd59651b953645c3611286fd6105672",
+    "ref": "refs/tags/archive/2026-10-27/main-wip",
+    "tree": "08ed8b5816d850f5ee5bee484cfbb96816bc1521"
+  },
+  "price-redesign-wip": {
+    "root": "/Users/lee/.codex/worktrees/price-prototype-redesign/重构",
+    "base": "c558de6f3c8f4560b8af88410178c859eccd8a3f",
+    "commit": "31d3d5317ef25d60c8c828dcc4c6c800fa6e8511",
+    "ref": "refs/tags/archive/2026-10-27/price-redesign-wip",
+    "tree": "137e7f58425ae840095bc943473e868043f90b09"
+  },
+  "product-management-wip": {
+    "root": "/Users/lee/.codex/worktrees/product-management-ui/重构",
+    "base": "f08336e3664ed2af34828f0a7353b02ad16d21e8",
+    "commit": "4df3e4129f37bd8be20c33f94593ced2675540f9",
+    "ref": "refs/tags/archive/2026-10-27/product-management-wip",
+    "tree": "6189e9b6293de9d64ae99daa2d1f3e271f2ac973"
+  },
+  "contract-prototype-wip": {
+    "root": "/Users/lee/.codex/worktrees/contract-ai-flow-prototype/重构",
+    "base": "f08336e3664ed2af34828f0a7353b02ad16d21e8",
+    "commit": "4e02777359fcc6fdd7a96985e36450187393afee",
+    "ref": "refs/tags/archive/2026-10-27/contract-prototype-wip",
+    "tree": "a18239b8a5ecd5bb7782073bbd653cddffe332d3"
+  },
+  "external-drive-wip": {
+    "root": "/Volumes/KIOXIA/重构",
+    "base": "d759a3f5d4a847c40c52187b3312e8e61faec58a",
+    "commit": "b5ed4a89d66ca77a5e6713e50347d64c645a9afa",
+    "ref": "refs/tags/archive/2026-10-27/external-drive-wip",
+    "tree": "f320c2a87549b98a60684c23baeda64548106655"
+  }
+}
