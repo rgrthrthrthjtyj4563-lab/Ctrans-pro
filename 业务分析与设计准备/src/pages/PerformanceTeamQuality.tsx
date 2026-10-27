@@ -7,6 +7,7 @@ import { Download, ShieldOff } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
 import { EmptyState } from "../components/EmptyState"
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
 import { StatusTag, Tag } from "../components/StatusTag"
@@ -102,14 +103,17 @@ export function PerformanceTeamQuality({ addToast }: Props) {
 
   // 统一过滤口径（P0-C）：当前服务商 + 当前服务药厂 + 已授权品种；范围失效默认拒绝
   const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 药厂会话按部门管理区域叠加过滤（D2③）：批次行无区域/任务字段，经 (服务商,品种)→授权链 解析；非药厂会话不过滤
+  const regionScope = usePharmaRegionScope();
   // 会话口径过滤后的基础集合（统计卡/筛选下拉/列表同源）
   const sessionFiltered = useMemo(() => {
     return batches.filter((b) =>
       (!isProviderSession || matchesProviderRow({ provider: b.provider, holderPharma: b.holderPharma, variety: b.variety })) &&
-      (!isPharmaSession || matchesPharmaRow(b)),
+      (!isPharmaSession || matchesPharmaRow(b)) &&
+      regionScope.matchesRow({ provider: b.provider, variety: b.variety }),
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batches, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow])
+  }, [batches, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope])
 
   const rows = useMemo(() => {
     return sessionFiltered.filter((b) => {
@@ -199,8 +203,12 @@ export function PerformanceTeamQuality({ addToast }: Props) {
       />
 
       <div style={{ padding: "16px 24px" }}>
-        {denied ? (
-          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+        {denied || regionScope.denied ? (
+          <EmptyState
+            icon={ShieldOff}
+            title={denied ? NO_BIZ_SCOPE_TITLE : NO_REGION_SCOPE_TITLE}
+            description={denied ? noBizScopeDescription(scope?.pharmaName) : NO_REGION_SCOPE_DESCRIPTION}
+          />
         ) : (
         <>
         {/* 演示身份条（原型演示控件，非登录角色） */}

@@ -7,6 +7,7 @@ import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { usePermission } from '../context/PermissionContext';
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import { relationshipsOfPharma, tenantNameOf } from '../data/cooperationModel';
 import {
   formatCNY,
@@ -125,6 +126,8 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
   // 统一会话口径（P0-E）：服务商 = 当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；
   // 药厂 = 本厂任务与本厂有生效合作的服务商；范围失效默认拒绝
   const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 药厂会话按部门管理区域叠加过滤（D2/D3）：预算行/任务行均自带 regions；非药厂会话不过滤
+  const regionScope = usePharmaRegionScope();
 
   // 绑定模式：从预算计划行进入，整页口径锁定为该预算行（服务商 × 品种集合 × 地区集合 × 年度）
   const boundCtx = focus?.budgetAnalysis ?? null;
@@ -133,22 +136,22 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
     [boundCtx, budgetPlans],
   );
 
-  // 会话口径的任务判定（与任务执行页同源：服务商四要素 / 药厂本厂）
+  // 会话口径的任务判定（与任务执行页同源：服务商四要素 / 药厂本厂）；药厂会话叠加区域任务级匹配
   const taskInSessionScope = (t: Task) =>
-    isProviderSession
+    (isProviderSession
       ? matchesProviderRow({ provider: t.provider, holderPharma: t.holderPharma, varieties: t.varieties, regions: t.regions })
       : isPharmaSession
         ? matchesPharmaRow(t)
-        : true;
-  // 会话口径的预算行判定：服务商=本企业+当前药厂范围；药厂=本厂有生效合作的服务商
+        : true) && regionScope.matchesRow({ regions: t.regions, taskId: t.id });
+  // 会话口径的预算行判定：服务商=本企业+当前药厂范围；药厂=本厂有生效合作的服务商；预算行自带 regions
   const planInSessionScope = (p: BudgetPlan) =>
-    isProviderSession
+    (isProviderSession
       ? Boolean(scope) && matchesProviderRow({ provider: p.provider, holderPharma: scope!.pharmaName, varieties: p.varieties, regions: p.regions })
       : isPharmaSession
         ? relationshipsOfPharma(principal.realm === 'TENANT' ? principal.tenantId : '')
             .filter((r) => r.status === 'active')
             .some((r) => tenantNameOf(r.providerTenantId) === p.provider)
-        : true;
+        : true) && regionScope.matchesRow({ regions: p.regions });
   // 会话口径的筛选项：服务提供商下拉只出现会话内可选值
   const sessionProviders = useMemo(() => {
     if (isProviderSession && principal.realm === 'TENANT') return [principal.tenantName];
@@ -195,7 +198,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boundPlan, budgetPlans, applied, year, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, scope]);
+  }, [boundPlan, budgetPlans, applied, year, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, scope, regionScope]);
 
   const lineMatchesFilter = (provider: string, variety: string, region: string) => {
     if (applied.provider && provider !== applied.provider) return false;
@@ -233,7 +236,7 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
       });
     });
     return rows;
-  }, [tasks, boundPlan, applied, year, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+  }, [tasks, boundPlan, applied, year, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
 
   const budgetOf = (m: number) => plans.reduce((s, p) => s + (p.months[m - 1] ?? 0), 0);
   const actualOf = (m: number) => actualEntries.filter((e) => e.month === m).reduce((s, e) => s + e.amount, 0);
@@ -363,11 +366,17 @@ export function BudgetAnalysis({ navigate, focus }: Props) {
         }
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        {denied || (boundPlan && plans.length === 0) ? (
+        {denied || regionScope.denied || (boundPlan && plans.length === 0) ? (
           <EmptyState
             icon={ShieldOff}
-            title={denied ? NO_BIZ_SCOPE_TITLE : '该预算行不在当前会话范围内'}
-            description={denied ? noBizScopeDescription(scope?.pharmaName) : '当前会话的业务范围不覆盖该预算行，无法查看其执行分析。'}
+            title={denied ? NO_BIZ_SCOPE_TITLE : regionScope.denied ? NO_REGION_SCOPE_TITLE : '该预算行不在当前会话范围内'}
+            description={
+              denied
+                ? noBizScopeDescription(scope?.pharmaName)
+                : regionScope.denied
+                  ? NO_REGION_SCOPE_DESCRIPTION
+                  : '当前会话的业务范围不覆盖该预算行，无法查看其执行分析。'
+            }
           />
         ) : (
         <>

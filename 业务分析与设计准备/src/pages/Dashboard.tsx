@@ -18,6 +18,7 @@ import {
   Maximize2,
   RotateCcw,
   ShieldAlert,
+  ShieldOff,
   TrendingUp,
   Users,
   Wallet,
@@ -27,6 +28,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { MetricCard } from '../components/MetricCard';
+import { EmptyState } from '../components/EmptyState';
 import { StartupGuideBanner, type StartupGuideBannerState } from '../components/StartupGuide';
 import { AIInsightCard } from '../components/AIInsightCard';
 import { Button } from '../components/Button';
@@ -36,6 +38,7 @@ import { getRoleDashboardData, repFilingAnalysis } from '../data/mockData';
 import { reconStatusDisplay, taskStatusDisplay } from '../constants';
 import { useDashboardLayout } from '../hooks/useDashboardLayout';
 import { usePermission } from '../context/PermissionContext';
+import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import { RESOURCE_PAGES } from '../data/permissions';
 import type { SectionSize, SectionSizeSpec } from '../utils/dashboardGrid';
 import { GRID_COLUMNS, applyMove, clampSize, packLayout, sizeSpec } from '../utils/dashboardGrid';
@@ -1539,6 +1542,8 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
   const salesData = useMemo(() => getRoleDashboardData('药厂销售部门'), []);
   const complianceData = useMemo(() => getRoleDashboardData('药厂合规部门'), []);
   const workbench = salesData.salesWorkbench;
+  // 药厂会话按部门管理区域叠加过滤（D2/D3，任务级）：工作台任务自带 regions；非药厂会话不过滤
+  const regionScope = usePharmaRegionScope();
   const layout = useDashboardLayout('pharma', PHARMA_SECTION_IDS, PHARMA_DEFAULT_HIDDEN, PHARMA_SIZE_SPECS);
   const [editing, setEditing] = useState(false);
   const exitEdit = useCallback(() => setEditing(false), []);
@@ -1559,8 +1564,18 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
     sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const tasks = workbench?.tasks ?? [];
+  // 任务先过区域再喂给所有统计 / 待办联动 / 区域筛选与聚合（denied 时恒为空，不回退未过滤数据）
+  const tasks = useMemo(
+    () => (workbench?.tasks ?? []).filter(task => regionScope.matchesRow({ regions: task.regions })),
+    [workbench, regionScope],
+  );
   const todos = workbench?.todos ?? [];
+
+  // 区域筛选选项基于区域可见任务（与统计 / 聚合同口径），不直接用未过滤的 filterOptions
+  const regionFilterOptions = useMemo(() => {
+    const visible = new Set(tasks.flatMap(task => task.regions));
+    return (workbench?.filterOptions.regions ?? []).filter(region => visible.has(region));
+  }, [workbench, tasks]);
 
   const hasFilter = selVarieties.length > 0 || selRegions.length > 0 || selProviders.length > 0;
 
@@ -1591,17 +1606,17 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
   const execCount = periodFiltered.filter(task => task.status === '执行中').length;
   const anomalyCount = periodFiltered.filter(task => task.anomalies.length > 0).length;
 
-  // 我的待办跟随业务维度，但不被周期过滤（全部未完成，含历史事项）
+  // 我的待办跟随业务维度，但不被周期过滤（全部未完成，含历史事项）；统计数同样取可见任务联动的待办
   const bizTaskNos = useMemo(() => new Set(bizFiltered.map(task => task.taskNo)), [bizFiltered]);
+  const linkedTodos = useMemo(() => todos.filter(todo => bizTaskNos.has(todo.taskId)), [todos, bizTaskNos]);
   const visibleTodos = useMemo(
     () =>
-      todos
-        .filter(todo => bizTaskNos.has(todo.taskId))
+      [...linkedTodos]
         .sort((a, b) => Number(b.overdue) - Number(a.overdue) || Number(!!b.dueToday) - Number(!!a.dueToday))
         .slice(0, 5),
-    [todos, bizTaskNos],
+    [linkedTodos],
   );
-  const outOfScopeTodos = todos.length - todos.filter(todo => bizTaskNos.has(todo.taskId)).length;
+  const outOfScopeTodos = todos.length - linkedTodos.length;
 
   const overviewTasks = useMemo(() => {
     const filtered = periodFiltered.filter(task =>
@@ -1670,7 +1685,7 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
                   />
                   <WorkbenchSummaryChip
                     label="待我处理"
-                    value={`${todos.length} 项`}
+                    value={`${linkedTodos.length} 项`}
                     hint="含历史事项"
                     tone="brand"
                     onClick={() => scrollToSection('todos')}
@@ -1834,7 +1849,7 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
       execCount,
       anomalyCount,
       statusFilter,
-      todos.length,
+      linkedTodos.length,
       navigate,
       visibleTodos,
       outOfScopeTodos,
@@ -1872,6 +1887,13 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
         </div>
       </section>
 
+      {/* 部门未配置管理区域 → 业务区空态（壳层保留，不回退展示未过滤数据） */}
+      {regionScope.denied ? (
+        <section style={sectionCardStyle()}>
+          <EmptyState icon={ShieldOff} title={NO_REGION_SCOPE_TITLE} description={NO_REGION_SCOPE_DESCRIPTION} />
+        </section>
+      ) : (
+      <>
       {/* 全局筛选 */}
       <section style={{ ...sectionCardStyle({ padding: '10px 14px' }), display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 'var(--fs-12)', color: '#667085', fontWeight: 600 }}>周期</span>
@@ -1903,7 +1925,7 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
         />
         <WorkbenchFilterDropdown
           label="区域"
-          options={workbench.filterOptions.regions}
+          options={regionFilterOptions}
           selected={selRegions}
           onToggle={value => toggleSelection(setSelRegions, value)}
           onClear={() => setSelRegions([])}
@@ -1942,6 +1964,8 @@ function PharmaWorkbenchDashboard({ navigate, startupGuide }: { navigate: (page:
         rowHeight={64}
         sectionRefs={sectionRefs}
       />
+      </>
+      )}
     </div>
   );
 }

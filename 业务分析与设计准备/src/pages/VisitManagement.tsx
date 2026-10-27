@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { Eye, Edit2, Trash2, Download, CheckCircle, XCircle, AlertCircle, Info, MapPin, ShieldOff } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
@@ -16,7 +16,9 @@ import { BatchReviewModal } from '../components/AcceptanceTab';
 import { Tag } from '../components/StatusTag';
 import type { NavigateFn, NavFocus } from '../types';
 import { usePermission } from '../context/PermissionContext';
+import { useTaskData } from '../context/TaskDataContext';
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import { InfoBanner } from './permUi';
 import type { VisitRecord, AuditStatus, Role } from '../types';
 import type { ToastMessage } from '../components/Toast';
@@ -160,6 +162,16 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   // 统一过滤口径（P0-C）：当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；
   // 范围失效默认拒绝；备案类警告只拦学术拜访动作，不拦登录与查看（§8.2）
   const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 药厂会话按部门管理区域叠加过滤（D2/D3）：拜访行无区域字段，经 taskId→任务服务地区解析；
+  // 无 taskId 的散点记录回退 (服务商,品种)→授权链解析；非药厂会话不过滤
+  const { tasks } = useTaskData();
+  const taskRegionsById = useMemo(() => {
+    const map = new Map<string, readonly string[]>();
+    tasks.forEach((t) => map.set(t.id, t.regions));
+    return map;
+  }, [tasks]);
+  const taskRegionsOf = useCallback((taskId: string) => taskRegionsById.get(taskId), [taskRegionsById]);
+  const regionScope = usePharmaRegionScope({ taskRegionsOf });
   // 判别别名（TS narrowing）：服务商会话的备案警告读取
   const isProviderTenant = principal.realm === 'TENANT' && principal.tenantKind === 'provider';
   const filingBlocked = isProviderTenant ? Boolean(principal.pharmaWarning) : false;
@@ -180,15 +192,16 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   const [showAuditPanel, setShowAuditPanel] = useState(false);
   const [auditComment, setAuditComment] = useState('');
 
-  // 会话口径过滤后的基础集合（tab 计数与列表同源，不再用未过滤总数）
+  // 会话口径过滤后的基础集合（tab 计数与列表同源，不再用未过滤总数）；药厂会话叠加区域任务级匹配
   const sessionFiltered = useMemo(() => {
     if (denied) return [] as VisitRecord[];
     return visitRecords.filter((r) =>
       (!isProviderSession || matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })) &&
-      (!isPharmaSession || matchesPharmaRow(r)),
+      (!isPharmaSession || matchesPharmaRow(r)) &&
+      regionScope.matchesRow({ taskId: r.taskId, provider: r.provider, variety: r.variety }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+  }, [denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
 
   const tabCounts: Record<TabId, number> = {
     '医院拜访': sessionFiltered.length,
@@ -460,8 +473,12 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        {denied ? (
-          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+        {denied || regionScope.denied ? (
+          <EmptyState
+            icon={ShieldOff}
+            title={denied ? NO_BIZ_SCOPE_TITLE : NO_REGION_SCOPE_TITLE}
+            description={denied ? noBizScopeDescription(scope?.pharmaName) : NO_REGION_SCOPE_DESCRIPTION}
+          />
         ) : (
         <>
         {filingBlocked && (
