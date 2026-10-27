@@ -68,7 +68,7 @@ type ImportRow = {
   error?: string;
 };
 
-export function UserManage({ addToast }: Props) {
+export function UserManage({ addToast, navFocus }: Props) {
   const store = usePermission();
   const { orgs, users, assignments, roles, can, previewReadOnly, principal } = store;
   const repFiling = useRepFiling();
@@ -84,6 +84,10 @@ export function UserManage({ addToast }: Props) {
   const [statusFilter, setStatusFilter] = useState('');
   const [includeChildren, setIncludeChildren] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // D8：组织架构成员行「查看授权」跳入时直接打开该成员详情（角色授权 + 数据可见区域）
+  useEffect(() => {
+    if (navFocus?.userDetailUserId) setSelectedUserId(navFocus.userDetailUserId);
+  }, [navFocus?.userDetailUserId]);
   const [createUserOpen, setCreateUserOpen] = useState<{
     name: string; account: string; phone: string; email: string; orgId: string; error: string;
     createRep: boolean;

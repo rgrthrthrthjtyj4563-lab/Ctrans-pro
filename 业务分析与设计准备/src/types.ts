@@ -645,6 +645,8 @@ export interface NavFocus {
   budgetAnalysis?: { budgetPlanId: string; year: number; provider: string }
   /** 跳转「用户与组织」时按角色筛选人员列表（来自角色管理「已授权用户」跳转） */
   userOrgRoleId?: string
+  /** 跳转「用户管理」时直接打开该成员详情（来自组织架构成员行「查看授权」，D8） */
+  userDetailUserId?: string
   /** 跳转「业务授权」时预选的服务商（来自合作关系/准入详情「查看授权」） */
   businessAuthProviderTenantId?: string
   /** 跳转「合同管理」时直接打开该服务商的上传合同弹窗（来自准入通过承接引导，对象不可改选） */
