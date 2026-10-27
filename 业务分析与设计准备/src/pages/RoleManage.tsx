@@ -5,10 +5,10 @@
  *   基本信息 | 页面与按钮权限 | 数据可见范围 | 已授权成员 | 变更记录
  * - 「已授权成员」承担角色授予/回收与成员名单管理（原独立授权页已删除，
  *   本页为唯一授权入口，不再跳转外部页面）；
- * - 数据可见范围：**药厂角色已退役该页签（2026-10-27）**——药厂成员可见区域 = 所属部门的
- *   管理区域（组织架构页配置，usePharmaRegionScope 运行时过滤），角色只管页面/按钮权限与
- *   字段脱敏；服务商角色分组织范围与业务范围（指定范围时固定层级 药厂 → 当前服务商(只读)
- *   → 已授权品种，区域由品种授权派生、只读展示，不提供勾选）；
+ * - 数据可见范围：**药厂角色已退役该页签（2026-10-27 方向修订）**——角色只管页面/按钮权限与
+ *   字段脱敏；成员可见区域 = 其本人「负责区域」（用户管理 · 成员详情配置、调岗不变，
+ *   usePharmaRegionScope 运行时过滤）；服务商角色分组织范围与业务范围（指定范围时固定层级
+ *   药厂 → 当前服务商(只读) → 已授权品种，区域由品种授权派生、只读展示，不提供勾选）；
  * - 敏感字段策略并入「页面与按钮权限」页签的独立区块。
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -57,6 +57,7 @@ import {
   subscribeTenantMemberships,
   tenantNameOf,
 } from '../data/cooperationModel';
+import { canonicalRegions, hasPharmaAdminAssignment } from '../data/pharmaRegionScope';
 import type { ToastMessage } from '../components/Toast';
 import {
   CheckCell, ChipSelect, Field, InfoBanner, RadioCard, RiskBadge, inputStyle, tdStyle, thStyle,
@@ -64,6 +65,8 @@ import {
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+  /** 「查看成员」跳用户管理详情（负责区域唯一编辑入口在用户管理） */
+  navigate?: (page: import('../types').PageId, focus?: import('../types').NavFocus) => void;
 }
 
 const PAGE_SIZE = 10;
@@ -93,12 +96,13 @@ function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function RoleManage({ addToast }: Props) {
+export function RoleManage({ addToast, navigate }: Props) {
   const store = usePermission();
   const { assignments, users, orgs, changeLogs, can, previewReadOnly, realmRoles } = store;
   const roles = realmRoles;
-  // 药厂侧「数据可见范围」已退役（2026-10-27 D1/D2）：可见区域 = 所属部门管理区域，在组织架构页配置；
-  // 角色只管页面/按钮权限与字段脱敏。服务商侧范围档位（本服务商/本工作组/仅本人 + 药厂×品种收窄）保留。
+  // 药厂侧「数据可见范围」已退役（2026-10-27 方向修订）：角色只管页面/按钮权限与字段脱敏；
+  // 成员可见区域 = 其本人「负责区域」，在用户管理成员详情配置（调岗不变）；
+  // 服务商侧范围档位（本服务商/本工作组/仅本人 + 药厂×品种收窄）保留。
   const isPharmaTenant = store.tenantKind === 'pharma';
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Record<string, string>>({ status: 'enabled' });
@@ -243,6 +247,7 @@ export function RoleManage({ addToast }: Props) {
         previewReadOnly={previewReadOnly}
         canEdit={canEdit}
         canDelete={canDelete}
+        navigate={navigate}
         onBack={() => setDetailId(null)}
         onDisable={() => askDisable(detail)}
         onEnable={() => {
@@ -263,7 +268,7 @@ export function RoleManage({ addToast }: Props) {
       <PageHeader
         title="角色与数据范围"
         description={isPharmaTenant
-          ? '角色、页面/按钮权限与角色成员授权的唯一可编辑入口：角色的能力在页签中配置，成员的授予与回收在角色详情「已授权成员」页签完成；成员可见的区域业务数据由其所属部门的管理区域决定（组织架构页配置）。'
+          ? '角色、页面/按钮权限与角色成员授权的唯一可编辑入口：角色的能力在页签中配置，成员的授予与回收在角色详情「已授权成员」页签完成；成员可见的区域业务数据由其「负责区域」决定（用户管理 · 成员详情配置）。'
           : '角色、页面/按钮权限、数据范围与角色成员授权的唯一可编辑入口：角色的能力在页签中配置，成员的授予与回收在角色详情「已授权成员」页签完成。'}
         actions={canCreate ? (
           <Button variant="primary" size="md" icon={<Plus size={14} />} onClick={openCreate}>新建角色</Button>
@@ -274,15 +279,15 @@ export function RoleManage({ addToast }: Props) {
         <InfoBanner tone="brand">
           <span>
             {isPharmaTenant
-              ? '角色是能力模板（页面权限 + 字段脱敏），不再承载数据范围：成员能看哪些省的业务数据 = 所属部门的管理区域（企业管理 → 组织架构）；预置「企业管理员」固定全量。'
+              ? '角色是能力模板（页面权限 + 字段脱敏），不再承载数据范围：成员可查看哪些区域的业务数据由其「负责区域」决定，在用户管理成员详情配置（调岗不变）；预置「企业管理员」固定全量。'
               : '角色是能力模板（页面权限 + 组织数据范围）；业务范围（可处理药厂/品种）只有一个可编辑事实源——各角色详情的「已授权成员」页签按人授予与回收，且只能在药厂已授范围内收窄。'}
           </span>
         </InfoBanner>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16, marginTop: 12 }}>
-          <MetricCard title="角色总数" value={stats.total} icon={Shield} compact />
+          <MetricCard title="本企业角色" value={stats.total} icon={Shield} compact />
           <MetricCard title="草稿中" value={stats.draft} icon={Shield} iconColor="#2F6BCE" iconBg="#EBF2FE" compact />
           <MetricCard title="启用中" value={stats.enabled} icon={Shield} iconColor="#248A5A" iconBg="#E6F5ED" compact />
-          <MetricCard title="有效授权人数" value={stats.members} icon={Shield} iconColor="#C77A16" iconBg="#FEF3E2" compact />
+          <MetricCard title="本企业有效授权成员" value={stats.members} icon={Shield} iconColor="#C77A16" iconBg="#FEF3E2" compact />
         </div>
 
         <FilterBar
@@ -515,7 +520,7 @@ function draftDiff(role: SysRole, draft: SysRole) {
 
 function RoleDetail({
   role, tab, onTabChange, readonly, previewReadOnly, canEdit, canDelete,
-  onBack, onDisable, onEnable, onDelete, addToast, confirm, setConfirm,
+  onBack, onDisable, onEnable, onDelete, addToast, confirm, setConfirm, navigate,
 }: {
   role: SysRole;
   tab: DetailTab;
@@ -524,6 +529,8 @@ function RoleDetail({
   previewReadOnly: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  /** 「查看成员」跳用户管理详情 */
+  navigate?: (page: import('../types').PageId, focus?: import('../types').NavFocus) => void;
   onBack: () => void;
   onDisable: () => void;
   onEnable: () => void;
@@ -544,7 +551,7 @@ function RoleDetail({
 
   const isProvider = store.tenantKind === 'provider';
   const tenantRootId = store.principal.realm === 'TENANT' ? store.principal.tenantId : '';
-  // 药厂侧「数据可见范围」页签退役（区域随所属部门，组织架构页配置）；服务商侧保留
+  // 药厂侧「数据可见范围」页签退役（区域 = 成员负责区域，用户详情配置）；服务商侧保留
   const isPharma = store.tenantKind === 'pharma';
   const detailTabs = isPharma ? DETAIL_TABS.filter(t => t.id !== 'scope') : DETAIL_TABS;
 
@@ -830,8 +837,8 @@ function RoleDetail({
               />
             </Field>
             {isPharma ? (
-              <Field label="数据可见区域" hint="随成员所属部门的管理区域（企业管理 → 组织架构配置）；预置企业管理员固定全量">
-                <input value="随所属部门管理区域" disabled style={inputStyle} />
+              <Field label="数据可见区域" hint="由成员本人的「负责区域」决定（用户管理 · 成员详情配置，调岗不变）；预置企业管理员固定全量">
+                <input value="随成员负责区域（用户详情配置）" disabled style={inputStyle} />
               </Field>
             ) : (
               <Field label="默认数据范围">
@@ -855,6 +862,7 @@ function RoleDetail({
             role={role}
             canEdit={canEdit && !previewReadOnly}
             addToast={addToast}
+            navigate={navigate}
           />
         )}
 
@@ -1171,15 +1179,18 @@ interface MemberEditForm extends MemberGrantForm {
 }
 
 function RoleMembersTab({
-  role, canEdit, addToast,
+  role, canEdit, addToast, navigate,
 }: {
   role: SysRole;
   canEdit: boolean;
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+  /** 「查看成员」跳用户管理详情（药厂侧负责区域只读展示，唯一编辑入口在用户管理） */
+  navigate?: (page: import('../types').PageId, focus?: import('../types').NavFocus) => void;
 }) {
   const store = usePermission();
   const { assignments, users, orgs, roles, principal, revokeAssignment, createAssignment, updateAssignmentScope, previewReadOnly } = store;
   const isProvider = principal.realm === 'TENANT' && principal.tenantKind === 'provider';
+  const isPharma = principal.realm === 'TENANT' && principal.tenantKind === 'pharma';
   const tenantRootId = principal.realm === 'TENANT' ? principal.tenantId : '';
 
   // 合作模型与成员身份实时联动（药厂侧暂停/撤销、建档/调岗即时刷新）
@@ -1219,6 +1230,14 @@ function RoleMembersTab({
 
   const nameOf = (userId: string) => users.find(u => u.id === userId)?.name ?? userId;
   const identityOf = (userId: string) => identityLabel(role.name, memberOrgName(userId));
+
+  /** 药厂侧成员负责区域只读摘要（唯一编辑入口在用户管理详情，区域只保留一个配置处） */
+  const memberRegionsSummary = (userId: string): string => {
+    if (hasPharmaAdminAssignment(assignments.filter(a => a.userId === userId), tenantRootId)) return '全国（管理员例外）';
+    const regions = canonicalRegions(membershipOfUserInTenant(userId, tenantRootId)?.responsibleRegions ?? []);
+    if (regions.length === 0) return '未配置';
+    return regions.join('、');
+  };
 
   function openGrant() {
     setGrant({ userId: '', from: todayISO(), to: '', reason: '', pharmaIds: [], varietyNames: [], error: '' });
@@ -1311,7 +1330,7 @@ function RoleMembersTab({
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
               <thead>
                 <tr>
-                  {[ '成员（身份展示）', isProvider ? '权限覆盖范围' : '授权挂靠组织', ...(isProvider ? ['业务范围（实时健康度）'] : []), '生效期', '状态', '授权来源', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {[ '成员（身份展示）', isProvider ? '权限覆盖范围' : (isPharma ? '负责区域（只读）' : '授权挂靠组织'), ...(isProvider ? ['业务范围（实时健康度）'] : []), '生效期', '状态', '授权来源', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -1327,8 +1346,10 @@ function RoleMembersTab({
                       </td>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 500 }}>{a.scopeOrgName}</div>
-                        {/* 药厂侧范围档位已退役：可见区域随成员所属部门（组织架构页），此处只留挂靠组织 */}
-                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 1 }}>{isProvider ? scopeLabel(a.scope) : '数据区域随所属部门'}</div>
+                        {/* 药厂侧：只读展示成员本人负责区域（唯一编辑入口在用户管理详情）；服务商侧保留档位 */}
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 1 }}>
+                          {isProvider ? scopeLabel(a.scope) : (isPharma ? memberRegionsSummary(a.userId) : '')}
+                        </div>
                       </td>
                       {isProvider && (
                         <td style={tdStyle}>
@@ -1388,6 +1409,15 @@ function RoleMembersTab({
                           )}
                           {canEdit && (a.status === 'active' || a.status === 'pending_review') && (
                             <Button variant="ghost" size="sm" onClick={() => setRevoke({ assignmentId: a.id, reason: '', error: '' })}>回收</Button>
+                          )}
+                          {isPharma && navigate && (
+                            <Button
+                              variant="ghost" size="sm"
+                              title="查看该成员的角色授权与负责区域（负责区域在用户管理编辑）"
+                              onClick={() => navigate('user-manage', { userDetailUserId: a.userId })}
+                            >
+                              查看成员
+                            </Button>
                           )}
                         </div>
                       </td>
@@ -1527,7 +1557,7 @@ function RoleMembersTab({
             {revoke.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{revoke.error}</div>}
             <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 12, display: 'grid', gap: 6, fontSize: 'var(--fs-13)' }}>
               <div><span style={{ color: '#9CA3AF' }}>成员 </span><strong>{identityOf(revokeTarget.userId)}</strong></div>
-              <div><span style={{ color: '#9CA3AF' }}>{isProvider ? '数据范围 ' : '挂靠组织 '}</span>{revokeTarget.scopeOrgName}{isProvider ? ` · ${scopeLabel(revokeTarget.scope)}` : ' · 数据区域随所属部门'}{isProvider && revokeTarget.pharmaTenantIds ? ` · 可处理药厂 ${revokeTarget.pharmaTenantIds.length} 家` : ''}</div>
+              <div><span style={{ color: '#9CA3AF' }}>{isProvider ? '数据范围 ' : '挂靠组织 '}</span>{revokeTarget.scopeOrgName}{isProvider ? ` · ${scopeLabel(revokeTarget.scope)}` : (isPharma ? ` · 负责区域：${memberRegionsSummary(revokeTarget.userId)}` : '')}{isProvider && revokeTarget.pharmaTenantIds ? ` · 可处理药厂 ${revokeTarget.pharmaTenantIds.length} 家` : ''}</div>
               <div><span style={{ color: '#9CA3AF' }}>授权来源 </span>由 {revokeTarget.grantedBy} 于 {revokeTarget.grantedAt} 授予</div>
             </div>
             <InfoBanner tone="warning">回收后该成员下一次请求起失去此角色的全部能力；已分配药厂不再可见。历史保留可查（不是删除），不影响其他角色授权。</InfoBanner>

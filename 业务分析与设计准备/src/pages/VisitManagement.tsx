@@ -196,15 +196,24 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   const [auditComment, setAuditComment] = useState('');
 
   // 会话口径过滤后的基础集合（tab 计数与列表同源，不再用未过滤总数）；药厂会话叠加区域任务级匹配
+  // 区域解析只认任务关联（2026-10-27 §五.3）：无 taskId 的拜访不按服务商×品种授权推断区域，
+  // 对普通区域成员不可见；管理员（ALL）可见全部，并在页头提示待确认数量。
   const sessionFiltered = useMemo(() => {
     if (denied) return [] as VisitRecord[];
     return visitRecords.filter((r) =>
       (!isProviderSession || matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })) &&
       (!isPharmaSession || matchesPharmaRow(r)) &&
-      regionScope.matchesRow({ taskId: r.taskId, provider: r.provider, variety: r.variety }),
+      regionScope.matchesRow({ taskId: r.taskId }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
+
+  /** 区域归属待确认（无法解析出区域的拜访，仅药厂 ALL 会话提示；普通区域成员不可见这些数据） */
+  const unresolvedRegionCount = useMemo(() => {
+    if (!regionScope.isPharmaSession || regionScope.scope.mode !== 'ALL') return 0;
+    return visitRecords.filter(r => regionScope.regionsOfRow({ taskId: r.taskId }) === null).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regionScope, visitRecords]);
 
   const tabCounts: Record<TabId, number> = {
     '医院拜访': sessionFiltered.length,
@@ -500,6 +509,14 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
             <InfoBanner tone="warning">
               当前服务药厂的备案存在异常（待审/退回/过期/暂停）：可进入药厂并查看数据，
               但<b>学术拜访类业务动作被阻断</b>（不可发起、提交或审核学术拜访）。下一步：请在「服务人员备案」补正材料或等待审核通过。
+            </InfoBanner>
+          </div>
+        )}
+        {unresolvedRegionCount > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <InfoBanner tone="warning">
+              有 <b>{unresolvedRegionCount} 条拜访未关联任务、无法确定区域归属</b>（不按服务商被授权省份推断）。
+              管理员可见全部数据；普通区域成员暂不可见这些记录。下一步：请为相关拜访补齐任务关联后再纳入区域统计。
             </InfoBanner>
           </div>
         )}
