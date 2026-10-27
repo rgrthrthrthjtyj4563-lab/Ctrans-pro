@@ -4,7 +4,6 @@ import {
   Plus,
   Eye,
   Upload,
-  Wrench,
   ChevronDown,
   Download,
   FileText,
@@ -3076,6 +3075,7 @@ function PersonalAllocationDetail({
     return (
       <AllocationDetailPreview
         row={detailRow}
+        task={task}
         workGroup={split.workGroup}
         onBack={() => setDetailRow(null)}
       />
@@ -3231,12 +3231,366 @@ function PersonalAllocationDetail({
   )
 }
 
+const VISIT_PAGE_SIZE = 5
+const visitColumns = [
+  { label: "医院", width: 200 },
+  { label: "医院等级", width: 96 },
+  { label: "科室", width: 110 },
+  { label: "被拜访人", width: 96 },
+  { label: "拜访品种-规格", width: 230 },
+  { label: "拜访时段", width: 80 },
+  { label: "开始 / 结束时间", width: 190 },
+]
+const visitTh: React.CSSProperties = {
+  padding: "9px 12px",
+  textAlign: "left",
+  fontSize: "var(--fs-12)",
+  fontWeight: 600,
+  color: "var(--color-text-2)",
+  background: "var(--color-table-stripe)",
+  borderBottom: "1px solid var(--color-border)",
+  whiteSpace: "nowrap",
+}
+const visitTd: React.CSSProperties = {
+  padding: "10px 12px",
+  fontSize: "var(--fs-13)",
+  color: "var(--color-text-1)",
+  borderBottom: "1px solid #F3F4F6",
+  verticalAlign: "middle",
+}
+const visitEllipsis: React.CSSProperties = {
+  display: "block",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+}
+
+function VisitRecordsTable({
+  task,
+  row,
+  workGroup,
+}: {
+  task: Task
+  row: PersonalAllocationRow
+  workGroup: string
+}) {
+  const [query, setQuery] = useState("")
+  const [page, setPage] = useState(1)
+  const records = useMemo(() => {
+    const taskRecords = visitRecords.filter(
+      (record) => record.taskId === task.id,
+    )
+    const unassignedRecords = visitRecords.filter((record) => !record.taskId)
+    const varietyRecords = unassignedRecords.filter((record) =>
+      task.varieties.includes(record.variety),
+    )
+    // 无任务关联的历史原型数据按品种、专员与工作组逐级匹配，保留可浏览的演示记录。
+    const source = taskRecords.length
+      ? taskRecords
+      : varietyRecords.length
+        ? varietyRecords
+        : unassignedRecords
+    const exactMatches = source.filter(
+      (record) =>
+        record.specialist === row.specialist && record.workGroup === workGroup,
+    )
+    const relatedMatches = source.filter(
+      (record) =>
+        record.specialist === row.specialist || record.workGroup === workGroup,
+    )
+    const scopedRecords = exactMatches.length
+      ? exactMatches
+      : relatedMatches.length
+        ? relatedMatches
+        : source
+    return [...scopedRecords].sort((a, b) =>
+      b.startTime.localeCompare(a.startTime),
+    )
+  }, [task.id, task.varieties, row.specialist, workGroup])
+
+  const keyword = query.trim().toLowerCase()
+  const filteredRecords = keyword
+    ? records.filter((record) =>
+        [
+          record.hospital,
+          record.hospitalGrade,
+          record.department,
+          record.visitee,
+          record.variety,
+          record.visitPeriod,
+          record.startTime,
+          record.endTime,
+        ].some((value) => value.toLowerCase().includes(keyword)),
+      )
+    : records
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRecords.length / VISIT_PAGE_SIZE),
+  )
+  const currentPage = Math.min(page, totalPages)
+  const pageRecords = filteredRecords.slice(
+    (currentPage - 1) * VISIT_PAGE_SIZE,
+    currentPage * VISIT_PAGE_SIZE,
+  )
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              fontSize: "var(--fs-14)",
+              fontWeight: 650,
+              color: "var(--color-text-1)",
+            }}
+          >
+            拜访记录
+          </span>
+          <span
+            aria-live="polite"
+            style={{ fontSize: "var(--fs-12)", color: "var(--color-text-3)" }}
+          >
+            {keyword
+              ? `筛选 ${filteredRecords.length} / ${records.length} 条`
+              : `共 ${records.length} 条 · 按开始时间倒序`}
+          </span>
+        </div>
+        <div
+          style={{
+            position: "relative",
+            width: 300,
+            maxWidth: "100%",
+            flex: "0 1 300px",
+          }}
+        >
+          <Search
+            size={15}
+            color="var(--color-text-3)"
+            style={{
+              position: "absolute",
+              left: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              pointerEvents: "none",
+            }}
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setPage(1)
+            }}
+            placeholder="搜索医院、科室、被拜访人、品种"
+            aria-label="搜索拜访记录"
+            style={{
+              width: "100%",
+              height: 34,
+              padding: "0 10px 0 32px",
+              border: "1px solid var(--color-border)",
+              borderRadius: 6,
+              background: "var(--color-surface)",
+              color: "var(--color-text-1)",
+              fontFamily: "inherit",
+              fontSize: "var(--fs-12)",
+            }}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 12,
+          border: "1px solid var(--color-border)",
+          borderRadius: 8,
+          overflow: "hidden",
+          background: "var(--color-surface)",
+        }}
+      >
+        {filteredRecords.length === 0 ? (
+          <EmptyState
+            title={keyword ? "未找到匹配的拜访记录" : "暂无拜访记录"}
+            description={
+              keyword
+                ? "请尝试缩短关键词，或搜索医院、科室、被拜访人和品种。"
+                : "当前明细下还没有可展示的拜访数据。"
+            }
+            action={
+              keyword
+                ? {
+                    label: "清除搜索",
+                    onClick: () => {
+                      setQuery("")
+                      setPage(1)
+                    },
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          <div
+            role="region"
+            aria-label="拜访数据表格，可横向滚动"
+            tabIndex={0}
+            style={{
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              outlineOffset: -2,
+            }}
+          >
+            <table
+              aria-label="拜访数据列表"
+              style={{
+                width: "100%",
+                minWidth: 1060,
+                borderCollapse: "separate",
+                borderSpacing: 0,
+                tableLayout: "fixed",
+              }}
+            >
+              <colgroup>
+                {visitColumns.map((column) => (
+                  <col key={column.label} style={{ width: column.width }} />
+                ))}
+              </colgroup>
+              <thead>
+                <tr>
+                  {visitColumns.map((column, index) => (
+                    <th
+                      key={column.label}
+                      scope="col"
+                      style={{
+                        ...visitTh,
+                        ...(index === 0
+                          ? {
+                              position: "sticky",
+                              left: 0,
+                              zIndex: 2,
+                              boxShadow: "1px 0 0 var(--color-border)",
+                            }
+                          : {}),
+                      }}
+                    >
+                      {column.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pageRecords.map((record) => (
+                  <tr
+                    key={record.id}
+                    style={{ background: "var(--color-surface)" }}
+                    onMouseEnter={(event) => {
+                      event.currentTarget.style.background = "#F5FAF8"
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.background =
+                        "var(--color-surface)"
+                    }}
+                  >
+                    <td
+                      style={{
+                        ...visitTd,
+                        position: "sticky",
+                        left: 0,
+                        zIndex: 1,
+                        background: "inherit",
+                        boxShadow: "1px 0 0 var(--color-border)",
+                      }}
+                    >
+                      <span
+                        style={{ ...visitEllipsis, fontWeight: 550 }}
+                        title={record.hospital}
+                      >
+                        {record.hospital}
+                      </span>
+                    </td>
+                    <td style={{ ...visitTd, whiteSpace: "nowrap" }}>
+                      {record.hospitalGrade}
+                    </td>
+                    <td style={visitTd}>{record.department}</td>
+                    <td style={{ ...visitTd, whiteSpace: "nowrap" }}>
+                      {record.visitee}
+                    </td>
+                    <td style={visitTd}>
+                      <span style={visitEllipsis} title={record.variety}>
+                        {record.variety}
+                      </span>
+                    </td>
+                    <td style={visitTd}>
+                      <Tag label={record.visitPeriod} color="brand" />
+                    </td>
+                    <td style={visitTd}>
+                      <div style={{ display: "grid", gap: 3 }}>
+                        {[
+                          ["开始", record.startTime],
+                          ["结束", record.endTime],
+                        ].map(([label, time]) => (
+                          <div
+                            key={label}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 24,
+                                flexShrink: 0,
+                                fontSize: "var(--fs-12)",
+                                color: "var(--color-text-3)",
+                              }}
+                            >
+                              {label}
+                            </span>
+                            <span
+                              className="font-mono-nums"
+                              style={{ fontSize: "var(--fs-12)" }}
+                            >
+                              {time}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {filteredRecords.length > VISIT_PAGE_SIZE && (
+        <Pagination
+          page={currentPage}
+          pageSize={VISIT_PAGE_SIZE}
+          total={filteredRecords.length}
+          onChange={setPage}
+        />
+      )}
+    </div>
+  )
+}
+
 function AllocationDetailPreview({
   row,
+  task,
   workGroup,
   onBack,
 }: {
   row: PersonalAllocationRow
+  task: Task
   workGroup: string
   onBack: () => void
 }) {
@@ -3297,66 +3651,7 @@ function AllocationDetailPreview({
           />
           <Info label="完成时间" value={row.completedAt ?? "—"} />
         </div>
-        <div
-          style={{
-            marginTop: 16,
-            border: "1px dashed #B9CFC9",
-            background: "#F5FAF8",
-            borderRadius: 10,
-            padding: "26px 24px",
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              margin: "0 auto 12px",
-              borderRadius: "50%",
-              background: "var(--color-brand-subtle)",
-              color: "var(--color-brand)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Wrench size={20} />
-          </div>
-          <div
-            style={{
-              fontSize: "var(--fs-15)",
-              fontWeight: 650,
-              color: "var(--color-text-1)",
-            }}
-          >
-            逐条执行明细正在建设中
-          </div>
-          <div
-            style={{
-              fontSize: "var(--fs-13)",
-              color: "#667085",
-              marginTop: 6,
-              lineHeight: 1.7,
-            }}
-          >
-            该服务项目下的拜访签到、定位轨迹、报告附件与审核轨迹将在下一迭代开放。
-          </div>
-          <div
-            style={{
-              display: "inline-flex",
-              gap: 8,
-              marginTop: 14,
-              flexWrap: "wrap",
-              justifyContent: "center",
-            }}
-          >
-            {["拜访签到记录", "定位轨迹核验", "报告附件清单", "审核轨迹"].map(
-              (item) => (
-                <Tag key={item} label={item} color="brand" />
-              ),
-            )}
-          </div>
-        </div>
+        <VisitRecordsTable task={task} row={row} workGroup={workGroup} />
       </Section>
     </>
   )
