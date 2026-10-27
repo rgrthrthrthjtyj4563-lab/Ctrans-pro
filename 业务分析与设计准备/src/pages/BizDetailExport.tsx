@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -32,6 +32,7 @@ import { useTaskData } from '../context/TaskDataContext';
 import { varietyInScope } from '../data/cooperationModel';
 import { demoBizPairs, visitRecords } from '../data/mockData';
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import type { Role, Task } from '../types';
 import type { ToastMessage } from '../components/Toast';
 
@@ -396,6 +397,14 @@ export function BizDetailExport({ addToast }: Props) {
   // 统一会话口径（P0-E）：服务商 = 当前服务商 + 当前服务药厂 + 已授权品种；药厂 = 本厂数据；
   // 范围失效默认拒绝——列表/详情/草稿/统计/筛选/导出结果全部使用同一过滤结果
   const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 药厂会话按部门管理区域叠加过滤（D2/D3）：任务行自带 regions；拜访/台账行经 taskId 或 品种授权链 解析
+  const taskRegionsById = useMemo(() => {
+    const map = new Map<string, readonly string[]>();
+    tasks.forEach((t) => map.set(t.id, t.regions));
+    return map;
+  }, [tasks]);
+  const taskRegionsOf = useCallback((taskId: string) => taskRegionsById.get(taskId), [taskRegionsById]);
+  const regionScope = usePharmaRegionScope({ taskRegionsOf });
   const [reports, setReports] = useState<ExportReport[]>(INITIAL_REPORTS);
   const [view, setView] = useState<'list' | 'flow'>('list');
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -405,32 +414,33 @@ export function BizDetailExport({ addToast }: Props) {
   const [applied, setApplied] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
 
-  // 会话口径的任务/拜访判定（与任务执行页同源）
+  // 会话口径的任务/拜访判定（与任务执行页同源）；药厂会话叠加区域匹配（拜访行经 taskId→任务 或 品种授权链）
   const taskInSessionScope = (t: Task) =>
-    isProviderSession
+    (isProviderSession
       ? matchesProviderRow({ provider: t.provider, holderPharma: t.holderPharma, varieties: t.varieties, regions: t.regions })
       : isPharmaSession
         ? matchesPharmaRow(t)
-        : true;
+        : true) && regionScope.matchesRow({ regions: t.regions, taskId: t.id });
   const visitInSessionScope = (v: (typeof visitRecords)[number]) =>
-    isProviderSession
+    (isProviderSession
       ? matchesProviderRow({ provider: v.provider, holderPharma: v.holderPharma, variety: v.variety })
       : isPharmaSession
         ? matchesPharmaRow(v)
-        : true;
+        : true) && regionScope.matchesRow({ taskId: v.taskId, provider: v.provider, variety: v.variety });
 
-  // 会话范围内的报告台账（列表 / 详情 / 草稿同源）
+  // 会话范围内的报告台账（列表 / 详情 / 草稿同源）；台账行无区域字段，经 品种授权链 解析
   const sessionReports = useMemo(
     () =>
-      reports.filter((r) =>
-        isProviderSession
-          ? matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })
-          : isPharmaSession
-            ? matchesPharmaRow(r)
-            : true,
+      reports.filter(
+        (r) =>
+          (isProviderSession
+            ? matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })
+            : isPharmaSession
+              ? matchesPharmaRow(r)
+              : true) && regionScope.matchesRow({ provider: r.provider, variety: r.variety }),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reports, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow],
+    [reports, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope],
   );
 
   // 当前对账单：会话范围内第一张已确认且未作废的结算单（无则取第一张任意结算单）
@@ -455,7 +465,7 @@ export function BizDetailExport({ addToast }: Props) {
     bills.sort((a, b) => (a.dz < b.dz ? 1 : -1));
     return bills.find((b) => b.declaredAmount > 0) ?? bills[0] ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+  }, [tasks, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
 
   // 判别别名（TS narrowing）：本企业名
   const tenantNameOfPrincipal = principal.realm === 'TENANT' ? principal.tenantName : '';
@@ -539,7 +549,7 @@ export function BizDetailExport({ addToast }: Props) {
       reportAmount: sumItem(reportItems),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [billForm.provider, billForm.variety, tasks, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+  }, [billForm.provider, billForm.variety, tasks, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
 
   const selectedBiz = useMemo(
     () => bizTypes.filter((t) => selectedTypes.includes(t.id)),
@@ -1540,9 +1550,13 @@ export function BizDetailExport({ addToast }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {denied ? (
+      {denied || regionScope.denied ? (
         <div style={{ flex: 1, overflow: 'auto' }}>
-          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+          <EmptyState
+            icon={ShieldOff}
+            title={denied ? NO_BIZ_SCOPE_TITLE : NO_REGION_SCOPE_TITLE}
+            description={denied ? noBizScopeDescription(scope?.pharmaName) : NO_REGION_SCOPE_DESCRIPTION}
+          />
         </div>
       ) : (
         view === 'list' ? renderList() : renderFlow()

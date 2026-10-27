@@ -16,6 +16,7 @@ import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
 import { AcceptanceTab } from "../components/AcceptanceTab"
 import { useAcceptance } from "../context/AcceptanceContext"
+import { useAcceptanceReviewer } from "../hooks/useAcceptanceReviewer"
 import { StatusTag, Tag } from "../components/StatusTag"
 import { Modal } from "../components/Modal"
 import { ConfirmDialog } from "../components/ConfirmDialog"
@@ -36,6 +37,7 @@ import { usePermission } from "../context/PermissionContext"
 import { resolveGroupLeader } from "../data/permissions"
 import { membershipsOfTenant } from "../data/cooperationModel"
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from "../hooks/useServingBizScope"
+import { NO_REGION_SCOPE_DESCRIPTION, NO_REGION_SCOPE_TITLE, usePharmaRegionScope } from "../hooks/usePharmaRegionScope"
 import {
   formatCNYUpper,
   RECON_STATUS_OPTIONS,
@@ -166,6 +168,7 @@ export function TaskExecution({
   const ctx = useTaskData()
   const { principal, orgs, users, assignments, groupLeaders } = usePermission()
   const { config: acceptCfg, packageOf: acceptPkgOf, reviewBatch: acceptReviewBatch } = useAcceptance()
+  const acceptReviewer = useAcceptanceReviewer()
   /**
    * 组长拦截（2026-09-15 拍板）：无有效组长的工作组（未设置/被停用/调离本组/
    * 角色被回收）不得接收新的管理任务——下派控件禁用并说明原因。
@@ -252,8 +255,10 @@ export function TaskExecution({
     if (navFocus?.taskId) {
       setHighlightId(navFocus.taskId)
       const t = tasks.find((x) => x.id === navFocus.taskId)
-      if (t) setDetail(t)
+      // 直开详情也必须过会话范围（区域/业务范围）：不能通过链接绕过可见性（2026-10-27 §五.2）
+      if (t && taskInSessionScope(t)) setDetail(t)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navFocus?.taskId, tasks])
 
   const live = (t: Task | null) =>
@@ -262,12 +267,17 @@ export function TaskExecution({
   // 统一过滤口径（P0-C）：服务商 = 当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域，
   // 范围失效默认拒绝；药厂会话 = 本厂任务（一次会话只操作一家药厂数据）
   const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope()
-  const taskInSessionScope = (t: Task) =>
-    isProviderSession
+  // 药厂区域范围（2026-10-27 整改 §4 阶段 2）：叠加在会话口径之上；非药厂会话恒 true
+  const regionScope = usePharmaRegionScope()
+  const taskInSessionScope = (t: Task) => {
+    const inBizScope = isProviderSession
       ? matchesProviderRow({ provider: t.provider, holderPharma: t.holderPharma, varieties: t.varieties, regions: t.regions })
       : isPharmaSession
         ? matchesPharmaRow(t)
         : true
+    // D3 任务级：任务 regions 命中成员任一省即整单可见，明细不单独过滤
+    return inBizScope && regionScope.matchesRow({ regions: t.regions, taskId: t.id })
+  }
   const visible = useMemo(() => {
     const list = tasks.filter((t) => {
       // 会话口径：服务商四要素 / 药厂本厂任务（范围失效时恒 false，默认拒绝）
@@ -289,7 +299,7 @@ export function TaskExecution({
       ...list.filter((t) => pendingReportCount(t) === 0),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, applied, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow])
+  }, [tasks, applied, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope.matchesRow])
 
   const pageData = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
@@ -500,6 +510,13 @@ export function TaskExecution({
             icon={ShieldOff}
             title={NO_BIZ_SCOPE_TITLE}
             description={noBizScopeDescription(scope?.pharmaName)}
+          />
+        ) : regionScope.denied ? (
+          // 药厂会话部门未配置区域（NONE）：默认拒绝，空态与服务商侧同构
+          <EmptyState
+            icon={ShieldOff}
+            title={NO_REGION_SCOPE_TITLE}
+            description={NO_REGION_SCOPE_DESCRIPTION}
           />
         ) : (
         <>
@@ -910,6 +927,10 @@ export function TaskExecution({
                     level: lv,
                     department,
                     reviewer: principal.name,
+                    // D7：审核人实际部门随请求提交，reviewBatch 校验是否属于本级验收部门（企业管理员可越过）
+                    reviewerDepartment: acceptReviewer.department,
+                    reviewerDepartmentChain: acceptReviewer.departmentChain,
+                    reviewerIsAdmin: acceptReviewer.isAdmin,
                     batchComment: "",
                     items: [
                       {

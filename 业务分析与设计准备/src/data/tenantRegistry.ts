@@ -17,7 +17,7 @@
  * 不承载任何安全语义。
  */
 
-import type { PermOrg, PermUser, RoleAssignment } from "./permissions"
+import type { PermOrg, PermUser, RoleAssignment, TenantMembership } from "./permissions"
 import { PERM_ORGS, PERM_USERS, seedAssignments, nextId, nowStamp, enterpriseRootOf } from "./permissions"
 import { ENTERPRISE_CODES } from "../auth/authProfiles"
 
@@ -126,12 +126,19 @@ export interface TenantAuditLine {
 }
 
 interface TenantRegistryState {
-  version: 3
+  version: 4
   tenants: TenantRecord[]
   codes: CodeRecord[]
+  /**
+   * 运行时组织节点（2026-10-27 起为组织域唯一持久真源）：建租产生的企业根、
+   * 页面新建的部门，以及对种子节点的覆盖副本（改名 / 调级 / 管理区域）。
+   * allOrgs() 按 id 用本表覆盖 PERM_ORGS 种子，其余追加。
+   */
   orgs: PermOrg[]
   users: PermUser[]
   assignments: RoleAssignment[]
+  /** 运行时成员身份快照（调岗 / 建档 / 移除 / 重新加入后的全量；按 id 覆盖种子） */
+  memberships: TenantMembership[]
   /** 租户侧操作流水（详情页「操作日志」页签展示；全局审计另走操作日志页） */
   activityLog: TenantAuditLine[]
   /** 幂等键（type+uscc）→ 已执行的建租结果（连续点击/刷新重放不重复建租） */
@@ -189,11 +196,13 @@ const ADMIN_ROLE_BY_TYPE: Record<TenantType, { roleId: string; roleLabel: string
 // ─── 持久化（localStorage 全容错；生产由服务端数据库承载） ──────────────────
 
 // v3：2026-09-15 收敛版（软件服务方唯一角色/演示登录租户并入种子）；旧数据直接作废重建种子
-const STORAGE_KEY = "baiyee-tenant-registry-v3"
+// v4：2026-10-27 组织域持久化（部门 CRUD / 管理区域 / 成员身份进 registry）；v3 数据原地升级、不作废
+const STORAGE_KEY = "baiyee-tenant-registry-v4"
+const LEGACY_STORAGE_KEY_V3 = "baiyee-tenant-registry-v3"
 
 function buildSeedState(): TenantRegistryState {
   return {
-    version: 3,
+    version: 4,
     // 演示种子：① 演示登录用药厂/服务商（与登录页企业码同一份登记，软件服务方必须可查）
     //          ② 运行时租户覆盖四态可验证路径（正常/待激活/已暂停/已终止）
     // 正常（朗盛）· 待激活药厂（云杏）· 待激活服务商（泰合）· 已暂停（启辰）· 已终止（泽江）
@@ -642,6 +651,7 @@ function buildSeedState(): TenantRegistryState {
     ],
     createIdempotency: {},
     collisionDemoDone: false,
+    memberships: [],
   }
 }
 
@@ -651,12 +661,24 @@ const listeners = new Set<() => void>()
 function loadState(): TenantRegistryState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return buildSeedState()
-    const parsed = JSON.parse(raw) as TenantRegistryState
-    if (parsed?.version !== 3 || !Array.isArray(parsed.tenants)) {
+    if (raw) {
+      const parsed = JSON.parse(raw) as TenantRegistryState
+      if (parsed?.version === 4 && Array.isArray(parsed.tenants)) {
+        return { ...parsed, memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [] }
+      }
       return buildSeedState()
     }
-    return parsed
+    // v3 → v4 原地升级：组织 / 用户 / 授权 / 流水全部保留，仅补 memberships 空表
+    const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY_V3)
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as Omit<TenantRegistryState, "version" | "memberships"> & { version: number }
+      if (parsed?.version === 3 && Array.isArray(parsed.tenants)) {
+        const upgraded: TenantRegistryState = { ...parsed, version: 4, memberships: [] }
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(upgraded))
+        return upgraded
+      }
+    }
+    return buildSeedState()
   } catch {
     return buildSeedState()
   }
@@ -694,8 +716,38 @@ export function getTenantRegistrySnapshot(): TenantRegistryState {
 
 // ─── 统一只读视图（种子 + 运行时；mockGateway 的登录链路从这里取数） ────────
 
+/**
+ * 组织树唯一读口径：运行时表按 id 覆盖种子（种子部门的改名 / 调级 / 管理区域持久化
+ * 都以覆盖副本形式进 state.orgs），不在种子里的运行时节点按原顺序追加。
+ */
 export function allOrgs(): PermOrg[] {
-  return [...PERM_ORGS, ...state.orgs]
+  const overrides = new Map(state.orgs.map((o) => [o.id, o] as const))
+  const merged = PERM_ORGS.map((seed) => overrides.get(seed.id) ?? seed)
+  const seedIds = new Set(PERM_ORGS.map((o) => o.id))
+  for (const org of state.orgs) {
+    if (!seedIds.has(org.id)) merged.push(org)
+  }
+  return merged
+}
+
+/**
+ * 写入 / 覆盖一个运行时组织节点（部门新建、改名、调级、管理区域配置共用）。
+ * 组织页 / PermissionContext 的部门 CRUD 必须经此落盘，否则登录链路看不见。
+ */
+export function upsertRuntimeOrg(org: PermOrg): void {
+  const idx = state.orgs.findIndex((o) => o.id === org.id)
+  const next = idx >= 0 ? state.orgs.map((o, i) => (i === idx ? { ...o, ...org } : o)) : [...state.orgs, org]
+  commit({ orgs: next })
+}
+
+/** 运行时成员身份快照（cooperationModel 启动时据此覆盖种子 TENANT_MEMBERSHIPS） */
+export function runtimeMemberships(): TenantMembership[] {
+  return state.memberships
+}
+
+/** 成员身份全量快照落盘（cooperationModel 每次成员变更后调用；只持久化、不改语义） */
+export function persistRuntimeMemberships(list: TenantMembership[]): void {
+  commit({ memberships: list.map((m) => ({ ...m })) })
 }
 
 export function allUsers(): PermUser[] {

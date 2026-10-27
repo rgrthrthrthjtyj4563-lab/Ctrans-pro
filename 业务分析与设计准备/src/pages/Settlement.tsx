@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ShieldOff } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
@@ -7,6 +7,7 @@ import { EmptyState } from '../components/EmptyState';
 import { Pagination } from '../components/Pagination';
 import { formatCNY, formatCoverage, useTaskData } from '../context/TaskDataContext';
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import { providers } from '../data/mockData';
 import type { NavigateFn, Role, SettlementBill, Task } from '../types';
 import type { ToastMessage } from '../components/Toast';
@@ -35,18 +36,26 @@ export function Settlement({ navigate }: Props) {
   const { tasks } = useTaskData();
   // 统一过滤口径：当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；范围失效默认拒绝
   const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 药厂会话按部门管理区域叠加过滤（D2/D3，任务级）；非药厂会话 matchesRow 恒 true
+  const taskRegionsById = useMemo(() => {
+    const map = new Map<string, readonly string[]>();
+    tasks.forEach((t) => map.set(t.id, t.regions));
+    return map;
+  }, [tasks]);
+  const taskRegionsOf = useCallback((taskId: string) => taskRegionsById.get(taskId), [taskRegionsById]);
+  const regionScope = usePharmaRegionScope({ taskRegionsOf });
 
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [applied, setApplied] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
 
-  // 任务级四要素判定（结算单/专员统计同源使用）
+  // 任务级四要素判定（结算单/专员统计同源使用）；药厂会话叠加区域任务级匹配
   const taskVisible = (task: Task) =>
-    isProviderSession
+    (isProviderSession
       ? matchesProviderRow({ provider: task.provider, holderPharma: task.holderPharma, varieties: task.varieties, regions: task.regions })
       : isPharmaSession
         ? matchesPharmaRow(task)
-        : true;
+        : true) && regionScope.matchesRow({ regions: task.regions, taskId: task.id });
 
   const allBills = useMemo<BillRow[]>(() => {
     const rows: BillRow[] = [];
@@ -60,7 +69,7 @@ export function Settlement({ navigate }: Props) {
     });
     return rows.sort((a, b) => (a.bill.madeAt < b.bill.madeAt ? 1 : -1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+  }, [tasks, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
 
   const rows = useMemo(() => allBills.filter(({ task, bill }) => {
     if (applied.variety && !bill.lines.some((l) => l.variety === applied.variety) && !task.varieties.includes(applied.variety)) return false;
@@ -82,6 +91,8 @@ export function Settlement({ navigate }: Props) {
       tasks.forEach((task) => {
         if (!taskVisible(task)) return;
         task.workloadAssigns.forEach((a) => {
+          // 专员统计行叠加区域过滤（WorkloadAssign 自带 region；无 taskId，经所属任务回退）
+          if (!regionScope.matchesRow({ region: a.region, taskId: task.id })) return;
           const key = `${a.specialist}|${a.workGroup}`;
           const entry = map.get(key) ?? { specialist: a.specialist, workGroup: a.workGroup ?? '—', provider: task.provider, settled: 0, toSettle: 0, tasks: new Set<string>() };
           entry.tasks.add(task.taskNo);
@@ -97,7 +108,7 @@ export function Settlement({ navigate }: Props) {
     }
     return [...map.values()].sort((a, b) => b.settled + b.toSettle - (a.settled + a.toSettle));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+  }, [tasks, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
 
   const monthOptions = useMemo(() => {
     const months = [...new Set(allBills.map((r) => r.bill.serviceMonth))].sort().reverse();
@@ -115,9 +126,13 @@ export function Settlement({ navigate }: Props) {
         title="结算明细"
         description="结算数据以任务中已确认的结算单为唯一来源，本页只做统计与下钻；发起、确认、完结等操作请到「任务执行」。"
       />
-      {denied ? (
+      {denied || regionScope.denied ? (
         <div style={{ flex: 1, overflow: 'auto' }}>
-          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+          <EmptyState
+            icon={ShieldOff}
+            title={denied ? NO_BIZ_SCOPE_TITLE : NO_REGION_SCOPE_TITLE}
+            description={denied ? noBizScopeDescription(scope?.pharmaName) : NO_REGION_SCOPE_DESCRIPTION}
+          />
         </div>
       ) : (
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>

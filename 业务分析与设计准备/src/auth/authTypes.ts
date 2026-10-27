@@ -17,6 +17,7 @@
 
 import type { Role } from "../types"
 import type { AccessRealm, ScopeType, TenantKind } from "../data/permissions"
+import type { PharmaRegionScope } from "../data/pharmaRegionScope"
 
 export type { AccessRealm }
 
@@ -75,9 +76,14 @@ export interface TenantPrincipal extends PrincipalPerson {
   jobTitle?: string
   /** 全部生效角色名下的授权记录并集（数据范围/业务范围按其计算） */
   effectiveAssignmentIds: string[]
-  /** 各授权的数据范围明细（组织范围并集展示用） */
-  dataScopes: { scope: ScopeType; scopeOrgId: string; scopeOrgName: string }[]
-  /** 数据范围摘要（含服务商员工可处理药厂清单），用户菜单展示 */
+  /**
+   * 药厂侧区域范围快照（2026-10-27 方向修订）：= 成员本人配置的负责区域（用户详情维护、调岗不变）；
+   * 企业管理员 ALL；未配置 NONE。仅登录态展示与首屏兜底用——业务页行级过滤走 usePharmaRegionScope
+   * 实时读成员身份（编辑负责区域对已登录会话即时生效），不要把本快照当运行时口径。
+   * 服务商会话不带此字段（其区域由品种授权派生，见 servingScopeOfPrincipal）。
+   */
+  pharmaRegionScope?: PharmaRegionScope
+  /** 数据范围摘要（药厂：数据区域 + 所属部门；服务商：组织范围 + 可处理药厂清单），用户菜单展示 */
   dataScopeSummary: string
   /**
    * 旧三类页面视角的兼容派生值（多角色取首个非空；同租户内映射必然一致）：

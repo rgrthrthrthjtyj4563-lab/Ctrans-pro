@@ -1,9 +1,10 @@
 /**
- * 组织架构（唯一组织配置入口）：回答「这个人/部门/工作组属于哪里」。
- * 负责企业根、部门、工作组（服务商）节点的建立、上下级与成员归属展示；
- * 节点详情展示直属人员明细（姓名/账号、身份展示、账号状态、最近登录/授权）
- * 与工作组组长。角色能力与人员授权统一在「角色与数据范围」；企业间合作关系
- * 不在组织树中维护。租户边界：树只展示当前企业租户（或系统管理后台）子树。
+ * 组织架构（三层职责之一）：只回答「每个人属于哪个部门/工作组」。
+ * 负责企业根、部门、工作组（服务商）节点的建立、上下级与成员归属展示；节点详情
+ * 展示直属人数（含下级汇总）与直属人员明细（成员、角色、负责区域、账号状态，
+ * 可跳转用户详情）。每个人负责哪些区域在「用户管理」（成员个人属性，调岗不变）、
+ * 能做什么在「角色管理」；企业间合作关系不在组织树中维护。
+ * 租户边界：树只展示当前企业租户（或系统管理后台）子树。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, CornerUpRight, MoreHorizontal, Pencil, Plus, UserCheck, Users } from 'lucide-react';
@@ -17,7 +18,6 @@ import {
   enterpriseRootOf,
   identityLabel,
   isDeptParentType,
-  latestAssignmentAt,
   orgChildren,
   orgDescendantIds,
   orgPathLabel,
@@ -26,11 +26,16 @@ import {
   type PermOrg,
 } from '../data/permissions';
 import type { ToastMessage } from '../components/Toast';
-import { membershipsOfTenant, subscribeTenantMemberships } from '../data/cooperationModel';
+import { membershipOfUserInTenant, membershipsOfTenant, subscribeTenantMemberships } from '../data/cooperationModel';
+import { canonicalRegions, hasPharmaAdminAssignment } from '../data/pharmaRegionScope';
+import { REGION_NATIONWIDE } from '../constants';
+import type { NavigateFn } from '../types';
 import { Field, InfoBanner, inputStyle, tdStyle, thStyle } from './permUi';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+  /** 跳转用户管理（成员行「查看详情」直达该成员详情）；未传时隐藏明细表操作列 */
+  navigate?: NavigateFn;
 }
 
 const iconBtnStyle = {
@@ -38,12 +43,13 @@ const iconBtnStyle = {
   border: 'none', background: 'transparent', padding: 0, color: '#6B7280', cursor: 'pointer', borderRadius: 4, flexShrink: 0,
 } as const;
 
-export function OrgStructure({ addToast }: Props) {
+export function OrgStructure({ addToast, navigate }: Props) {
   const store = usePermission();
-  const { orgs, users, assignments, can, previewReadOnly, principal, groupLeaders } = store;
+  const { orgs, users, assignments, roles, can, previewReadOnly, principal, groupLeaders } = store;
   const tenantRootId = principal.realm === 'TENANT' ? principal.tenantId : 'org-platform';
   const tenantRoot = orgs.find(o => o.id === tenantRootId);
   const isProviderTenant = tenantRoot?.type === 'provider';
+  const isPharmaTenant = principal.realm === 'TENANT' && principal.tenantKind === 'pharma';
 
   const [selectedOrgId, setSelectedOrgId] = useState<string>(tenantRootId);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([tenantRootId]));
@@ -55,6 +61,8 @@ export function OrgStructure({ addToast }: Props) {
   const [createGroup, setCreateGroup] = useState<{ name: string; reason: string } | null>(null);
   const [renameGroup, setRenameGroup] = useState<{ orgId: string; name: string } | null>(null);
   const [deleteGroup, setDeleteGroup] = useState<{ orgId: string; moveToId: string; reason: string; error: string } | null>(null);
+  // 负责区域列：展开完整区域清单的成员（userId 集合，受控切换收起/展开）
+  const [expandedRegionUserIds, setExpandedRegionUserIds] = useState<Set<string>>(() => new Set());
 
   const canCreate = can('org-structure', 'create') && !previewReadOnly;
   const canEdit = can('org-structure', 'edit') && !previewReadOnly;
@@ -64,6 +72,11 @@ export function OrgStructure({ addToast }: Props) {
   useEffect(() => subscribeTenantMemberships(() => bump(x => x + 1)), []);
   const memberships = membershipsOfTenant(tenantRootId);
   const directMemberCount = (orgId: string) => memberships.filter(m => m.orgUnitId === orgId).length;
+  /** 本节点及全部下级部门的人数（成员身份 orgUnitId 落在本子树内即计入） */
+  const subtreeMemberCount = (orgId: string) => {
+    const ids = new Set(orgDescendantIds(orgs, orgId));
+    return memberships.filter(m => ids.has(m.orgUnitId)).length;
+  };
 
   /** 租户边界：本组织子树之外的节点不进入树与可选上级 */
   const tenantOrgIds = useMemo(() => new Set(orgDescendantIds(orgs, tenantRootId)), [orgs, tenantRootId]);
@@ -128,7 +141,7 @@ export function OrgStructure({ addToast }: Props) {
           </span>
           <span style={{ fontSize: 'var(--fs-10)', color: '#9CA3AF', flexShrink: 0 }}>{ORG_TYPE_LABEL[org.type]}</span>
           <span
-            title={`直属 ${direct} 人`}
+            title={`直属 ${direct} 人（不含下级）`}
             style={{
               minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#F3F4F6', color: '#374151',
               fontSize: 'var(--fs-11)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -239,7 +252,7 @@ export function OrgStructure({ addToast }: Props) {
       addToast({ type: 'error', title: '调整失败', description: result.error });
       return;
     }
-    addToast({ type: 'success', title: '已调整汇报上级', description: '人员归属路径已变化；角色数据范围不自动迁移。' });
+    addToast({ type: 'success', title: '已调整汇报上级', description: '人员归属路径已变化；成员的角色与负责区域不随调岗变化。' });
     setMoveDept(null);
   }
 
@@ -289,18 +302,66 @@ export function OrgStructure({ addToast }: Props) {
 
   const moveTarget = moveDept ? orgs.find(o => o.id === moveDept.targetId) : undefined;
 
-  /** 直属人员明细（按成员身份 orgUnit；身份展示统一「角色 · 部门/工作组」） */
+  /** 直属人员明细（按成员身份 orgUnit） */
   const directMembers = selectedOrg
     ? memberships
         .filter(m => m.orgUnitId === selectedOrg.id)
         .map(m => ({ membership: m, user: users.find(u => u.id === m.userId) }))
         .filter((x): x is { membership: (typeof memberships)[number]; user: NonNullable<(typeof users)[number]> } => Boolean(x.user))
     : [];
-  const identityOfMember = (userId: string) => {
-    const active = assignments.find(a => a.userId === userId && a.tenantId === tenantRootId && a.status === 'active');
-    const roleName = active ? store.roles.find(r => r.id === active.roleId)?.name : undefined;
-    const orgName = orgs.find(o => o.id === (memberships.find(m => m.userId === userId && m.tenantId === tenantRootId)?.orgUnitId))?.name;
-    return roleName ? identityLabel(roleName, orgName) : `（未分配角色）${orgName ? ` · ${orgName}` : ''}`;
+  /** 成员在本租户的全部生效角色名（角色 = 能做什么，在角色管理/用户详情维护） */
+  const activeRoleNamesOf = (userId: string) =>
+    assignments
+      .filter(a => a.userId === userId && a.tenantId === tenantRootId && a.status === 'active')
+      .map(a => roles.find(r => r.id === a.roleId)?.name)
+      .filter((name): name is string => Boolean(name));
+  /** 成员负责区域（成员个人属性，调岗不变；药厂租户专用，按词表规范化） */
+  const memberRegionsOf = (userId: string) =>
+    canonicalRegions(membershipOfUserInTenant(userId, tenantRootId)?.responsibleRegions ?? []);
+  const isPharmaAdminOf = (userId: string) =>
+    hasPharmaAdminAssignment(assignments.filter(a => a.userId === userId), tenantRootId);
+  const toggleRegionExpand = (userId: string) => {
+    setExpandedRegionUserIds(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId); else next.add(userId);
+      return next;
+    });
+  };
+  const regionToggleStyle = {
+    border: 'none', background: 'none', padding: 0, fontFamily: 'inherit',
+    fontSize: 'var(--fs-13)', color: 'var(--color-brand)', cursor: 'pointer',
+  } as const;
+  /** 负责区域单元格：药厂租户按成员个人属性渲染；服务商/系统后台显示「—」 */
+  const renderRegionCell = (userId: string) => {
+    if (!isPharmaTenant) {
+      return <span style={{ color: '#9CA3AF' }} title={isProviderTenant ? '服务商区域由品种授权派生，不在组织页配置' : undefined}>—</span>;
+    }
+    if (isPharmaAdminOf(userId)) {
+      return <span title="企业管理员的区域固定全国，不受个人负责区域配置影响">全国（管理员例外）</span>;
+    }
+    const regions = memberRegionsOf(userId);
+    if (regions.length === 0) return <Tag label="未配置" color="warning" />;
+    if (regions.includes(REGION_NATIONWIDE)) return REGION_NATIONWIDE;
+    if (regions.length <= 2) return regions.join('、');
+    const expanded = expandedRegionUserIds.has(userId);
+    if (!expanded) {
+      return (
+        <button
+          type="button" title={`展开全部 ${regions.length} 个负责区域`} aria-expanded={false}
+          onClick={() => toggleRegionExpand(userId)} style={regionToggleStyle}
+        >
+          {regions.slice(0, 2).join('、')}等 {regions.length} 个
+        </button>
+      );
+    }
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+        <span>{regions.join('、')}</span>
+        <button type="button" aria-expanded onClick={() => toggleRegionExpand(userId)} style={{ ...regionToggleStyle, fontSize: 'var(--fs-12)' }}>
+          收起
+        </button>
+      </span>
+    );
   };
 
   const groupMoveTargets = deleteGroup
@@ -311,7 +372,7 @@ export function OrgStructure({ addToast }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="组织架构"
-        description="管理本企业的部门、工作组与人员归属；节点详情展示直属人员明细与工作组组长。角色与数据范围请到「角色与数据范围」（唯一授权入口）。"
+        description="管理本企业的部门层级和人员归属。成员的角色与负责区域可在用户详情中查看与配置。"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             {canCreate && isProviderTenant && (
@@ -369,10 +430,10 @@ export function OrgStructure({ addToast }: Props) {
                 <Field label="类型">{String(ORG_TYPE_LABEL[selectedOrg.type])}</Field>
                 <Field label="所属企业">{enterpriseRootOf(orgs, selectedOrg.id)?.name ?? '—'}</Field>
                 <Field label="当前上级">{orgs.find(o => o.id === selectedOrg.parentId)?.name ?? '—（企业根节点）'}</Field>
-                <Field label="直属人员">直属 {directMembers.length} 人（明细见下表）</Field>
+                <Field label="人员归属">直属 {directMembers.length} 人 · 含下级 {subtreeMemberCount(selectedOrg.id)} 人（明细见下表）</Field>
               </div>
 
-              {/* 直属人员明细（不只显示人数） */}
+              {/* 直属人员明细（角色与负责区域为成员个人属性；查看与配置入口在用户详情） */}
               <div style={{ marginTop: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', fontWeight: 600, color: '#667085', marginBottom: 8 }}>
                   <Users size={13} aria-hidden /> 直属人员明细（不含下级部门）
@@ -383,21 +444,36 @@ export function OrgStructure({ addToast }: Props) {
                   <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
-                        <tr>{['姓名 / 账号', '身份展示', '账号状态', '最近登录', '最近授权'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                        <tr>
+                          {['成员', '角色', '负责区域', '状态', ...(navigate ? ['操作'] : [])].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                        </tr>
                       </thead>
                       <tbody>
-                        {directMembers.map(({ user }, idx) => (
-                          <tr key={user.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                            <td style={tdStyle}>
-                              <div style={{ fontWeight: 600 }}>{user.name}</div>
-                              <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{user.account}</div>
-                            </td>
-                            <td style={tdStyle}>{identityOfMember(user.id)}</td>
-                            <td style={tdStyle}><StatusTag status={user.accountStatus === 'enabled' ? '启用' : '停用'} size="sm" /></td>
-                            <td style={{ ...tdStyle, color: '#667085', whiteSpace: 'nowrap' }}>{user.lastLoginAt ?? '—'}</td>
-                            <td style={{ ...tdStyle, color: '#667085', whiteSpace: 'nowrap' }}>{latestAssignmentAt(assignments, user.id) ?? '—'}</td>
-                          </tr>
-                        ))}
+                        {directMembers.map(({ user }, idx) => {
+                          const roleNames = activeRoleNamesOf(user.id);
+                          return (
+                            <tr key={user.id} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                              <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600 }}>{user.name}</div>
+                                <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{user.account}</div>
+                              </td>
+                              <td style={tdStyle}>
+                                {roleNames.length > 0 ? roleNames.join('、') : <span style={{ color: '#9CA3AF' }}>未分配角色</span>}
+                              </td>
+                              <td style={tdStyle}>{renderRegionCell(user.id)}</td>
+                              <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                                <StatusTag status={user.accountStatus === 'enabled' ? '启用' : '停用'} size="sm" />
+                              </td>
+                              {navigate ? (
+                                <td style={{ ...tdStyle, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                                  <Button variant="ghost" size="sm" onClick={() => navigate?.('user-manage', { userDetailUserId: user.id })}>
+                                    查看详情
+                                  </Button>
+                                </td>
+                              ) : null}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -550,7 +626,7 @@ export function OrgStructure({ addToast }: Props) {
           }
         >
           <div style={{ display: 'grid', gap: 12 }}>
-            <InfoBanner tone="warning">人员所属部门路径会变化，角色权限覆盖范围不自动迁移。</InfoBanner>
+            <InfoBanner tone="warning">人员所属部门路径会变化；成员的角色与负责区域是个人属性，不随调岗变化。</InfoBanner>
             <Field label="新上级" required hint={moveTarget ? orgPathLabel(orgs, moveTarget.id) : '仅本企业内的部门可选'}>
               <select value={moveDept.targetId} onChange={e => setMoveDept({ ...moveDept, targetId: e.target.value })} style={inputStyle}>
                 <option value="">选择本部门</option>
@@ -563,7 +639,7 @@ export function OrgStructure({ addToast }: Props) {
               <input value={moveDept.reason} onChange={e => setMoveDept({ ...moveDept, reason: e.target.value })} style={inputStyle} placeholder="例如：大区合并" />
             </Field>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
-              <Users size={13} /> 直属与下级人员随节点移动；不改变任何人的角色与数据范围
+              <Users size={13} /> 直属与下级人员随节点移动；不改变任何人的角色与负责区域
             </div>
           </div>
         </Modal>

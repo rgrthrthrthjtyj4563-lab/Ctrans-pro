@@ -33,8 +33,17 @@ export interface BatchReviewInput {
   taskId: string
   serviceMonth: string
   level: number
+  /** 本级配置的验收部门（来自验收链配置，留痕用） */
   department: string
   reviewer: string
+  /**
+   * 审核人实际所属部门（2026-10-27 D7）：传了就校验——所属部门或其上级部门链
+   * （reviewerDepartmentChain，缺省退化为 [reviewerDepartment]）须含本级配置部门，
+   * 企业管理员（reviewerIsAdmin）可越过；都不传则不校验（仅兼容无登录态的调用）。
+   */
+  reviewerDepartment?: string
+  reviewerDepartmentChain?: string[]
+  reviewerIsAdmin?: boolean
   batchComment: string
   items: {
     itemId: string
@@ -104,6 +113,17 @@ export function AcceptanceProvider({ children }: { children: ReactNode }) {
     if (input.items.some((it) => it.decision === "驳回" && !it.comment.trim())) {
       return { ok: false, error: "驳回条目必须填写原因" }
     }
+    // D7：审核人（所属部门或其上级部门链）必须含本级配置的验收部门；企业管理员可越过
+    //（留痕里仍记实际部门，可追溯越级）
+    const expectedDept = config.departments[input.level - 1]
+    const reviewerChain =
+      input.reviewerDepartmentChain ?? (input.reviewerDepartment !== undefined ? [input.reviewerDepartment] : undefined)
+    if (reviewerChain && !input.reviewerIsAdmin && expectedDept && !reviewerChain.includes(expectedDept)) {
+      return {
+        ok: false,
+        error: `第 ${input.level} 级验收部门为「${expectedDept}」，您所属部门为「${input.reviewerDepartment || "未分配"}」，无权审核本级`,
+      }
+    }
     const key = packageKey(input.taskId, input.serviceMonth)
     const time = nowLocalStamp()
     setPackages((prev) => {
@@ -129,6 +149,7 @@ export function AcceptanceProvider({ children }: { children: ReactNode }) {
           level: actedLevel,
           department: input.department,
           reviewer: input.reviewer,
+          reviewerDepartment: input.reviewerDepartment,
           decision: it.decision,
           comment: it.comment.trim(),
           time,
@@ -141,6 +162,7 @@ export function AcceptanceProvider({ children }: { children: ReactNode }) {
         level: input.level,
         department: input.department,
         reviewer: input.reviewer,
+        reviewerDepartment: input.reviewerDepartment,
         time,
         passedCount: input.items.filter((it) => it.decision === "通过").length,
         rejectedCount: input.items.filter((it) => it.decision === "驳回").length,
@@ -194,7 +216,7 @@ export function AcceptanceProvider({ children }: { children: ReactNode }) {
       }
     }
     return { ok: true }
-  }, [tasks, mcPush])
+  }, [config.departments, tasks, mcPush])
 
   const resubmitItem = useCallback(
     (taskId: string, serviceMonth: string, itemId: string) => {

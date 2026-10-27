@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { Eye, Edit2, Trash2, Download, CheckCircle, XCircle, AlertCircle, Info, MapPin, ShieldOff } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FilterBar } from '../components/FilterBar';
@@ -11,12 +11,15 @@ import { Timeline } from '../components/Timeline';
 import { EmptyState } from '../components/EmptyState';
 import { visitRecords, providers, workGroups, visitCategories } from '../data/mockData';
 import { useAcceptance } from '../context/AcceptanceContext';
+import { useAcceptanceReviewer } from '../hooks/useAcceptanceReviewer';
 import { itemAcceptanceLabel, pendingLevelOf, BUSINESS_TYPE_CATEGORIES } from '../data/acceptanceData';
 import { BatchReviewModal } from '../components/AcceptanceTab';
 import { Tag } from '../components/StatusTag';
 import type { NavigateFn, NavFocus } from '../types';
 import { usePermission } from '../context/PermissionContext';
+import { useTaskData } from '../context/TaskDataContext';
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
+import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import { InfoBanner } from './permUi';
 import type { VisitRecord, AuditStatus, Role } from '../types';
 import type { ToastMessage } from '../components/Toast';
@@ -151,6 +154,8 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   const { principal, can } = usePermission();
   // ── 成果验收（任务详情「去审核」跳入：预置月份/服务提供商筛选；药厂就地验收推广记录） ──
   const { config: acceptChainConfig, packageOf, reviewBatch } = useAcceptance();
+  // D7：审核人必须属于本级配置的验收部门（企业管理员可越过）；入口按钮提前禁用，reviewBatch 兜底校验
+  const reviewer = useAcceptanceReviewer();
   const [acceptBatchOpen, setAcceptBatchOpen] = useState(false);
   const [preRejectIds, setPreRejectIds] = useState<string[] | undefined>(undefined);
   const [acceptSingleRejectItems, setAcceptSingleRejectItems] = useState<{ itemId: string; itemType: '推广记录' | '报告'; itemName: string }[]>([]);
@@ -160,6 +165,16 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   // 统一过滤口径（P0-C）：当前服务商 + 当前服务药厂 + 已授权品种 + 派生区域；
   // 范围失效默认拒绝；备案类警告只拦学术拜访动作，不拦登录与查看（§8.2）
   const { denied, scope, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow } = useServingScope();
+  // 药厂会话按部门管理区域叠加过滤（D2/D3）：拜访行无区域字段，经 taskId→任务服务地区解析；
+  // 无 taskId 的散点记录回退 (服务商,品种)→授权链解析；非药厂会话不过滤
+  const { tasks } = useTaskData();
+  const taskRegionsById = useMemo(() => {
+    const map = new Map<string, readonly string[]>();
+    tasks.forEach((t) => map.set(t.id, t.regions));
+    return map;
+  }, [tasks]);
+  const taskRegionsOf = useCallback((taskId: string) => taskRegionsById.get(taskId), [taskRegionsById]);
+  const regionScope = usePharmaRegionScope({ taskRegionsOf });
   // 判别别名（TS narrowing）：服务商会话的备案警告读取
   const isProviderTenant = principal.realm === 'TENANT' && principal.tenantKind === 'provider';
   const filingBlocked = isProviderTenant ? Boolean(principal.pharmaWarning) : false;
@@ -180,15 +195,25 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   const [showAuditPanel, setShowAuditPanel] = useState(false);
   const [auditComment, setAuditComment] = useState('');
 
-  // 会话口径过滤后的基础集合（tab 计数与列表同源，不再用未过滤总数）
+  // 会话口径过滤后的基础集合（tab 计数与列表同源，不再用未过滤总数）；药厂会话叠加区域任务级匹配
+  // 区域解析只认任务关联（2026-10-27 §五.3）：无 taskId 的拜访不按服务商×品种授权推断区域，
+  // 对普通区域成员不可见；管理员（ALL）可见全部，并在页头提示待确认数量。
   const sessionFiltered = useMemo(() => {
     if (denied) return [] as VisitRecord[];
     return visitRecords.filter((r) =>
       (!isProviderSession || matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })) &&
-      (!isPharmaSession || matchesPharmaRow(r)),
+      (!isPharmaSession || matchesPharmaRow(r)) &&
+      regionScope.matchesRow({ taskId: r.taskId }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow]);
+  }, [denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope]);
+
+  /** 区域归属待确认（无法解析出区域的拜访，仅药厂 ALL 会话提示；普通区域成员不可见这些数据） */
+  const unresolvedRegionCount = useMemo(() => {
+    if (!regionScope.isPharmaSession || regionScope.scope.mode !== 'ALL') return 0;
+    return visitRecords.filter(r => regionScope.regionsOfRow({ taskId: r.taskId }) === null).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regionScope, visitRecords]);
 
   const tabCounts: Record<TabId, number> = {
     '医院拜访': sessionFiltered.length,
@@ -239,6 +264,11 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
     if (!ctx) return false;
     const st = ctx.pkg.items[r.id];
     return !st || (!st.rectifying && st.passedLevels < acceptChainConfig.levels);
+  }
+  /** 本人对该记录当前待审级别的审核资格（部门匹配或企业管理员） */
+  function reviewGateOf(r: VisitRecord | null | undefined) {
+    const ctx = r ? recordAcceptCtx(r) : null;
+    return ctx ? reviewer.checkLevel(ctx.lv) : { ok: false as const, reason: '该记录未关联任务，不进入验收链' };
   }
 
   const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -298,6 +328,9 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
       level: ctx.lv,
       department: ctx.department,
       reviewer: principal.name,
+      reviewerDepartment: reviewer.department,
+      reviewerDepartmentChain: reviewer.departmentChain,
+      reviewerIsAdmin: reviewer.isAdmin,
       batchComment,
       items,
     });
@@ -399,21 +432,24 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
   const extraActions = (
     <>
       <Button variant="outline" size="sm" icon={<Download size={13} />}>导出</Button>
-      {!isProvider && acceptBatchItems.length > 0 && (
-        <>
-          <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {acceptBatchItems.length} 条待验收</span>
-          <Button variant="primary" size="sm" icon={<CheckCircle size={13} />} onClick={() => {
-            const first = pageData.find(r => selected.includes(r.id) && recordPendingAcceptance(r));
-            const ctx = first ? recordAcceptCtx(first) : null;
-            if (!ctx) return;
-            setAcceptBatchCtx({ taskId: ctx.taskId, month: ctx.month, lv: ctx.lv, department: ctx.department });
-            setPreRejectIds(undefined);
-            setAcceptBatchOpen(true);
-          }}>
-            批量验收（已选 {acceptBatchItems.length} 条）
-          </Button>
-        </>
-      )}
+      {!isProvider && acceptBatchItems.length > 0 && (() => {
+        const first = pageData.find(r => selected.includes(r.id) && recordPendingAcceptance(r));
+        const gate = reviewGateOf(first);
+        return (
+          <>
+            <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {acceptBatchItems.length} 条待验收</span>
+            <Button variant="primary" size="sm" icon={<CheckCircle size={13} />} disabled={!gate.ok} title={gate.ok ? undefined : gate.reason} onClick={() => {
+              const ctx = first ? recordAcceptCtx(first) : null;
+              if (!ctx) return;
+              setAcceptBatchCtx({ taskId: ctx.taskId, month: ctx.month, lv: ctx.lv, department: ctx.department });
+              setPreRejectIds(undefined);
+              setAcceptBatchOpen(true);
+            }}>
+              批量验收（已选 {acceptBatchItems.length} 条）
+            </Button>
+          </>
+        );
+      })()}
       {isProvider && selected.length > 0 && (
         <>
           <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {selected.length} 条</span>
@@ -460,8 +496,12 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        {denied ? (
-          <EmptyState icon={ShieldOff} title={NO_BIZ_SCOPE_TITLE} description={noBizScopeDescription(scope?.pharmaName)} />
+        {denied || regionScope.denied ? (
+          <EmptyState
+            icon={ShieldOff}
+            title={denied ? NO_BIZ_SCOPE_TITLE : NO_REGION_SCOPE_TITLE}
+            description={denied ? noBizScopeDescription(scope?.pharmaName) : NO_REGION_SCOPE_DESCRIPTION}
+          />
         ) : (
         <>
         {filingBlocked && (
@@ -469,6 +509,14 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
             <InfoBanner tone="warning">
               当前服务药厂的备案存在异常（待审/退回/过期/暂停）：可进入药厂并查看数据，
               但<b>学术拜访类业务动作被阻断</b>（不可发起、提交或审核学术拜访）。下一步：请在「服务人员备案」补正材料或等待审核通过。
+            </InfoBanner>
+          </div>
+        )}
+        {unresolvedRegionCount > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <InfoBanner tone="warning">
+              有 <b>{unresolvedRegionCount} 条拜访未关联任务、无法确定区域归属</b>（不按服务商被授权省份推断）。
+              管理员可见全部数据；普通区域成员暂不可见这些记录。下一步：请为相关拜访补齐任务关联后再纳入区域统计。
             </InfoBanner>
           </div>
         )}
@@ -659,16 +707,19 @@ export function VisitManagement({ addToast, navigate, navFocus }: VisitManagemen
           drawerRecord ? (
             <>
               <Button variant="outline" size="md" onClick={closeDrawer}>关闭</Button>
-              {!isProvider && recordPendingAcceptance(drawerRecord) && (
-                <>
-                  <Button variant="danger" size="md" icon={<XCircle size={14} />} onClick={() => acceptSingleReject(drawerRecord)}>
-                    驳回
-                  </Button>
-                  <Button variant="primary" size="md" icon={<CheckCircle size={14} />} onClick={() => acceptSinglePass(drawerRecord)}>
-                    通过
-                  </Button>
-                </>
-              )}
+              {!isProvider && recordPendingAcceptance(drawerRecord) && (() => {
+                const gate = reviewGateOf(drawerRecord);
+                return (
+                  <>
+                    <Button variant="danger" size="md" icon={<XCircle size={14} />} disabled={!gate.ok} title={gate.ok ? undefined : gate.reason} onClick={() => acceptSingleReject(drawerRecord)}>
+                      驳回
+                    </Button>
+                    <Button variant="primary" size="md" icon={<CheckCircle size={14} />} disabled={!gate.ok} title={gate.ok ? undefined : gate.reason} onClick={() => acceptSinglePass(drawerRecord)}>
+                      通过
+                    </Button>
+                  </>
+                );
+              })()}
               {isProvider && drawerRecord.auditStatus === '待审核' && (
                 <>
                   <Button

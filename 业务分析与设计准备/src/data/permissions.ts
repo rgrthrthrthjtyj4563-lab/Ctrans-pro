@@ -198,6 +198,16 @@ export interface TenantMembership {
   /** 岗位（纯展示，不参与权限判定；权限只来自角色授权） */
   jobTitle?: string
   /**
+   * 负责区域（2026-10-27 方向修订：区域按成员配置，与部门无关）：
+   * 省级短名（constants.PROVINCES 词表）多项，或单独一项「全国」。
+   * - 决定该成员在药厂侧能看哪些区域的业务数据（usePharmaRegionScope）；
+   * - 在用户详情「编辑负责区域」维护；调岗不改变本字段；
+   * - 未配置/空 = 看不到区域受控的业务数据（默认拒绝），但角色不受影响；
+   * - 仅药厂租户成员使用；服务商成员区域由品种授权派生，不带本字段；
+   * - 预置「企业管理员」固定全国，是唯一不受本字段约束的例外。
+   */
+  responsibleRegions?: string[]
+  /**
    * removed（2026-09-18 成员生命周期补全）：企业移除该成员（离职等）——
    * 终止的是「本企业的成员身份」，自然人账号与其他企业身份不受影响；
    * 历史授权保留占位记录，可重新加入（rejoin 恢复 active）。
@@ -452,7 +462,7 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     id: "roles",
     module: "企业管理",
     name: "角色与数据范围",
-    description: "角色、页面权限、按钮权限、数据范围与角色成员授权的唯一可编辑入口（成员授予/回收在角色详情「已授权成员」页签）",
+    description: "角色、页面权限、按钮权限与角色成员授权的唯一可编辑入口（服务商角色另含组织数据范围；药厂成员可见区域随所属部门；成员授予/回收在角色详情「已授权成员」页签）",
     actions: acts("roles", ["view", "create", "edit", "delete", "export"]),
     realms: ["TENANT"],
   },
@@ -773,6 +783,26 @@ export const TENANT_ROLES: SysRole[] = [
     ]),
   }),
   role({
+    // 2026-10-27 方向修订：真正的只读区域角色——京卫「区域销售仅限查看进度」场景。
+    // 只看任务列表与进度；无新建/下发/验收/结算/导出；精确金额在字段策略中置为隐藏（待客户确认后放开）。
+    id: "role-pharma-region-view",
+    name: "区域进度查看",
+    description:
+      "只读查看任务列表与执行进度（可见范围 = 本人负责区域命中的任务）；不含新建/下发/验收/结算/导出，精确金额默认隐藏（待客户确认）",
+    kind: "preset",
+    status: "enabled",
+    realm: "TENANT",
+    appliesTo: ["pharma"],
+    defaultScope: "PHARMA",
+    updatedBy: ACTOR_ADMIN,
+    updatedAt: "2026-10-27 10:00",
+    pagePerms: perms([
+      ["dashboard", ["view"]],
+      ["task-dispatch", ["view"]],
+    ]),
+    fieldPolicies: { ...ALL_VISIBLE, "settlement.amount": "hidden" },
+  }),
+  role({
     id: "role-provider-admin",
     name: "服务商管理员",
     description: "任务承接分配、合作信息查看、本服务商组织/用户/角色与数据范围（业务数据按当前服务药厂与已授权品种过滤）",
@@ -872,13 +902,14 @@ export const seedCustomRoles: SysRole[] = [
     id: "role-custom-region-sales",
     name: "药厂区域销售经理",
     description:
-      "数据范围为本部门及以下；授权挂在西北大区即可覆盖陕西、四川办事处",
+      "区域业务数据按成员所属部门的管理区域可见（如西北大区 = 陕甘青宁）；角色只决定操作权限",
     kind: "custom",
     status: "enabled",
     realm: "TENANT",
     tenantId: "org-pharma",
     appliesTo: ["pharma"],
-    defaultScope: "DEPT_AND_CHILD",
+    // 药厂侧范围档位已退役（2026-10-27）：PHARMA 仅表示授权挂企业根，可见区域随部门
+    defaultScope: "PHARMA",
     customScope: {
       ...emptyCustomScope(),
       pharmaIds: ["org-pharma"],
@@ -1066,7 +1097,10 @@ export function resolveGrantAnchor(
   const scope = role.defaultScope
   const current = orgs.find((o) => o.id === userOrgId)
   let hit: PermOrg | undefined
-  if (scope === "PHARMA") {
+  if (role.appliesTo?.includes("pharma")) {
+    // 药厂侧范围档位已退役（2026-10-27 D1/D2）：授权统一挂租户根，数据区域随成员所属部门
+    hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
+  } else if (scope === "PHARMA") {
     hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
   } else if (scope === "PROVIDER") {
     hit = nearestAncestorOfType(orgs, userOrgId, "provider")
@@ -1218,6 +1252,41 @@ export const PERM_USERS: PermUser[] = [
     lastLoginAt: "2026-08-31 18:02",
   },
   {
+    // 匿名演示账号（2026-10-27 方向修订）：区域人员不带企业管理员，负责区域按人配置，
+    // 还原京卫「区域销售仅限查看进度」场景（区域可重叠，不要求上下级部门）
+    id: "u-zhouqian",
+    name: "周倩",
+    account: "zhouqian",
+    phone: "13901350131",
+    email: "zhouqian@baiyee.com",
+    orgId: "org-dept-sales",
+    orgName: "销售部",
+    accountStatus: "enabled",
+    createdAt: "2026-10-27 09:00",
+  },
+  {
+    id: "u-wutong",
+    name: "吴桐",
+    account: "wutong",
+    phone: "13901350132",
+    email: "wutong@baiyee.com",
+    orgId: "org-dept-sales",
+    orgName: "销售部",
+    accountStatus: "enabled",
+    createdAt: "2026-10-27 09:00",
+  },
+  {
+    id: "u-zhengnan",
+    name: "郑楠",
+    account: "zhengnan",
+    phone: "13901350133",
+    email: "zhengnan@baiyee.com",
+    orgId: "org-dept-sales",
+    orgName: "销售部",
+    accountStatus: "enabled",
+    createdAt: "2026-10-27 09:00",
+  },
+  {
     // 药厂企业管理员演示账号：本药厂组织/用户/角色/授权与数据范围管理
     id: "u-shenyue",
     name: "沈悦",
@@ -1292,9 +1361,9 @@ export const PLATFORM_BINDINGS: PlatformRoleBinding[] = [
  * 派生（见 cooperationModel.membershipsOfUser）。
  */
 export const TENANT_MEMBERSHIPS: TenantMembership[] = [
-  { id: "mb-01", userId: "u-lihang", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", jobTitle: "大区经理", status: "active", joinedAt: "2026-03-01" },
-  { id: "mb-02", userId: "u-zhaoning", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规主管", status: "active", joinedAt: "2026-03-01" },
-  { id: "mb-03", userId: "u-zhoukai", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-shaanxi", jobTitle: "地区销售经理", status: "active", joinedAt: "2026-03-12" },
+  { id: "mb-01", userId: "u-lihang", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", jobTitle: "大区经理", status: "active", joinedAt: "2026-03-01", responsibleRegions: ["陕西", "甘肃", "青海", "宁夏"] },
+  { id: "mb-02", userId: "u-zhaoning", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规主管", status: "active", joinedAt: "2026-03-01", responsibleRegions: ["全国"] },
+  { id: "mb-03", userId: "u-zhoukai", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-shaanxi", jobTitle: "地区销售经理", status: "active", joinedAt: "2026-03-12", responsibleRegions: ["陕西", "宁夏"] },
   { id: "mb-04", userId: "u-shenyue", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-it", jobTitle: "信息化经理", status: "active", joinedAt: "2026-04-01" },
   { id: "mb-05", userId: "u-chenwei", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", jobTitle: "总经理", status: "active", joinedAt: "2026-04-12" },
   { id: "mb-06", userId: "u-chenwei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规顾问", status: "active", joinedAt: "2026-06-01" },
@@ -1310,6 +1379,10 @@ export const TENANT_MEMBERSHIPS: TenantMembership[] = [
   { id: "mb-16", userId: "u-sunqi", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-09-08" },
   // 双服务商演示：李晨同属智联（mb-12）与东方恒业——两边的角色、药厂范围互不串台
   { id: "mb-17", userId: "u-lichen", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-09-12" },
+  // 区域演示三人组（同在销售部，区域各不相同且允许重叠；不带企业管理员）
+  { id: "mb-18", userId: "u-zhouqian", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-sales", jobTitle: "区域销售", status: "active", joinedAt: "2026-10-27", responsibleRegions: ["陕西", "宁夏"] },
+  { id: "mb-19", userId: "u-wutong", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-sales", jobTitle: "区域销售", status: "active", joinedAt: "2026-10-27", responsibleRegions: ["四川", "重庆", "陕西"] },
+  { id: "mb-20", userId: "u-zhengnan", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-sales", jobTitle: "销售总监", status: "active", joinedAt: "2026-10-27", responsibleRegions: ["全国"] },
 ]
 
 /**
@@ -1318,19 +1391,8 @@ export const TENANT_MEMBERSHIPS: TenantMembership[] = [
  * 合作与业务授权限定上限，员工范围只能收窄，见「角色与数据范围 · 已授权成员」页签）。
  */
 export const seedAssignments: RoleAssignment[] = [
-  {
-    id: "g-03",
-    tenantId: "org-pharma",
-    userId: "u-lihang",
-    roleId: "role-pharma-admin",
-    scopeOrgId: "org-pharma",
-    scopeOrgName: "百益制药",
-    scope: "PHARMA",
-    effectiveFrom: "2026-03-01",
-    grantedBy: "沈悦",
-    grantedAt: "2026-03-01 10:12",
-    status: "active",
-  },
+  // 2026-10-27 方向修订：删除 g-03（李航 × 企业管理员）——区域演示账号不得持有管理员角色，
+  // 否则被「管理员固定全国」例外覆盖，无法验证区域限制。李航保留 g-11 区域销售角色。
   {
     id: "g-04",
     tenantId: "org-pharma",
@@ -1471,9 +1533,9 @@ export const seedAssignments: RoleAssignment[] = [
     tenantId: "org-pharma",
     userId: "u-lihang",
     roleId: "role-custom-region-sales",
-    scopeOrgId: "org-dept-northwest",
-    scopeOrgName: "西北大区",
-    scope: "DEPT_AND_CHILD",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
     effectiveFrom: "2026-08-24",
     grantedBy: "沈悦",
     grantedAt: "2026-08-24 15:20",
@@ -1588,6 +1650,49 @@ export const seedAssignments: RoleAssignment[] = [
     grantedBy: "陈伟",
     grantedAt: "2026-09-08 14:10",
     status: "active",
+  },
+  // 区域演示授权（2026-10-27）：周倩/吴桐 = 只读「区域进度查看」；郑楠 = 销售管理 + 全国区域
+  {
+    id: "g-20",
+    tenantId: "org-pharma",
+    userId: "u-zhouqian",
+    roleId: "role-pharma-region-view",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
+    effectiveFrom: "2026-10-27",
+    grantedBy: "沈悦",
+    grantedAt: "2026-10-27 09:30",
+    status: "active",
+    reason: "区域进度查看 · 陕西、宁夏",
+  },
+  {
+    id: "g-21",
+    tenantId: "org-pharma",
+    userId: "u-wutong",
+    roleId: "role-pharma-region-view",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
+    effectiveFrom: "2026-10-27",
+    grantedBy: "沈悦",
+    grantedAt: "2026-10-27 09:30",
+    status: "active",
+    reason: "区域进度查看 · 四川、重庆、陕西（与周倩区域重叠，验证共管）",
+  },
+  {
+    id: "g-22",
+    tenantId: "org-pharma",
+    userId: "u-zhengnan",
+    roleId: "role-custom-region-sales",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
+    effectiveFrom: "2026-10-27",
+    grantedBy: "沈悦",
+    grantedAt: "2026-10-27 09:30",
+    status: "active",
+    reason: "销售总监 · 负责区域全国（配置值，非管理员例外）",
   },
 ]
 
@@ -1989,7 +2094,9 @@ export function summarizePerms(role: SysRole): string {
   const writes = Object.values(role.pagePerms)
     .flat()
     .filter((a) => a !== "view").length
-  return `${pages} 个页面 · ${writes} 项操作 · ${scopeLabel(role.defaultScope)}`
+  // 药厂角色不再携带范围档位（可见区域随成员所属部门）；保持三段式，登录身份页按末段裁切的逻辑不受影响
+  const scopePart = role.appliesTo?.includes("pharma") ? "数据区域随所属部门" : scopeLabel(role.defaultScope)
+  return `${pages} 个页面 · ${writes} 项操作 · ${scopePart}`
 }
 
 export function applyActionToggle(

@@ -52,6 +52,7 @@ import {
   tenantNameOf,
   visiblePharmasForUser,
 } from "../data/cooperationModel"
+import { hasPharmaAdminAssignment, pharmaRegionScopeOfMember, regionScopeLabel } from "../data/pharmaRegionScope"
 import {
   AUTH_PROFILES,
   DEMO_PASSWORD,
@@ -255,13 +256,15 @@ function identityOptionsFor(
     const pharmaUnion = [...new Set(list.flatMap((a) => a.pharmaTenantIds ?? []))]
     const isProviderBusinessScope =
       role.appliesTo?.includes("provider") && role.defaultScope !== "PROVIDER"
-    const scopeSummary =
-      isProviderBusinessScope
+    const membership = membershipsOfUser(user.id).find((m) => m.tenantId === workspaceId)
+    const membershipOrgName = allOrgs().find((o) => o.id === membership?.orgUnitId)?.name
+    // 药厂角色不再按授权档位描述范围（已退役）：直接给出成员本人配置的负责区域（管理员固定全量）
+    const isPharmaRole = role.appliesTo?.includes("pharma")
+    const scopeSummary = isPharmaRole
+      ? `数据区域：${regionScopeLabel(pharmaRegionScopeOfMember({ regions: membership?.responsibleRegions, isPharmaAdmin: hasPharmaAdminAssignment(list, workspaceId) }))} · ${membershipOrgName ?? "未分配部门"}`
+      : isProviderBusinessScope
         ? `${scopeParts.join("；")}｜可处理药厂：${pharmaUnion.length > 0 ? pharmaUnion.map((id) => tenantNameOf(id)).join("、") : "（未分配）"}`
         : scopeParts.join("；")
-    const membershipOrgName = allOrgs().find(
-      (o) => o.id === membershipsOfUser(user.id).find((m) => m.tenantId === workspaceId)?.orgUnitId,
-    )?.name
     opts.push({
       realm: "TENANT",
       key: `${roleId}@${workspaceId}`,
@@ -298,15 +301,19 @@ function buildTenantPrincipal(
   const orgUnit = allOrgs().find((o) => o.id === orgUnitId)
   const allIds = new Set(opts.flatMap((o) => o.assignmentIds))
   const assignments = allAssignments().filter((a) => allIds.has(a.id))
-  // 数据范围明细：按「范围根 × 档位」去重后的并集（展示用；行级过滤按授权全集计算）
-  const scopeSeen = new Set<string>()
-  const dataScopes = assignments.reduce<{ scope: ScopeType; scopeOrgId: string; scopeOrgName: string }[]>((acc, a) => {
-    const key = `${a.scopeOrgId}|${a.scope}`
-    if (scopeSeen.has(key)) return acc
-    scopeSeen.add(key)
-    acc.push({ scope: a.scope, scopeOrgId: a.scopeOrgId, scopeOrgName: a.scopeOrgName })
-    return acc
-  }, [])
+  const tenantKind = opts[0].tenantKind ?? tenantKindOfRoot(allOrgs().find((o) => o.id === workspaceId)) ?? "pharma"
+  // 药厂侧数据范围 = 成员本人配置的负责区域（2026-10-27 方向修订：区域按成员配置、调岗不变）；
+  // 企业管理员固定全量。登录只拍快照供展示，业务页实时过滤走 usePharmaRegionScope（编辑区域即时生效）。
+  const pharmaRegionScope =
+    tenantKind === "pharma"
+      ? pharmaRegionScopeOfMember({
+          regions: membership?.responsibleRegions,
+          isPharmaAdmin: hasPharmaAdminAssignment(assignments, workspaceId),
+        })
+      : undefined
+  const dataScopeSummary = pharmaRegionScope
+    ? `数据区域：${regionScopeLabel(pharmaRegionScope)} · ${orgUnit?.name ?? "未分配部门"}`
+    : opts.map((o) => o.scopeSummary).join("；")
   const perspective =
     roles.map((r) => perspectiveRoleOf(r)).find((p): p is NonNullable<ReturnType<typeof perspectiveRoleOf>> => Boolean(p)) ??
     "药厂销售部门"
@@ -321,14 +328,14 @@ function buildTenantPrincipal(
     orgName: orgUnit?.name ?? user.orgName,
     tenantId: workspaceId,
     tenantName: opts[0].tenantName ?? tenantNameOf(workspaceId),
-    tenantKind: opts[0].tenantKind ?? tenantKindOfRoot(allOrgs().find((o) => o.id === workspaceId)) ?? "pharma",
+    tenantKind,
     membershipId: membership?.id ?? "",
     roleIds: roles.map((r) => r.id),
     roleNames: roles.map((r) => r.name),
     jobTitle: membership?.jobTitle,
     effectiveAssignmentIds: [...allIds],
-    dataScopes,
-    dataScopeSummary: opts.map((o) => o.scopeSummary).join("；"),
+    pharmaRegionScope,
+    dataScopeSummary,
     perspective,
   }
 }

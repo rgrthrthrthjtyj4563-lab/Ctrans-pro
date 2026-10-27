@@ -182,8 +182,11 @@ export interface AcceptanceReviewLog {
   itemId: string
   itemType: "推广记录" | "报告"
   level: number
+  /** 本级配置的验收部门（验收链配置） */
   department: string
   reviewer: string
+  /** 审核人实际所属部门（2026-10-27 D7；与 department 不一致只可能是企业管理员越级审核） */
+  reviewerDepartment?: string
   decision: "通过" | "驳回"
   comment: string
   time: string
@@ -197,6 +200,8 @@ export interface AcceptanceBatchLog {
   level: number
   department: string
   reviewer: string
+  /** 审核人实际所属部门（2026-10-27 D7） */
+  reviewerDepartment?: string
   time: string
   passedCount: number
   rejectedCount: number
@@ -640,6 +645,8 @@ export interface NavFocus {
   budgetAnalysis?: { budgetPlanId: string; year: number; provider: string }
   /** 跳转「用户与组织」时按角色筛选人员列表（来自角色管理「已授权用户」跳转） */
   userOrgRoleId?: string
+  /** 跳转「用户管理」时直接打开该成员详情（来自组织架构成员行「查看授权」，D8） */
+  userDetailUserId?: string
   /** 跳转「业务授权」时预选的服务商（来自合作关系/准入详情「查看授权」） */
   businessAuthProviderTenantId?: string
   /** 跳转「合同管理」时直接打开该服务商的上传合同弹窗（来自准入通过承接引导，对象不可改选） */
