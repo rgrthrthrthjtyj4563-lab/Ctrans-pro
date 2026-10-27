@@ -1,26 +1,20 @@
 /**
- * 药厂侧区域范围（2026-10-27《药厂数据范围按部门区域重构-整改优化方案》§2 D1–D5）。
+ * 药厂侧区域范围（2026-10-27 方向修订：**区域按成员配置，与部门无关**）。
  *
- * 三层模型：角色 = 能做什么 + 字段脱敏；部门 = 管哪些区域；成员授权 = 给谁、哪个角色、生效期。
- * 本模块只回答「这个药厂成员能看哪些省」与「这一行数据落在哪些省」：
- * - 成员区域 = 所属部门 managedRegions；含「全国」= ALL；空 / 未配置 = NONE（默认拒绝）；
- *   预置「企业管理员」固定 ALL，是唯一例外（D1）。
- * - 行区域按 D2 顺序解析：① 行自带 regions/region → ② taskId → 任务服务地区 →
- *   ③ (服务商, 品种) → 本药厂授予该服务商该品种的区域（品种授权链）→ ④ 解析不出 = 不可见。
- * - 匹配是任务级（D3）：行区域与成员区域有交集即可见；行区域含「全国」对任何有区域的成员可见（D5）。
+ * 三层职责：组织架构管人员属于哪个部门；**用户管理管每个人负责哪些区域**；角色管理管每个人能做什么。
+ * - 成员区域 = TenantMembership.responsibleRegions（用户详情「编辑负责区域」维护，调岗不变）；
+ *   含「全国」= ALL；未配置/空 = NONE（默认拒绝）；预置「企业管理员」固定 ALL，是唯一例外。
+ * - 行区域解析只认可靠锚点：① 行自带 regions/region → ② taskId → 任务服务地区 → ③ 解析不出 = 不可见。
+ *   **不做**「服务商×品种 → 授权区域」推断——那是服务商被授权的范围，不等于该条数据实际发生的区域；
+ *   无锚点的数据对普通区域成员隐藏，管理员可见（页面可标「区域待确认」）。
+ * - 匹配是任务级（D3 沿用）：行区域与成员区域有交集即可见；行区域含「全国」对任何有区域的成员可见（D5）。
+ *   能看整单 ≠ 有金额/导出/审核权限——那些由角色决定。
  *
- * 与服务商侧 `regionNamesInScope` 的区别：那边「行未标区域 = 放行」，这边「解析不出 = 拒绝」。
- * 两套语义各自服务默认口径，不要互相替换。
+ * 与服务商侧 `regionNamesInScope` 的区别：那边「行未标区域 = 放行」，这里「解析不出 = 拒绝」。
  */
 import { PROVINCES, REGION_NATIONWIDE } from "../constants"
-import type { PermOrg, RoleAssignment } from "./permissions"
-import {
-  authorizedVarietyLinesOfPharma,
-  normalizeRegionName,
-  normalizeVarietyName,
-  relationshipsOfPharma,
-  tenantNameOf,
-} from "./cooperationModel"
+import { normalizeRegionName } from "./cooperationModel"
+import type { RoleAssignment } from "./permissions"
 
 export type PharmaRegionMode = "ALL" | "NONE" | "REGIONS"
 
@@ -49,7 +43,7 @@ export function canonicalRegionName(name: string): string | null {
 
 /**
  * 规范化一组区域：归一短名、去重、剔除词表外项；
- * 含「全国」时按 D1 互斥规则只保留「全国」。
+ * 含「全国」时按互斥规则只保留「全国」。
  */
 export function canonicalRegions(input: readonly string[]): string[] {
   const out: string[] = []
@@ -60,28 +54,22 @@ export function canonicalRegions(input: readonly string[]): string[] {
   return out.includes(REGION_NATIONWIDE) ? [REGION_NATIONWIDE] : out
 }
 
-/** 部门节点 → 区域范围：含「全国」= ALL；空 / 缺省 = NONE；否则 REGIONS */
-export function regionScopeOfOrg(org: Pick<PermOrg, "managedRegions"> | undefined): PharmaRegionScope {
-  const regions = canonicalRegions(org?.managedRegions ?? [])
-  if (regions.length === 0) return REGION_SCOPE_NONE
-  if (regions.includes(REGION_NATIONWIDE)) return REGION_SCOPE_ALL
-  return { mode: "REGIONS", regions }
-}
-
 /** 授权记录中是否含本租户有效的药厂企业管理员授权 */
 export function hasPharmaAdminAssignment(assignments: readonly RoleAssignment[], tenantId: string): boolean {
   return assignments.some((a) => a.roleId === PHARMA_ADMIN_ROLE_ID && a.tenantId === tenantId && a.status === "active")
 }
 
-/** 成员区域范围：企业管理员固定全量（D1 唯一例外）；否则 = 所属部门的管理区域 */
+/** 成员区域范围：企业管理员固定全量（唯一例外）；否则 = 该成员自己配置的负责区域 */
 export function pharmaRegionScopeOfMember(input: {
-  orgs: readonly PermOrg[]
-  orgUnitId: string | undefined
+  /** TenantMembership.responsibleRegions 原值（未配置传 undefined） */
+  regions: readonly string[] | undefined
   isPharmaAdmin: boolean
 }): PharmaRegionScope {
   if (input.isPharmaAdmin) return REGION_SCOPE_ALL
-  const org = input.orgUnitId ? input.orgs.find((o) => o.id === input.orgUnitId) : undefined
-  return regionScopeOfOrg(org)
+  const regions = canonicalRegions(input.regions ?? [])
+  if (regions.length === 0) return REGION_SCOPE_NONE
+  if (regions.includes(REGION_NATIONWIDE)) return REGION_SCOPE_ALL
+  return { mode: "REGIONS", regions }
 }
 
 export function regionScopeLabel(scope: PharmaRegionScope): string {
@@ -91,7 +79,7 @@ export function regionScopeLabel(scope: PharmaRegionScope): string {
 }
 
 /**
- * 行区域 ∩ 成员区域（D3 任务级：命中任一省即可见；D5「全国」语义）。
+ * 行区域 ∩ 成员区域（任务级：命中任一省即可见；「全国」语义见上）。
  * 行区域为空由调用方按「解析不出 = 拒绝」处理，本函数不放行空集。
  */
 export function regionsIntersect(scope: PharmaRegionScope, rowRegions: readonly string[]): boolean {
@@ -107,31 +95,32 @@ export function regionsIntersect(scope: PharmaRegionScope, rowRegions: readonly 
   })
 }
 
-/** 业务行的区域解析输入（各页按自身数据结构映射；字段越具体优先级越高，见 D2） */
+/** 业务行的区域解析输入（各页按自身数据结构映射；字段越具体优先级越高） */
 export interface PharmaRegionRow {
   /** 行自带的多值区域（任务 regions、预算 regions、工作台任务 regions） */
   regions?: readonly string[]
   /** 行自带的单值区域（服务项目 / 结算明细行 region） */
   region?: string
-  /** 所属任务（拜访 / 验收材料包 / 结算单经任务取区域） */
+  /** 所属任务（拜访 / 验收材料包 / 结算单经任务取区域——唯一可靠的无自有区域锚点） */
   taskId?: string
-  /** 行所属服务商企业名（无区域字段的对象走品种授权链解析） */
+  /**
+   * 以下字段**当前不参与区域解析**（2026-10-27 方向修订）：服务商被授权的省份 ≠ 该条数据
+   * 实际发生的区域，按授权链推断属「乱推断」。保留字段形状供页面映射与后续逐项接入
+   * （阶段三按数据归属逐页核查后，可靠锚点另行补充）。
+   */
   provider?: string
-  /** 行品种（单值） */
   variety?: string
-  /** 行品种（多值） */
   varieties?: readonly string[]
 }
 
 export interface PharmaRegionResolverContext {
   /** taskId → 任务服务地区（页面自备任务数据；缺省时跳过 ② 步） */
   taskRegionsOf?: (taskId: string) => readonly string[] | undefined
-  /** (服务商名, 品种) → 本药厂授予该服务商该品种的区域（授权链；缺省时跳过 ③ 步） */
-  authorizedRegionsOf?: (providerName: string, variety: string) => readonly string[] | undefined
 }
 
 /**
- * D2 行区域解析。返回 null 表示解析不出（药厂侧默认拒绝）；空数组视同 null。
+ * 行区域解析：① 行自带 regions/region → ② taskId → 任务服务地区 → ③ null。
+ * 返回 null 表示解析不出（药厂侧默认拒绝，管理员例外可见）。
  */
 export function resolveRowRegions(row: PharmaRegionRow, ctx: PharmaRegionResolverContext): string[] | null {
   if (row.regions && row.regions.length > 0) return [...row.regions]
@@ -140,45 +129,5 @@ export function resolveRowRegions(row: PharmaRegionRow, ctx: PharmaRegionResolve
     const fromTask = ctx.taskRegionsOf(row.taskId)
     if (fromTask && fromTask.length > 0) return [...fromTask]
   }
-  if (row.provider && ctx.authorizedRegionsOf) {
-    const varieties = row.varieties && row.varieties.length > 0 ? row.varieties : row.variety ? [row.variety] : []
-    const union = new Set<string>()
-    for (const v of varieties) {
-      const fromAuth = ctx.authorizedRegionsOf(row.provider, v)
-      fromAuth?.forEach((r) => union.add(r))
-    }
-    if (union.size > 0) return [...union]
-  }
   return null
-}
-
-/**
- * 构建 (服务商名, 品种) → 本药厂授予该服务商该品种的区域 的查询。
- * 按药厂建一次索引（服务商名 → 租户 id；授权行按服务商缓存）；合作 / 授权数据变化后需重建
- * （调用方以 cooperationRevision 为依赖重建即可）。只认合作生效且授权有效的服务商——
- * 合作暂停 / 终止、授权撤销的服务商按「解析不出」处理，与服务商侧口径一致。
- */
-export function createAuthorizedRegionsLookup(
-  pharmaTenantId: string,
-): (providerName: string, variety: string) => string[] | undefined {
-  const providerIdByName = new Map<string, string>()
-  for (const rel of relationshipsOfPharma(pharmaTenantId)) {
-    providerIdByName.set(tenantNameOf(rel.providerTenantId), rel.providerTenantId)
-  }
-  const linesCache = new Map<string, ReturnType<typeof authorizedVarietyLinesOfPharma>>()
-  return (providerName, variety) => {
-    const providerId = providerIdByName.get(providerName.trim())
-    if (!providerId) return undefined
-    let lines = linesCache.get(providerId)
-    if (!lines) {
-      lines = authorizedVarietyLinesOfPharma(providerId, pharmaTenantId)
-      linesCache.set(providerId, lines)
-    }
-    const wanted = normalizeVarietyName(variety)
-    const regions = new Set<string>()
-    for (const line of lines) {
-      if (normalizeVarietyName(line.varietyName) === wanted) line.regions.forEach((r) => regions.add(r))
-    }
-    return regions.size > 0 ? [...regions] : undefined
-  }
 }

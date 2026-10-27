@@ -178,7 +178,13 @@ function hydrateMemberships(): TenantMembership[] {
   if (stored.length === 0) return TENANT_MEMBERSHIPS.map((m) => ({ ...m }))
   const byId = new Map(stored.map((m) => [m.id, m] as const))
   const seedIds = new Set(TENANT_MEMBERSHIPS.map((m) => m.id))
-  const merged = TENANT_MEMBERSHIPS.map((m) => ({ ...(byId.get(m.id) ?? m) }))
+  const merged = TENANT_MEMBERSHIPS.map((m) => {
+    const snap = byId.get(m.id)
+    if (!snap) return { ...m }
+    // 旧快照没有 responsibleRegions 字段时继承种子值：种子区域演示不因历史调岗快照而丢失
+    if (!("responsibleRegions" in snap)) return { ...snap, responsibleRegions: m.responsibleRegions }
+    return { ...snap }
+  })
   for (const m of stored) {
     if (!seedIds.has(m.id)) merged.push({ ...m })
   }
@@ -324,7 +330,7 @@ export function rejoinMembership(input: {
   return { ok: true, membership: next }
 }
 
-/** 新建成员（用户建档时写入当前租户的成员身份）或调整成员部门（调岗） */
+/** 新建成员（用户建档时写入当前租户的成员身份）或调整成员部门（调岗；不改动负责区域） */
 export function upsertMembership(input: { userId: string; tenantId: string; orgUnitId: string; tenantName?: string }): TenantMembership {
   const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
   if (idx >= 0) {
@@ -346,6 +352,23 @@ export function upsertMembership(input: { userId: string; tenantId: string; orgU
   tenantMembershipState = [created, ...tenantMembershipState]
   notifyMembershipChange()
   return created
+}
+
+/**
+ * 配置成员的负责区域（2026-10-27 方向修订）：只改 responsibleRegions，不动部门归属与角色授权。
+ * 传入空数组 = 未配置（该成员看不到区域受控的业务数据，但角色不受影响）。
+ */
+export function setMembershipRegions(input: {
+  userId: string
+  tenantId: string
+  regions: string[]
+}): { ok: boolean; error?: string; membership?: TenantMembership } {
+  const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
+  if (idx < 0) return { ok: false, error: "该用户不是本企业成员" }
+  const next: TenantMembership = { ...tenantMembershipState[idx], responsibleRegions: [...input.regions] }
+  tenantMembershipState = tenantMembershipState.map((m, i) => (i === idx ? next : m))
+  notifyMembershipChange()
+  return { ok: true, membership: next }
 }
 
 // ─── 合作关系（药厂控制） ─────────────────────────────────────────────────────

@@ -1,12 +1,12 @@
 /**
- * 药厂侧会话区域范围统一入口（2026-10-27 整改方案 §4 阶段 2；与服务商侧 useServingScope 同构、语义反转）。
+ * 药厂侧会话区域范围统一入口（2026-10-27 方向修订：**区域按成员配置**；与服务商侧 useServingScope 同构、语义反转）。
  *
  * 药厂业务页（任务 / 结算 / 预算 / 导出 / 工作台 / 验收 / 拜访 / 绩效）一律从本 hook 取区域口径：
- *   成员区域 = 所属部门 managedRegions（实时读组织树，部门区域改动对已登录会话即时生效）；
- *   预置企业管理员固定 ALL；部门未配置 / 未分配部门 = NONE → denied，页面必须渲染空态，
- *   不得回退展示未过滤数据。
- * - 行区域按 D2 顺序解析（行自带 → taskId → 服务商×品种授权链），解析不出 = 不可见（默认拒绝）；
- * - 匹配是任务级（D3）：行区域与成员区域有交集即整行可见；
+ *   成员区域 = 该成员自己配置的负责区域（TenantMembership.responsibleRegions，用户详情维护，调岗不变）；
+ *   预置企业管理员固定 ALL；未配置 = NONE → denied，页面必须渲染空态，不得回退展示未过滤数据。
+ * - 行区域只认可靠锚点（行自带 → taskId → 任务地区），解析不出 = 不可见（默认拒绝）；
+ *   不做服务商×品种授权链推断（授权范围 ≠ 数据实际发生区域）。
+ * - 匹配是任务级（D3）：行区域与成员区域有交集即整行可见；能看整单 ≠ 有金额/导出/审核权限（角色决定）。
  * - 服务商 / 软件服务方会话：本 hook 不过滤（matchesRow 恒 true），服务商侧仍走 useServingScope；
  *   两个 hook 在页面里是「叠加」而非替代。
  */
@@ -16,7 +16,6 @@ import type { TenantPrincipal } from "../auth/authTypes";
 import { membershipOfUserInTenant, membershipRevision, subscribeTenantMemberships } from "../data/cooperationModel";
 import {
   REGION_SCOPE_ALL,
-  createAuthorizedRegionsLookup,
   hasPharmaAdminAssignment,
   pharmaRegionScopeOfMember,
   regionScopeLabel,
@@ -25,7 +24,6 @@ import {
   type PharmaRegionRow,
   type PharmaRegionScope,
 } from "../data/pharmaRegionScope";
-import { useCooperationRevision } from "./useServingBizScope";
 
 export type { PharmaRegionRow, PharmaRegionScope } from "../data/pharmaRegionScope";
 
@@ -65,8 +63,7 @@ const PASS_THROUGH: PharmaRegionScopeView = {
 };
 
 export function usePharmaRegionScope(opts: PharmaRegionScopeOptions = {}): PharmaRegionScopeView {
-  const { principal, orgs, assignments } = usePermission();
-  const coopRevision = useCooperationRevision();
+  const { principal, assignments } = usePermission();
   const memberRevision = useSyncExternalStore(subscribeTenantMemberships, membershipRevision, membershipRevision);
   const taskRegionsOf = opts.taskRegionsOf;
 
@@ -74,18 +71,17 @@ export function usePharmaRegionScope(opts: PharmaRegionScopeOptions = {}): Pharm
     const tenant = principal.realm === "TENANT" ? (principal as TenantPrincipal) : null;
     if (!tenant || tenant.tenantKind !== "pharma") return PASS_THROUGH;
 
+    // 区域按成员配置：membershipRevision 订阅保证「编辑负责区域」对已登录会话即时生效
     const membership = membershipOfUserInTenant(tenant.userId, tenant.tenantId);
     const isPharmaAdmin = hasPharmaAdminAssignment(
       assignments.filter((a) => a.userId === tenant.userId),
       tenant.tenantId,
     );
     const scope = pharmaRegionScopeOfMember({
-      orgs,
-      orgUnitId: membership?.orgUnitId ?? tenant.orgId,
+      regions: membership?.responsibleRegions,
       isPharmaAdmin,
     });
-    const authorizedRegionsOf = createAuthorizedRegionsLookup(tenant.tenantId);
-    const ctx = { taskRegionsOf, authorizedRegionsOf };
+    const ctx = { taskRegionsOf };
 
     const regionsOfRow = (row: PharmaRegionRow) => resolveRowRegions(row, ctx);
     const matchesRow = (row: PharmaRegionRow): boolean => {
@@ -104,9 +100,9 @@ export function usePharmaRegionScope(opts: PharmaRegionScopeOptions = {}): Pharm
       regionsOfRow,
       matchesRegion: (region) => regionsIntersect(scope, [region]),
     };
-    // coopRevision / memberRevision：合作授权或成员归属变化时强制重算（授权链解析与所属部门都依赖它们）
+    // memberRevision：编辑负责区域 / 调岗后即时重算（区域源是成员身份，与组织树无关）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [principal, orgs, assignments, taskRegionsOf, coopRevision, memberRevision]);
+  }, [principal, assignments, taskRegionsOf, memberRevision]);
 }
 
 /** 药厂业务页统一无区域空态文案（默认拒绝口径；说明原因与下一步，见 UI_RULES §5） */

@@ -34,7 +34,8 @@ import {
 import { ACCOUNT_PATTERN, isAccountTakenInWorkspace, isPhoneTakenInWorkspace, tenantQuotaInfo } from '../data/tenantRegistry';
 import { loginGuardOf, unlockLoginGuard } from '../auth/mockGateway';
 import { Field, InfoBanner, inputStyle, tdStyle, thStyle } from './permUi';
-import { hasPharmaAdminAssignment, REGION_SCOPE_ALL, regionScopeLabel, regionScopeOfOrg } from '../data/pharmaRegionScope';
+import { canonicalRegions, hasPharmaAdminAssignment, REGION_SCOPE_ALL, regionScopeLabel } from '../data/pharmaRegionScope';
+import { PROVINCES, REGION_NATIONWIDE } from '../constants';
 import { useRepFiling } from '../context/RepFilingContext';
 import { nowText } from './complianceUi';
 import {
@@ -96,6 +97,8 @@ export function UserManage({ addToast, navFocus }: Props) {
     pledgeDate: string; pledgeFile: string; employStart: string; employEnd: string;
   } | null>(null);
   const [moveUser, setMoveUser] = useState<{ userId: string; targetId: string; error: string } | null>(null);
+  // 编辑负责区域（2026-10-27 方向修订：按成员配置；「全国」与具体省份互斥；未配置 = 区域受控数据不可见）
+  const [regionEdit, setRegionEdit] = useState<{ userId: string; mode: 'nationwide' | 'provinces' | 'unconfigured'; selected: string[]; error: string } | null>(null);
   const [disableUser, setDisableUser] = useState<{ userId: string; revokeAll: boolean } | null>(null);
   const [enableUserId, setEnableUserId] = useState<string | null>(null);
   // ── 2026-09-18 成员生命周期补全：移除 / 重新加入 / 批量导入 / 登录解锁 ──
@@ -150,6 +153,21 @@ export function UserManage({ addToast, navFocus }: Props) {
     assignments
       .filter(a => a.userId === userId && a.tenantId === tenantRootId)
       .map(a => ({ ...a, roleName: roles.find(r => r.id === a.roleId)?.name ?? '（已删除角色）' }));
+
+  // 成员负责区域（2026-10-27 方向修订：按人配置、调岗不变；仅药厂租户）
+  const memberRegionsOf = (userId: string): string[] =>
+    canonicalRegions(membershipOfUserInTenant(userId, tenantRootId)?.responsibleRegions ?? []);
+  const memberIsAdmin = (userId: string): boolean =>
+    isPharmaTenant && hasPharmaAdminAssignment(userAssignments(userId), tenantRootId);
+  const memberRegionsCell = (userId: string) => {
+    if (!isPharmaTenant) return <span style={{ color: '#9CA3AF' }} title="服务商成员区域由品种授权派生">—</span>;
+    if (memberIsAdmin(userId)) return <span style={{ fontWeight: 500 }}>全国</span>;
+    const regions = memberRegionsOf(userId);
+    if (regions.length === 0) return <span style={{ color: '#C77A16' }}>未配置</span>;
+    if (regions.includes(REGION_NATIONWIDE)) return <span style={{ fontWeight: 500 }}>全国</span>;
+    if (regions.length > 2) return <span title={regions.join('、')}>{regions.slice(0, 2).join('、')} 等 {regions.length} 个</span>;
+    return <span>{regions.join('、')}</span>;
+  };
 
   function missingRepFields(): string[] {
     if (!createUserOpen?.createRep) return [];
@@ -270,10 +288,39 @@ export function UserManage({ addToast, navFocus }: Props) {
       type: 'success',
       title: '已调整所属部门',
       description: isPharmaTenant
-        ? `${user?.name} → ${moveUserTarget?.name}。可见区域已随新部门的管理区域变化（${regionScopeLabel(regionScopeOfOrg(moveUserTarget))}）；角色不变。`
+        ? `${user?.name} → ${moveUserTarget?.name}。所属部门已变化；角色和负责区域保持不变，请根据新职责检查是否需要调整。`
         : `${user?.name} → ${moveUserTarget?.name}。仅变更归属；角色与数据范围保持不变，需调整请前往「角色与数据范围」。`,
     });
     setMoveUser(null);
+  }
+
+  function submitRegionEdit() {
+    if (!regionEdit) return;
+    const user = users.find(u => u.id === regionEdit.userId);
+    if (!user) return;
+    if (regionEdit.mode === 'provinces' && regionEdit.selected.length === 0) {
+      setRegionEdit({ ...regionEdit, error: '请至少勾选一个省份；如需清空请选择「未配置」' });
+      return;
+    }
+    const nextRegions = regionEdit.mode === 'nationwide' ? [REGION_NATIONWIDE] : regionEdit.mode === 'provinces' ? regionEdit.selected : [];
+    const before = memberRegionsOf(regionEdit.userId);
+    const result = store.setMemberRegions({ userId: regionEdit.userId, regions: nextRegions });
+    if (!result.ok) {
+      setRegionEdit({ ...regionEdit, error: result.error || '保存失败' });
+      return;
+    }
+    const added = nextRegions.filter(r => !before.includes(r));
+    const removed = before.filter(r => !nextRegions.includes(r));
+    addToast({
+      type: 'success',
+      title: '负责区域已更新',
+      description: [
+        added.length > 0 ? `新增：${added.join('、')}` : '',
+        removed.length > 0 ? `移除：${removed.join('、')}` : '',
+        nextRegions.length === 0 ? '已置为未配置：该成员将无法查看区域受控的业务数据（角色不受影响）' : '',
+      ].filter(Boolean).join('；') || '没有变化',
+    });
+    setRegionEdit(null);
   }
 
   const disableTarget = disableUser ? users.find(u => u.id === disableUser.userId) : undefined;
@@ -430,7 +477,7 @@ export function UserManage({ addToast, navFocus }: Props) {
       <PageHeader
         title="用户管理"
         description={isPharmaTenant
-          ? `维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗）；角色授权为只读展示，调整请前往「角色与数据范围」；成员可见区域随所属部门（组织架构页配置）。`
+          ? `维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗、负责区域）。角色决定成员可使用的功能；负责区域决定成员可查看哪些区域的业务数据，在本页成员详情中配置。`
           : `维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗）；角色与数据范围为只读展示，调整请前往「角色与数据范围」。`}
         actions={canCreate ? (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -468,7 +515,7 @@ export function UserManage({ addToast, navFocus }: Props) {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>{['姓名 / 账号', '手机号', '所属部门', '账号状态', '有效角色', '最近授权', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{['姓名 / 账号', '所属部门', '有效角色', '负责区域', '状态', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {people.map((u, idx) => {
@@ -502,6 +549,14 @@ export function UserManage({ addToast, navFocus }: Props) {
                         )}
                       </td>
                       <td style={tdStyle}>
+                        {active.length === 0 ? <span style={{ color: '#9CA3AF' }}>未分配角色</span> : (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {active.map(a => <span key={a.id} style={chipStyle}>{a.roleName}</span>)}
+                          </div>
+                        )}
+                      </td>
+                      <td style={tdStyle}>{memberRegionsCell(u.id)}</td>
+                      <td style={tdStyle}>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                           <StatusTag status={u.accountStatus === 'enabled' ? '启用' : '停用'} size="sm" />
                           {isRemovedMember(u.id) && <StatusTag status="已移除" size="sm" />}
@@ -512,14 +567,6 @@ export function UserManage({ addToast, navFocus }: Props) {
                           )}
                         </div>
                       </td>
-                      <td style={tdStyle}>
-                        {active.length === 0 ? <span style={{ color: '#9CA3AF' }}>0 个</span> : (
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {active.map(a => <span key={a.id} style={chipStyle}>{a.roleName}</span>)}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ ...tdStyle, color: '#667085', whiteSpace: 'nowrap' }}>{latestAssignmentAt(assignments, u.id) ?? '—'}</td>
                       <td style={tdStyle}>
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                           <Button variant="ghost" size="sm" onClick={() => setSelectedUserId(u.id)}>查看详情</Button>
@@ -609,26 +656,6 @@ export function UserManage({ addToast, navFocus }: Props) {
             <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#667085', marginBottom: 8 }}>
               {isPharmaTenant ? '角色授权（只读；在「角色与数据范围」页对应角色的「已授权成员」页签调整）' : '角色与数据范围（只读；在「角色与数据范围」页对应角色的「已授权成员」页签调整）'}
             </div>
-            {isPharmaTenant && (() => {
-              // 药厂侧可见区域不在授权上：企业管理员固定全量，否则随所属部门的管理区域（组织架构页配置）
-              const detailAssignments = userAssignments(selectedUser.id);
-              const detailIsAdmin = hasPharmaAdminAssignment(detailAssignments, tenantRootId);
-              const detailOrg = orgs.find(o => o.id === memberOrgId(selectedUser.id));
-              const detailScope = detailIsAdmin ? REGION_SCOPE_ALL : regionScopeOfOrg(detailOrg);
-              return (
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 10 }}>
-                  <span style={{ color: '#667085' }}>数据可见区域</span>
-                  <span style={{ fontWeight: 600 }}>{regionScopeLabel(detailScope)}</span>
-                  <span style={{ color: '#9CA3AF', fontSize: 'var(--fs-12)' }}>
-                    {detailIsAdmin
-                      ? '企业管理员固定全量，不受部门区域限制'
-                      : detailScope.mode === 'NONE'
-                        ? `所属部门「${detailOrg?.name ?? '未分配'}」未配置管理区域，暂无可见的区域业务数据；在组织架构页配置`
-                        : `随所属部门「${detailOrg?.name ?? ''}」的管理区域；调岗后随新部门变化`}
-                  </span>
-                </div>
-              );
-            })()}
             {userAssignments(selectedUser.id).length === 0 ? (
               <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>该成员尚无角色授权</div>
             ) : (
@@ -647,12 +674,124 @@ export function UserManage({ addToast, navFocus }: Props) {
               </div>
             )}
           </div>
+          {isPharmaTenant && (() => {
+            // 负责区域（2026-10-27 方向修订）：按成员配置、调岗不变；本页是唯一编辑入口
+            const isAdmin = memberIsAdmin(selectedUser.id);
+            const regions = memberRegionsOf(selectedUser.id);
+            return (
+              <div style={{ marginTop: 14, border: '1px solid var(--color-border)', borderRadius: 8, padding: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#667085' }}>负责区域（决定可查看哪些区域的业务数据）</span>
+                  {canEdit && !isAdmin && !detailRemoved && (
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={() => setRegionEdit({
+                        userId: selectedUser.id,
+                        mode: regions.includes(REGION_NATIONWIDE) ? 'nationwide' : regions.length > 0 ? 'provinces' : 'unconfigured',
+                        selected: regions.includes(REGION_NATIONWIDE) ? [] : regions,
+                        error: '',
+                      })}
+                    >
+                      编辑负责区域
+                    </Button>
+                  )}
+                </div>
+                <div style={{ fontSize: 'var(--fs-13)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  {isAdmin ? (
+                    <>
+                      <span style={{ fontWeight: 600 }}>全国</span>
+                      <span style={{ color: '#9CA3AF', fontSize: 'var(--fs-12)' }}>企业管理员固定全量，不受负责区域影响</span>
+                    </>
+                  ) : regions.length === 0 ? (
+                    <span style={{ color: '#C77A16' }}>未配置——该成员暂无法查看区域受控的业务数据（角色不受影响）</span>
+                  ) : (
+                    regions.map(r => <span key={r} style={chipStyle}>{r}</span>)
+                  )}
+                </div>
+                {!isAdmin && (
+                  <div style={{ marginTop: 6, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
+                    区域按成员配置，调岗不改变；保存后该成员可查看的区域业务数据随即变化。
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {detailRemoved && removeActiveCount > 0 && (
             <div style={{ marginTop: 10, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
               该成员已移除：名下 {removeActiveCount} 条授权记录已同步回收（历史保留），重新加入后需重新授予角色。
             </div>
           )}
         </Modal>
+        );
+      })()}
+
+      {/* 编辑负责区域（按成员配置，唯一编辑入口；区域重叠允许，不要求上下级部门） */}
+      {regionEdit && (() => {
+        const user = users.find(u => u.id === regionEdit.userId);
+        const before = memberRegionsOf(regionEdit.userId);
+        const nextRegions = regionEdit.mode === 'nationwide' ? [REGION_NATIONWIDE] : regionEdit.mode === 'provinces' ? regionEdit.selected : [];
+        const added = nextRegions.filter(r => !before.includes(r));
+        const removed = before.filter(r => !nextRegions.includes(r));
+        return (
+          <Modal
+            open title={`编辑负责区域 · ${user?.name ?? ''}`}
+            onClose={() => setRegionEdit(null)} width={640}
+            footer={
+              <>
+                <Button variant="outline" onClick={() => setRegionEdit(null)}>取消</Button>
+                <Button variant="primary" disabled={added.length === 0 && removed.length === 0} onClick={submitRegionEdit}>保存</Button>
+              </>
+            }
+          >
+            <div style={{ display: 'grid', gap: 12 }}>
+              <InfoBanner>
+                负责区域决定该成员可查看哪些区域的业务数据；按成员配置，调岗不改变，不同成员的区域允许重叠。
+                「全国」与具体省份互斥；未配置时该成员无法查看区域受控的业务数据，但不会影响其角色。
+              </InfoBanner>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                {([['nationwide', '全国'], ['provinces', '指定省份（可多选）'], ['unconfigured', '未配置']] as const).map(([value, label]) => (
+                  <label key={value} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-13)', cursor: 'pointer' }}>
+                    <input
+                      type="radio" name="region-mode"
+                      checked={regionEdit.mode === value}
+                      onChange={() => setRegionEdit({ ...regionEdit, mode: value, error: '' })}
+                      style={{ accentColor: 'var(--color-brand)' }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {regionEdit.mode === 'provinces' && (
+                <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 10, display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 220, overflow: 'auto' }}>
+                  {PROVINCES.map(p => (
+                    <label key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-12)', padding: '2px 6px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      <input
+                        type="checkbox"
+                        checked={regionEdit.selected.includes(p)}
+                        onChange={e => setRegionEdit({
+                          ...regionEdit,
+                          selected: e.target.checked ? [...regionEdit.selected, p] : regionEdit.selected.filter(x => x !== p),
+                          error: '',
+                        })}
+                        style={{ accentColor: 'var(--color-brand)', width: 13, height: 13 }}
+                      />
+                      {p}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {added.length > 0 || removed.length > 0 ? (
+                <div style={{ fontSize: 'var(--fs-12)', color: '#667085', border: '1px dashed var(--color-border)', borderRadius: 8, padding: 8 }}>
+                  {added.length > 0 && <div>新增：{added.join('、')}</div>}
+                  {removed.length > 0 && <div>移除：{removed.join('、')}</div>}
+                  <div style={{ color: '#C77A16', marginTop: 4 }}>保存后，该成员可查看的区域业务数据将发生变化。</div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>尚未选择任何变更。</div>
+              )}
+              {regionEdit.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{regionEdit.error}</div>}
+            </div>
+          </Modal>
         );
       })()}
 
@@ -748,7 +887,7 @@ export function UserManage({ addToast, navFocus }: Props) {
         >
           <div style={{ display: 'grid', gap: 12 }}>
             {isPharmaTenant ? (
-              <InfoBanner>仅变更人员归属节点；<b>可见区域随新部门的管理区域变化</b>（部门未配置区域则该成员暂无可见的区域业务数据），角色不变。跨企业调入会被拒绝。</InfoBanner>
+              <InfoBanner>调整后，该成员的所属部门将变化；<b>角色和负责区域保持不变</b>。请根据新职责检查是否需要调整（角色在「角色与数据范围」、负责区域在本页成员详情）。跨企业调入会被拒绝。</InfoBanner>
             ) : (
               <InfoBanner>仅变更人员归属节点；<b>归属变化不自动调整角色与数据范围</b>（如需调整请前往「角色与数据范围」）。跨企业调入会被拒绝。</InfoBanner>
             )}

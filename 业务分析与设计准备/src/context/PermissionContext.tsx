@@ -52,6 +52,7 @@ import {
   membershipOfUserInTenant,
   rejoinMembership,
   removeMembership,
+  setMembershipRegions,
   subscribeTenantMemberships,
   upsertMembership,
 } from '../data/cooperationModel';
@@ -140,8 +141,8 @@ interface PermissionStore {
   rejoinTenantMember: (input: { userId: string; orgId: string }) => { ok: boolean; error?: string };
   addDepartment: (input: { name: string; parentId: string }) => { ok: boolean; error?: string; org?: PermOrg };
   updateDepartment: (input: { orgId: string; name?: string; parentId?: string; reason?: string }) => { ok: boolean; error?: string };
-  /** 药厂部门管理区域（D1）：省级短名 / 「全国」；空数组 = 未配置（默认拒绝） */
-  setOrgManagedRegions: (input: { orgId: string; regions: string[]; reason?: string }) => { ok: boolean; error?: string; regions?: string[] };
+  /** 成员负责区域（按人配置、调岗不变）：省级短名 / 「全国」；空数组 = 未配置（默认拒绝，角色不受影响） */
+  setMemberRegions: (input: { userId: string; regions: string[]; reason?: string }) => { ok: boolean; error?: string; regions?: string[] };
   /** 服务商内部业务团队（工作组）管理：只表达团队归属，不承载权限域概念 */
   addWorkGroup: (input: { name: string; reason?: string }) => { ok: boolean; error?: string; org?: PermOrg };
   renameWorkGroup: (input: { orgId: string; name: string; reason?: string }) => { ok: boolean; error?: string };
@@ -206,8 +207,12 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   const principalTenantKind = principal.realm === "TENANT" ? principal.tenantKind : null;
   /** 权限域角色：系统角色与租户角色永不混列（验收 §13.10） */
   const realmRoles = useMemo(
-    () => rolesOfTenant(roles, realm, realm === 'TENANT' ? principalTenantId : null),
-    [roles, realm, principalTenantId],
+    () =>
+      rolesOfTenant(roles, realm, realm === 'TENANT' ? principalTenantId : null).filter(
+        // 2026-10-27 §三.3：企业只看到适用于本企业类型的角色（药厂不混列服务商角色，反之亦然）
+        r => r.realm !== 'TENANT' || !r.appliesTo || (principalTenantKind != null && r.appliesTo.includes(principalTenantKind)),
+      ),
+    [roles, realm, principalTenantId, principalTenantKind],
   );
   /** 全部生效角色 id（多角色合并口径；平台域恒单角色） */
   const currentRoleIds = useMemo(
@@ -954,41 +959,39 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
   }, [logAudit, orgs, preview]);
 
   /**
-   * 配置部门管理区域（2026-10-27 D1）：仅药厂租户的部门节点。输入经 canonicalRegions 归一
-   * （短名、去重；「全国」与具体省份互斥时只保留「全国」）；父子部门不自动继承；
-   * 空数组 = 清空为未配置（该部门普通成员随即看不到区域业务数据）。
+   * 配置成员负责区域（2026-10-27 方向修订）：只改 membership.responsibleRegions，
+   * 不动部门归属与角色授权（调岗也不改区域）。输入经 canonicalRegions 归一
+   * （短名、去重；「全国」与具体省份互斥时只保留「全国」）；
+   * 空数组 = 未配置（该成员看不到区域受控业务数据，角色不受影响）。
+   * 仅药厂租户（服务商成员区域由品种授权派生，不单独配置）。
    */
-  const setOrgManagedRegions = useCallback((input: { orgId: string; regions: string[]; reason?: string }) => {
+  const setMemberRegions = useCallback((input: { userId: string; regions: string[]; reason?: string }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
-    const current = orgs.find(o => o.id === input.orgId);
-    if (!current) return { ok: false, error: '部门不存在' };
-    if (current.type !== 'department') return { ok: false, error: '只能为部门节点配置管理区域' };
-    const root = enterpriseRootOf(orgs, current.id);
-    if (!root || root.type !== 'pharma') {
-      return { ok: false, error: '管理区域仅适用于药厂租户的部门（服务商区域由品种授权派生，不单独配置）' };
+    if (realm !== 'TENANT' || !principalTenantId || principalTenantKind !== 'pharma') {
+      return { ok: false, error: '负责区域仅适用于药厂成员（服务商区域由品种授权派生，不单独配置）' };
     }
-    if (realm === 'TENANT' && root.id !== principalTenantId) {
-      return { ok: false, error: '只能配置本企业组织树内的部门（租户边界）' };
-    }
+    const user = usersRef.current.find(u => u.id === input.userId);
+    if (!user) return { ok: false, error: '用户不存在' };
+    const membership = membershipOfUserInTenant(input.userId, principalTenantId);
+    if (!membership) return { ok: false, error: '该用户不是本企业成员' };
     const invalid = input.regions.filter(r => r.trim() && canonicalRegionName(r) === null);
     if (invalid.length > 0) return { ok: false, error: `无法识别的区域：${invalid.join('、')}` };
     const regions = canonicalRegions(input.regions);
-    const before = canonicalRegions(current.managedRegions ?? []);
+    const before = canonicalRegions(membership.responsibleRegions ?? []);
     if (before.join('|') === regions.join('|')) return { ok: true, regions };
-    const next: PermOrg = { ...current, managedRegions: regions };
-    setOrgs(prev => prev.map(o => (o.id === current.id ? next : o)));
-    upsertRuntimeOrg(next);
+    const result = setMembershipRegions({ userId: input.userId, tenantId: principalTenantId, regions });
+    if (!result.ok) return { ok: false, error: result.error };
     logAudit({
-      module: MOD_ORG,
-      action: '配置管理区域',
-      target: current.name,
-      resource: 'orgs.regions',
+      module: MOD_USER_ORG,
+      action: '配置负责区域',
+      target: user.name,
+      resource: 'memberships.regions',
       reason: input.reason,
       beforeSummary: before.length > 0 ? before.join('、') : '未配置',
       afterSummary: regions.length > 0 ? regions.join('、') : '未配置',
     });
     return { ok: true, regions };
-  }, [logAudit, orgs, preview, principalTenantId, realm]);
+  }, [logAudit, preview, principalTenantId, principalTenantKind, realm]);
 
   const addWorkGroup = useCallback((input: { name: string; reason?: string }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };
@@ -1198,7 +1201,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     rejoinTenantMember,
     addDepartment,
     updateDepartment,
-    setOrgManagedRegions,
+    setMemberRegions,
     addWorkGroup,
     renameWorkGroup,
     deleteWorkGroup,

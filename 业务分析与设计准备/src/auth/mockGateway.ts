@@ -256,14 +256,12 @@ function identityOptionsFor(
     const pharmaUnion = [...new Set(list.flatMap((a) => a.pharmaTenantIds ?? []))]
     const isProviderBusinessScope =
       role.appliesTo?.includes("provider") && role.defaultScope !== "PROVIDER"
-    const membershipOrg = allOrgs().find(
-      (o) => o.id === membershipsOfUser(user.id).find((m) => m.tenantId === workspaceId)?.orgUnitId,
-    )
-    const membershipOrgName = membershipOrg?.name
-    // 药厂角色不再按授权档位描述范围（已退役）：直接给出成员所属部门的管理区域（企业管理员固定全量）
+    const membership = membershipsOfUser(user.id).find((m) => m.tenantId === workspaceId)
+    const membershipOrgName = allOrgs().find((o) => o.id === membership?.orgUnitId)?.name
+    // 药厂角色不再按授权档位描述范围（已退役）：直接给出成员本人配置的负责区域（管理员固定全量）
     const isPharmaRole = role.appliesTo?.includes("pharma")
     const scopeSummary = isPharmaRole
-      ? `数据区域：${regionScopeLabel(pharmaRegionScopeOfMember({ orgs: allOrgs(), orgUnitId: membershipOrg?.id, isPharmaAdmin: hasPharmaAdminAssignment(list, workspaceId) }))} · ${membershipOrgName ?? "未分配部门"}`
+      ? `数据区域：${regionScopeLabel(pharmaRegionScopeOfMember({ regions: membership?.responsibleRegions, isPharmaAdmin: hasPharmaAdminAssignment(list, workspaceId) }))} · ${membershipOrgName ?? "未分配部门"}`
       : isProviderBusinessScope
         ? `${scopeParts.join("；")}｜可处理药厂：${pharmaUnion.length > 0 ? pharmaUnion.map((id) => tenantNameOf(id)).join("、") : "（未分配）"}`
         : scopeParts.join("；")
@@ -304,13 +302,12 @@ function buildTenantPrincipal(
   const allIds = new Set(opts.flatMap((o) => o.assignmentIds))
   const assignments = allAssignments().filter((a) => allIds.has(a.id))
   const tenantKind = opts[0].tenantKind ?? tenantKindOfRoot(allOrgs().find((o) => o.id === workspaceId)) ?? "pharma"
-  // 药厂侧数据范围 = 所属部门管理区域（D1/D2）；企业管理员固定全量。登录只拍快照供展示，
-  // 业务页实时过滤走 usePharmaRegionScope（部门区域改动对已登录会话即时生效）。
+  // 药厂侧数据范围 = 成员本人配置的负责区域（2026-10-27 方向修订：区域按成员配置、调岗不变）；
+  // 企业管理员固定全量。登录只拍快照供展示，业务页实时过滤走 usePharmaRegionScope（编辑区域即时生效）。
   const pharmaRegionScope =
     tenantKind === "pharma"
       ? pharmaRegionScopeOfMember({
-          orgs: allOrgs(),
-          orgUnitId,
+          regions: membership?.responsibleRegions,
           isPharmaAdmin: hasPharmaAdminAssignment(assignments, workspaceId),
         })
       : undefined

@@ -77,9 +77,9 @@ export interface TenantPrincipal extends PrincipalPerson {
   /** 全部生效角色名下的授权记录并集（数据范围/业务范围按其计算） */
   effectiveAssignmentIds: string[]
   /**
-   * 药厂侧区域范围快照（2026-10-27 D1/D2）：= 所属部门 managedRegions；企业管理员 ALL；
-   * 未配置 NONE。仅登录态展示与首屏兜底用——业务页行级过滤走 usePharmaRegionScope
-   * 实时读组织树（部门区域改动对已登录会话即时生效），不要把本快照当运行时口径。
+   * 药厂侧区域范围快照（2026-10-27 方向修订）：= 成员本人配置的负责区域（用户详情维护、调岗不变）；
+   * 企业管理员 ALL；未配置 NONE。仅登录态展示与首屏兜底用——业务页行级过滤走 usePharmaRegionScope
+   * 实时读成员身份（编辑负责区域对已登录会话即时生效），不要把本快照当运行时口径。
    * 服务商会话不带此字段（其区域由品种授权派生，见 servingScopeOfPrincipal）。
    */
   pharmaRegionScope?: PharmaRegionScope
