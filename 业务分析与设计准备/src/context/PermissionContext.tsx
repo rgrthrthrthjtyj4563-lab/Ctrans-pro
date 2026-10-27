@@ -579,7 +579,8 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       reason: input.reason?.trim() || '常规授权',
       afterSummary: [
         pendingReview ? '待复核' : '生效',
-        `${scopeOrgName} · ${scopeLabel(scope)}`,
+        // 药厂侧范围档位已退役：可见区域随所属部门，审计只留挂靠组织（服务商侧照旧记档位）
+        principalTenantKind === 'pharma' ? `${scopeOrgName} · 数据区域随所属部门` : `${scopeOrgName} · ${scopeLabel(scope)}`,
         input.pharmaTenantIds && input.pharmaTenantIds.length > 0
           ? `可处理药厂 ${input.pharmaTenantIds.length} 家`
           : null,
@@ -668,11 +669,13 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       roleName,
       resource: 'role-assignments.revoke',
       reason,
-      beforeSummary: `${current.scopeOrgName} · ${scopeLabel(current.scope)}`,
+      beforeSummary: principalTenantKind === 'pharma'
+        ? `${current.scopeOrgName} · 数据区域随所属部门`
+        : `${current.scopeOrgName} · ${scopeLabel(current.scope)}`,
       afterSummary: '已回收 · 历史保留可查',
     });
     return { ok: true };
-  }, [assignments, logAudit, preview, roles, users]);
+  }, [assignments, logAudit, preview, principalTenantKind, roles, users]);
 
   const createUser = useCallback((input: { name: string; account: string; phone: string; email: string; orgId: string }) => {
     if (preview) return { ok: false, error: '预览模式禁止写操作' };

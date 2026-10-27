@@ -256,13 +256,17 @@ function identityOptionsFor(
     const pharmaUnion = [...new Set(list.flatMap((a) => a.pharmaTenantIds ?? []))]
     const isProviderBusinessScope =
       role.appliesTo?.includes("provider") && role.defaultScope !== "PROVIDER"
-    const scopeSummary =
-      isProviderBusinessScope
+    const membershipOrg = allOrgs().find(
+      (o) => o.id === membershipsOfUser(user.id).find((m) => m.tenantId === workspaceId)?.orgUnitId,
+    )
+    const membershipOrgName = membershipOrg?.name
+    // 药厂角色不再按授权档位描述范围（已退役）：直接给出成员所属部门的管理区域（企业管理员固定全量）
+    const isPharmaRole = role.appliesTo?.includes("pharma")
+    const scopeSummary = isPharmaRole
+      ? `数据区域：${regionScopeLabel(pharmaRegionScopeOfMember({ orgs: allOrgs(), orgUnitId: membershipOrg?.id, isPharmaAdmin: hasPharmaAdminAssignment(list, workspaceId) }))} · ${membershipOrgName ?? "未分配部门"}`
+      : isProviderBusinessScope
         ? `${scopeParts.join("；")}｜可处理药厂：${pharmaUnion.length > 0 ? pharmaUnion.map((id) => tenantNameOf(id)).join("、") : "（未分配）"}`
         : scopeParts.join("；")
-    const membershipOrgName = allOrgs().find(
-      (o) => o.id === membershipsOfUser(user.id).find((m) => m.tenantId === workspaceId)?.orgUnitId,
-    )?.name
     opts.push({
       realm: "TENANT",
       key: `${roleId}@${workspaceId}`,

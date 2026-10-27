@@ -34,6 +34,7 @@ import {
 import { ACCOUNT_PATTERN, isAccountTakenInWorkspace, isPhoneTakenInWorkspace, tenantQuotaInfo } from '../data/tenantRegistry';
 import { loginGuardOf, unlockLoginGuard } from '../auth/mockGateway';
 import { Field, InfoBanner, inputStyle, tdStyle, thStyle } from './permUi';
+import { hasPharmaAdminAssignment, REGION_SCOPE_ALL, regionScopeLabel, regionScopeOfOrg } from '../data/pharmaRegionScope';
 import { useRepFiling } from '../context/RepFilingContext';
 import { nowText } from './complianceUi';
 import {
@@ -76,6 +77,8 @@ export function UserManage({ addToast }: Props) {
   useEffect(() => subscribeTenantMemberships(() => bump(x => x + 1)), []);
   const tenantRootId = principal.realm === 'TENANT' ? principal.tenantId : 'org-platform';
   const tenantRoot = orgs.find(o => o.id === tenantRootId);
+  // 药厂侧（2026-10-27 D1/D2）：成员可见区域 = 所属部门管理区域，调岗即改变可见范围；范围档位不再展示
+  const isPharmaTenant = store.tenantKind === 'pharma';
 
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -259,7 +262,13 @@ export function UserManage({ addToast }: Props) {
       return;
     }
     const user = users.find(u => u.id === moveUser.userId);
-    addToast({ type: 'success', title: '已调整所属部门', description: `${user?.name} → ${moveUserTarget?.name}。仅变更归属；角色与数据范围保持不变，需调整请前往「角色与数据范围」。` });
+    addToast({
+      type: 'success',
+      title: '已调整所属部门',
+      description: isPharmaTenant
+        ? `${user?.name} → ${moveUserTarget?.name}。可见区域已随新部门的管理区域变化（${regionScopeLabel(regionScopeOfOrg(moveUserTarget))}）；角色不变。`
+        : `${user?.name} → ${moveUserTarget?.name}。仅变更归属；角色与数据范围保持不变，需调整请前往「角色与数据范围」。`,
+    });
     setMoveUser(null);
   }
 
@@ -416,7 +425,9 @@ export function UserManage({ addToast }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
         title="用户管理"
-        description={`维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗）；角色与数据范围为只读展示，调整请前往「角色与数据范围」。`}
+        description={isPharmaTenant
+          ? `维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗）；角色授权为只读展示，调整请前往「角色与数据范围」；成员可见区域随所属部门（组织架构页配置）。`
+          : `维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗）；角色与数据范围为只读展示，调整请前往「角色与数据范围」。`}
         actions={canCreate ? (
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="outline" size="md" icon={<Upload size={14} />} onClick={() => setImportOpen({ raw: '' })}>
@@ -591,7 +602,29 @@ export function UserManage({ addToast }: Props) {
             )}
           </div>
           <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#667085', marginBottom: 8 }}>角色与数据范围（只读；在「角色与数据范围」页对应角色的「已授权成员」页签调整）</div>
+            <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#667085', marginBottom: 8 }}>
+              {isPharmaTenant ? '角色授权（只读；在「角色与数据范围」页对应角色的「已授权成员」页签调整）' : '角色与数据范围（只读；在「角色与数据范围」页对应角色的「已授权成员」页签调整）'}
+            </div>
+            {isPharmaTenant && (() => {
+              // 药厂侧可见区域不在授权上：企业管理员固定全量，否则随所属部门的管理区域（组织架构页配置）
+              const detailAssignments = userAssignments(selectedUser.id);
+              const detailIsAdmin = hasPharmaAdminAssignment(detailAssignments, tenantRootId);
+              const detailOrg = orgs.find(o => o.id === memberOrgId(selectedUser.id));
+              const detailScope = detailIsAdmin ? REGION_SCOPE_ALL : regionScopeOfOrg(detailOrg);
+              return (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 10 }}>
+                  <span style={{ color: '#667085' }}>数据可见区域</span>
+                  <span style={{ fontWeight: 600 }}>{regionScopeLabel(detailScope)}</span>
+                  <span style={{ color: '#9CA3AF', fontSize: 'var(--fs-12)' }}>
+                    {detailIsAdmin
+                      ? '企业管理员固定全量，不受部门区域限制'
+                      : detailScope.mode === 'NONE'
+                        ? `所属部门「${detailOrg?.name ?? '未分配'}」未配置管理区域，暂无可见的区域业务数据；在组织架构页配置`
+                        : `随所属部门「${detailOrg?.name ?? ''}」的管理区域；调岗后随新部门变化`}
+                  </span>
+                </div>
+              );
+            })()}
             {userAssignments(selectedUser.id).length === 0 ? (
               <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>该成员尚无角色授权</div>
             ) : (
@@ -599,7 +632,11 @@ export function UserManage({ addToast }: Props) {
                 {userAssignments(selectedUser.id).map((a, i) => (
                   <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', background: i % 2 === 0 ? '#fff' : '#FAFAFA', borderTop: i === 0 ? undefined : '1px solid #F3F4F6', fontSize: 'var(--fs-13)' }}>
                     <span style={{ fontWeight: 600 }}>{a.roleName}</span>
-                    <span style={{ color: '#667085' }}>{a.scopeOrgName} · {scopeLabel(a.scope)}{a.pharmaTenantIds && a.pharmaTenantIds.length > 0 ? ` · 可处理药厂 ${a.pharmaTenantIds.length} 家` : ''}{a.varietyNames && a.varietyNames.length > 0 ? ` · ${a.varietyNames.length} 个品种` : ''}</span>
+                    <span style={{ color: '#667085' }}>
+                      {isPharmaTenant
+                        ? `生效 ${a.effectiveFrom}${a.effectiveTo ? ` ~ ${a.effectiveTo}` : ' 起长期'} · 由 ${a.grantedBy} 授予`
+                        : `${a.scopeOrgName} · ${scopeLabel(a.scope)}${a.pharmaTenantIds && a.pharmaTenantIds.length > 0 ? ` · 可处理药厂 ${a.pharmaTenantIds.length} 家` : ''}${a.varietyNames && a.varietyNames.length > 0 ? ` · ${a.varietyNames.length} 个品种` : ''}`}
+                    </span>
                     <StatusTag status={grantStatusLabel(a.status)} size="sm" />
                   </div>
                 ))}
@@ -706,7 +743,11 @@ export function UserManage({ addToast }: Props) {
           }
         >
           <div style={{ display: 'grid', gap: 12 }}>
-            <InfoBanner>仅变更人员归属节点；<b>归属变化不自动调整角色与数据范围</b>（如需调整请前往「角色与数据范围」）。跨企业调入会被拒绝。</InfoBanner>
+            {isPharmaTenant ? (
+              <InfoBanner>仅变更人员归属节点；<b>可见区域随新部门的管理区域变化</b>（部门未配置区域则该成员暂无可见的区域业务数据），角色不变。跨企业调入会被拒绝。</InfoBanner>
+            ) : (
+              <InfoBanner>仅变更人员归属节点；<b>归属变化不自动调整角色与数据范围</b>（如需调整请前往「角色与数据范围」）。跨企业调入会被拒绝。</InfoBanner>
+            )}
             {moveUser.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{moveUser.error}</div>}
             <Field label="当前所属">{users.find(u => u.id === moveUser.userId)?.orgName ?? '—'}</Field>
             <Field label="调整到" required>

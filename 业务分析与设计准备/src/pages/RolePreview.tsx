@@ -127,7 +127,7 @@ export function RolePreview({ addToast, navigate }: Props) {
                 <div style={{ fontSize: 'var(--fs-14)', fontWeight: 600, marginBottom: 10 }}>预览上下文</div>
                 <KV label="角色" value={role.name} />
                 <KV label="类型" value={role.kind === 'preset' ? '预置' : '定制'} />
-                <KV label="数据范围" value={scopeLabel(role.defaultScope)} />
+                <KV label="数据范围" value={role.appliesTo?.includes('pharma') ? '数据区域随成员所属部门' : scopeLabel(role.defaultScope)} />
                 <KV label="组织" value={org?.name ?? '—'} />
                 <KV label="用户" value={user ? `${user.name}（${user.account}）` : '未指定'} />
                 <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: '#C77A16' }}>

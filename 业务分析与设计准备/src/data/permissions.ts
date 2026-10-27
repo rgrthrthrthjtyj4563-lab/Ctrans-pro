@@ -459,7 +459,7 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     id: "roles",
     module: "企业管理",
     name: "角色与数据范围",
-    description: "角色、页面权限、按钮权限、数据范围与角色成员授权的唯一可编辑入口（成员授予/回收在角色详情「已授权成员」页签）",
+    description: "角色、页面权限、按钮权限与角色成员授权的唯一可编辑入口（服务商角色另含组织数据范围；药厂成员可见区域随所属部门；成员授予/回收在角色详情「已授权成员」页签）",
     actions: acts("roles", ["view", "create", "edit", "delete", "export"]),
     realms: ["TENANT"],
   },
@@ -879,13 +879,14 @@ export const seedCustomRoles: SysRole[] = [
     id: "role-custom-region-sales",
     name: "药厂区域销售经理",
     description:
-      "数据范围为本部门及以下；授权挂在西北大区即可覆盖陕西、四川办事处",
+      "区域业务数据按成员所属部门的管理区域可见（如西北大区 = 陕甘青宁）；角色只决定操作权限",
     kind: "custom",
     status: "enabled",
     realm: "TENANT",
     tenantId: "org-pharma",
     appliesTo: ["pharma"],
-    defaultScope: "DEPT_AND_CHILD",
+    // 药厂侧范围档位已退役（2026-10-27）：PHARMA 仅表示授权挂企业根，可见区域随部门
+    defaultScope: "PHARMA",
     customScope: {
       ...emptyCustomScope(),
       pharmaIds: ["org-pharma"],
@@ -1080,7 +1081,10 @@ export function resolveGrantAnchor(
   const scope = role.defaultScope
   const current = orgs.find((o) => o.id === userOrgId)
   let hit: PermOrg | undefined
-  if (scope === "PHARMA") {
+  if (role.appliesTo?.includes("pharma")) {
+    // 药厂侧范围档位已退役（2026-10-27 D1/D2）：授权统一挂租户根，数据区域随成员所属部门
+    hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
+  } else if (scope === "PHARMA") {
     hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
   } else if (scope === "PROVIDER") {
     hit = nearestAncestorOfType(orgs, userOrgId, "provider")
@@ -2003,7 +2007,9 @@ export function summarizePerms(role: SysRole): string {
   const writes = Object.values(role.pagePerms)
     .flat()
     .filter((a) => a !== "view").length
-  return `${pages} 个页面 · ${writes} 项操作 · ${scopeLabel(role.defaultScope)}`
+  // 药厂角色不再携带范围档位（可见区域随成员所属部门）；保持三段式，登录身份页按末段裁切的逻辑不受影响
+  const scopePart = role.appliesTo?.includes("pharma") ? "数据区域随所属部门" : scopeLabel(role.defaultScope)
+  return `${pages} 个页面 · ${writes} 项操作 · ${scopePart}`
 }
 
 export function applyActionToggle(
