@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>话术管理平台 · 高保真交互原型</title>
+<style>
+:root{
+  --primary:#2563eb; --primary-h:#1d4ed8; --bg:#f3f4f6; --panel:#fff; --border:#e5e7eb;
+  --text:#111827; --dim:#6b7280; --green:#16a34a; --green-bg:#dcfce7; --red:#dc2626; --red-bg:#fee2e2;
+  --orange:#d97706; --orange-bg:#fef3c7; --blue-bg:#dbeafe; --blue-t:#1d4ed8; --gray-bg:#f3f4f6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+#app{display:flex;min-height:100vh}
+
+/* ---------- 侧边栏 ---------- */
+.sidebar{width:216px;background:#0f172a;color:#cbd5e1;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;flex-shrink:0}
+.logo{padding:20px 18px 16px;font-size:16px;font-weight:600;color:#fff;border-bottom:1px solid #1e293b}
+.logo small{display:block;font-size:11px;font-weight:400;color:#64748b;margin-top:4px}
+.nav{padding:12px 10px;flex:1}
+.nav-item{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;cursor:pointer;color:#cbd5e1;margin-bottom:4px;font-size:14px}
+.nav-item:hover{background:#1e293b}
+.nav-item.active{background:var(--primary);color:#fff}
+.sidebar-foot{padding:14px 18px;font-size:11px;color:#64748b;border-top:1px solid #1e293b;line-height:1.7}
+
+/* ---------- 主区域 ---------- */
+.main{flex:1;min-width:0;padding:20px 24px 40px}
+.page-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}
+.page-header h1{font-size:20px;font-weight:600}
+.page-desc{font-size:12.5px;color:var(--dim);margin-top:6px;max-width:760px;line-height:1.7}
+.header-actions{display:flex;gap:8px;flex-shrink:0;padding-top:4px}
+
+/* ---------- 按钮 ---------- */
+.btn{border:1px solid var(--border);background:#fff;color:var(--text);border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--primary);color:var(--primary)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-h);color:#fff}
+.btn-danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn-danger:hover{background:#b91c1c;border-color:#b91c1c;color:#fff}
+.btn-sm{padding:4px 10px;font-size:12.5px}
+.btn-text{border:none;background:none;color:var(--primary);cursor:pointer;font-size:12.5px;padding:2px 4px}
+.btn-text:hover{text-decoration:underline}
+.btn-text.red{color:var(--red)}
+.link{color:var(--primary);cursor:pointer}
+.link:hover{text-decoration:underline}
+
+/* ---------- Tabs ---------- */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);background:var(--panel);border-radius:8px 8px 0 0;padding:0 8px}
+.tab{padding:12px 18px;cursor:pointer;font-size:14px;color:var(--dim);border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
+.tab:hover{color:var(--primary)}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
+.tab .cnt{font-size:11px;background:var(--gray-bg);border-radius:8px;padding:1px 7px;margin-left:5px;color:var(--dim)}
+.tab.active .cnt{background:var(--blue-bg);color:var(--blue-t)}
+
+/* ---------- 子场景选项卡 ---------- */
+.subnav{display:flex;gap:8px;background:var(--panel);padding:12px 16px 0;flex-wrap:wrap}
+.subpill{padding:6px 14px;border-radius:16px;border:1px solid var(--border);cursor:pointer;font-size:13px;color:var(--dim);background:#fff}
+.subpill:hover{border-color:var(--primary);color:var(--primary)}
+.subpill.active{background:var(--primary);border-color:var(--primary);color:#fff}
+.subpill .cnt{font-size:10.5px;opacity:.75}
+
+/* ---------- 横幅 ---------- */
+.banner{background:var(--panel);padding:10px 16px 12px;font-size:12.5px;color:var(--dim);line-height:1.8;border-top:1px dashed var(--border)}
+.panel-round{background:var(--panel);border-radius:0 0 8px 8px;border:1px solid var(--border);border-top:none;overflow:hidden}
+.tabs + .banner + .panel-round{margin-bottom:14px}
+
+/* ---------- 筛选 ---------- */
+.filter-panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px 6px;margin-bottom:14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:10px 14px}
+.f-item label{display:block;font-size:12px;color:var(--dim);margin-bottom:5px}
+.f-item select,.f-item input{width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 9px;font-size:13px;background:#fff;color:var(--text)}
+.f-item select:focus,.f-item input:focus{outline:none;border-color:var(--primary)}
+.f-btns>div{display:flex;gap:8px}
+
+/* ---------- 表格 ---------- */
+.table-panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.table-toolbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)}
+.table-toolbar .t-actions{display:flex;gap:8px;align-items:center}
+.table-title{font-size:14px;font-weight:600}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:1080px}
+th{font-size:12px;color:var(--dim);font-weight:500;background:#f9fafb;text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{font-size:13px;padding:10px 12px;border-bottom:1px solid #f1f2f4;vertical-align:middle;line-height:1.6}
+tr:hover td{background:#fafbfd}
+.td-dim{color:var(--dim);font-size:12px}
+.td-mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--dim)}
+.clamp1{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;max-width:230px}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:340px}
+.td-small-dim{display:block;font-size:11px;color:var(--dim);margin-top:2px}
+
+/* ---------- 标签/徽标 ---------- */
+.tag{display:inline-block;font-size:11px;border-radius:4px;padding:1px 7px;margin-left:6px;vertical-align:1px;white-space:nowrap}
+.tag-blue{background:var(--blue-bg);color:var(--blue-t)}
+.tag-gray{background:var(--gray-bg);color:var(--dim)}
+.tag-orange{background:var(--orange-bg);color:var(--orange)}
+.tag-green{background:var(--green-bg);color:var(--green)}
+.tag-red{background:var(--red-bg);color:var(--red)}
+.tag.sm{font-size:10px;padding:0 5px;margin-left:5px}
+.st{display:inline-flex;align-items:center;gap:5px;font-size:12.5px}
+.st::before{content:'';width:6px;height:6px;border-radius:50%;background:#9ca3af}
+.st.on::before{background:var(--green)}
+.st.on{color:var(--green)}
+.st.off{color:var(--dim)}
+
+/* ---------- 空态 ---------- */
+.empty{padding:56px 0;text-align:center;color:var(--dim)}
+.empty .e-icon{font-size:40px;margin-bottom:12px}
+.empty .e-title{font-size:14px;margin-bottom:6px;color:var(--text)}
+.empty .e-sub{font-size:12px;margin-bottom:16px}
+.empty .btn{margin:0 4px}
+
+/* ---------- 分页 ---------- */
+.pagination{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;font-size:12.5px;color:var(--dim)}
+.pg-btns{display:flex;gap:6px}
+.pg{min-width:28px;height:28px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--text)}
+.pg:hover:not(:disabled){border-color:var(--primary);color:var(--primary)}
+.pg.cur{background:var(--primary);border-color:var(--primary);color:#fff}
+.pg:disabled{opacity:.4;cursor:not-allowed}
+
+/* ---------- 遮罩 / 抽屉 / 弹窗 ---------- */
+.mask{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:90;display:flex;align-items:center;justify-content:center}
+.drawer-mask{position:fixed;inset:0;background:rgba(15,23,42,.35);z-index:90}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:720px;max-width:96vw;background:#fff;z-index:95;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s;box-shadow:-8px 0 24px rgba(0,0,0,.12)}
+.drawer.open{transform:translateX(0)}
+.drawer-head{display:flex;justify-content:space-between;align-items:flex-start;padding:18px 24px 14px;border-bottom:1px solid var(--border)}
+.drawer-title{font-size:17px;font-weight:600}
+.drawer-sub{font-size:12.5px;color:var(--dim);margin-top:6px}
+.drawer-sub .tag{margin-left:0;margin-right:2px}
+.x{border:none;background:var(--gray-bg);width:28px;height:28px;border-radius:6px;font-size:16px;cursor:pointer;color:var(--dim)}
+.x:hover{background:var(--red-bg);color:var(--red)}
+.drawer-body{flex:1;overflow-y:auto;padding:20px 24px}
+.drawer-foot{display:flex;justify-content:flex-end;gap:10px;padding:14px 24px;border-top:1px solid var(--border);background:#fafafa}
+.modal{background:#fff;border-radius:10px;width:640px;max-width:94vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.2)}
+.modal.sm{width:460px}
+.modal.lg{width:780px}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600}
+.modal-body{padding:18px 20px;overflow-y:auto;font-size:13px;line-height:1.8}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid var(--border);background:#fafafa;border-radius:0 0 10px 10px}
+
+/* ---------- 表单 ---------- */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+.field{display:flex;flex-direction:column}
+.field.full{grid-column:1/-1}
+.flabel{font-size:13px;margin-bottom:6px;color:#374151}
+.req{color:var(--red);margin-right:2px}
+.field select,.field input[type=text],.field textarea{border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+.field select:focus,.field input:focus,.field textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(37,99,235,.12)}
+.field select:disabled,.field input:disabled,.field textarea:disabled{background:var(--gray-bg);color:var(--dim)}
+.field textarea{resize:vertical;line-height:1.7}
+.field.err select,.field.err input,.field.err textarea{border-color:var(--red)}
+.fem{font-size:11.5px;color:var(--red);margin-top:4px;min-height:0}
+.tip{font-size:11.5px;color:var(--dim);margin-top:5px;line-height:1.6}
+.cnt{font-size:11px;color:var(--dim);text-align:right;margin-top:3px}
+.static-val{padding:8px 0;font-size:13px}
+.radio-line{display:flex;gap:18px;padding:7px 0}
+.rd{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px}
+.rd input{accent-color:var(--primary)}
+
+/* ---------- 步骤条 ---------- */
+.steps{display:flex;justify-content:center;gap:0;padding:18px 20px 4px}
+.step{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim)}
+.step .dot{width:24px;height:24px;border-radius:50%;background:var(--gray-bg);color:var(--dim);display:flex;align-items:center;justify-content:center;font-size:12px;border:1px solid var(--border)}
+.step.active{color:var(--primary);font-weight:600}
+.step.active .dot{background:var(--primary);border-color:var(--primary);color:#fff}
+.step.done{color:var(--green)}
+.step.done .dot{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.step-line{width:56px;height:1px;background:var(--border);margin:0 10px}
+.imp-rules{background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-top:14px}
+.imp-rules li{margin:4px 0 4px 18px;font-size:12.5px;color:var(--dim)}
+.imp-cols{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.imp-cols .tag{margin:0}
+.drop{border:2px dashed var(--border);border-radius:10px;padding:34px 20px;text-align:center;cursor:pointer;color:var(--text);font-size:14px;transition:.15s}
+.drop:hover{border-color:var(--primary);background:#f8faff}
+.drop-sub{font-size:12px;color:var(--dim);margin-top:8px}
+.imp-alt{font-size:12.5px;color:var(--dim);margin-top:12px;text-align:center}
+.imp-msg{font-size:12.5px;margin-top:10px;text-align:center}
+.imp-msg.ok{color:var(--green)}
+.imp-msg.bad{color:var(--red)}
+.sum-cards{display:flex;gap:10px;margin:6px 0 14px}
+.s-card{flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 14px;text-align:center}
+.s-card b{display:block;font-size:20px}
+.s-card span{font-size:12px;color:var(--dim)}
+.s-card.ok b{color:var(--green)}
+.s-card.bad b{color:var(--red)}
+.imp-banner{border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:12px;line-height:1.7}
+.imp-banner.warn{background:var(--red-bg);color:#991b1b}
+.imp-banner.good{background:var(--green-bg);color:#166534}
+.err-table-wrap{max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+.err-table-wrap table{min-width:640px}
+.err-table-wrap th{position:sticky;top:0}
+.preview-wrap{max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+.preview-wrap table{min-width:700px}
+
+/* ---------- Toast ---------- */
+#toast-wrap{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{background:#111827;color:#fff;border-radius:8px;padding:10px 18px;font-size:13px;box-shadow:0 8px 20px rgba(0,0,0,.25);opacity:0;transition:.25s}
+.toast.show{opacity:1}
+.toast.success{background:var(--green)}
+.toast.error{background:var(--red)}
+.toast.info{background:var(--primary)}
+
+.cf-body{font-size:13.5px;line-height:1.9}
+.cf-body.warn{color:#991b1b}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="logo">📋 话术管理平台<small>京卫医药 · 管理后台</small></div>
+    <nav class="nav">
+      <div class="nav-item active">💬 话术管理</div>
+    </nav>
+    <div class="sidebar-foot">高保真交互原型 v1.1<br>仅用于需求确认 · 非真实数据<br>2026-10-28</div>
+  </aside>
+
+  <main class="main">
+    <section id="page-scripts">
+      <header class="page-header">
+        <div>
+          <h1>话术管理</h1>
+        </div>
+        <div class="header-actions">
+          <button class="btn" id="btn-imp" onclick="openImport()" title="批量导入话术">📥 导入话术</button>
+          <button class="btn btn-primary" id="btn-new" onclick="openCreate()">＋ 新增话术</button>
+        </div>
+      </header>
+
+      <div class="tabs" id="main-tabs"></div>
+      <div class="subnav" id="subnav" hidden></div>
+      <div class="banner" id="scene-banner"></div>
+      <div class="panel-round"></div>
+
+      <div class="filter-panel" id="filter-panel"></div>
+
+      <div class="table-panel">
+        <div class="table-toolbar">
+          <span class="table-title" id="table-title"></span>
+          <span class="t-actions"><span id="global-slot"></span><span id="batch-slot"></span><button class="btn btn-sm" onclick="exportCSV()">⬆ 导出当前结果</button></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="table-empty" hidden>
+          <div class="e-icon">🔍</div>
+          <div class="e-title">没有匹配的话术</div>
+          <div class="e-sub">尝试调整筛选条件，或新增一条话术</div>
+          <button class="btn btn-primary btn-sm" id="empty-new" onclick="openCreate()">＋ 新增话术</button>
+          <button class="btn btn-sm" id="empty-reset" onclick="resetFilters()">清空筛选</button>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ 新增/编辑/查看 抽屉 ============ -->
+<div class="drawer-mask" id="drawer-mask" hidden onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div>
+      <div class="drawer-title" id="drawer-title"></div>
+      <div class="drawer-sub" id="drawer-scene"></div>
+    </div>
+    <button class="x" onclick="closeDrawer()">×</button>
+  </div>
+  <div class="drawer-body"><div class="form-grid" id="drawer-form"></div></div>
+  <div class="drawer-foot" id="drawer-foot"></div>
+</div>
+
+<!-- ============ 导入弹窗 ============ -->
+<div class="mask" id="imp-wrap" hidden>
+  <div class="modal lg">
+    <div class="modal-head">📥 导入话术<span id="imp-scene" style="color:var(--primary);margin-left:6px"></span><button class="x" onclick="closeImport()" style="margin-left:auto">×</button></div>
+    <div class="modal-body">
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn" onclick="downloadTemplate()">⬇ 下载模板</button>
+        <button class="btn" onclick="$('file-input').click()">📄 选择文件上传</button>
+        <span class="td-dim" id="file-name"></span>
+        <input type="file" id="file-input" accept=".csv,text/csv" hidden onchange="handleFile(this)">
+      </div>
+      <div id="imp-preview" style="margin-top:14px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeImport()">取消</button>
+      <button class="btn btn-primary" id="imp-ok" disabled onclick="confirmImport()">确认导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 确认弹窗 ============ -->
+<div class="mask" id="cf-wrap" hidden onclick="if(event.target===this)closeConfirm()">
+  <div class="modal sm">
+    <div class="modal-head"><span id="cf-title"></span><button class="x" onclick="closeConfirm()">×</button></div>
+    <div class="modal-body"><div class="cf-body" id="cf-msg"></div></div>
+    <div class="modal-foot">
+      <button class="btn" id="cf-cancel" onclick="closeConfirm()">取消</button>
+      <button class="btn btn-primary" id="cf-ok" onclick="confirmYes()">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-wrap"></div>
+
+<script>
+/* ================= 工具 ================= */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const escA = s => esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+function nowStr(){ const d=new Date(),p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function todayStr(){ return nowStr().slice(0,10).replace(/-/g,''); }
+function showToast(msg,type){ const t=document.createElement('div'); t.className='toast '+(type||'success'); t.textContent=msg; $('toast-wrap').appendChild(t); requestAnimationFrame(()=>t.classList.add('show')); setTimeout(()=>{t.classList.remove('show'); setTimeout(()=>t.remove(),300)},2400); }
+let confirmCb=null;
+function askConfirm(title,msgHtml,cb,opts){ opts=opts||{}; confirmCb=cb; $('cf-title').textContent=title; const m=$('cf-msg'); m.innerHTML=msgHtml; m.className='cf-body'+(opts.danger?' warn':''); const ok=$('cf-ok'); ok.className='btn '+(opts.danger?'btn-danger':'btn-primary'); ok.textContent=opts.okText||'确定'; ok.hidden=!!opts.noOk; $('cf-cancel').textContent=opts.cancelText||'取消'; $('cf-wrap').hidden=false; }
+function closeConfirm(){ $('cf-wrap').hidden=true; confirmCb=null; }
+function confirmYes(){ const cb=confirmCb; closeConfirm(); if(cb)cb(); }
+function downloadFile(name,content){ const blob=new Blob(['\ufeff'+content],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
+const csvEsc = v => { v=(v==null?'':String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+function parseCSV(text){
+  const rows=[]; let cur=[],val='',q=false; text=String(text).replace(/^\ufeff/,'');
+  for(let i=0;i<text.length;i++){ const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){val+='"';i++;} else q=false; } else val+=c; }
+    else{ if(c==='"')q=true;
+      else if(c===','){cur.push(val);val='';}
+      else if(c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n')i++; cur.push(val);val=''; if(cur.length>1||cur[0]!=='')rows.push(cur); cur=[]; }
+      else val+=c; } }
+  cur.push(val); if(cur.length>1||cur[0]!=='')rows.push(cur);
+  return rows.filter(r=>r.some(c=>String(c).trim()!==''));
+}
+
+/* ================= 基础字典 ================= */
+const PRODUCTS=['阿卡波糖片','苯磺酸氨氯地平片','阿托伐他汀钙片','盐酸二甲双胍缓释片','硫酸氢氯吡格雷片','缬沙坦胶囊','恩替卡韦分散片','甘精胰岛素注射液'];
+const GENERAL_CATS=['开场白','产品介绍','异议处理','促成成交','客情维护'];
+
+/* 拜访场景 → 业务类别 */
+const SCENE_LIST=['终端拜访','药房拜访','商业拜访','其他场景拜访'];
+const BIZ_CAT_MAP={
+  '终端拜访':['第三终端拜访','患者随访','跟台服务'],
+  '药房拜访':['连锁药房拜访','单体药房拜访','店员教育'],
+  '商业拜访':['商业公司首访','订单与回款对账','供应保障沟通'],
+  '其他场景拜访':['第三终端拜访','患者随访','跟台服务']
+};
+/* 业务类别 → 类别细分 */
+const SUB_CAT_MAP={
+  '第三终端拜访':['第三终端拜访','信息收集和调研','跟踪巡访服务'],
+  '患者随访':['患者随访','问卷'],
+  '跟台服务':[],
+  '连锁药房拜访':['首推品种沟通','陈列与动销','会员活动'],
+  '单体药房拜访':['采购计划','店员推荐'],
+  '店员教育':['培训安排','物料支持'],
+  '商业公司首访':['合作模式介绍','品种目录推介'],
+  '订单与回款对账':['订单计划','账期与返利'],
+  '供应保障沟通':['冷链与配送','库存与预警']
+};
+const ALL_BIZ=[...new Set(Object.values(BIZ_CAT_MAP).flat())];
+const ALL_SUB=[...new Set(Object.values(SUB_CAT_MAP).flat())];
+const PREFIX={general:'GS',product:'PN'};
+
+/* ================= 话术种子数据 ================= */
+const seed={
+general:[
+ {id:'GS-0001',category:'开场白',feedback:'',content:'王老师您好，我是京卫医药学术部的小林。今天想占用您两分钟，同步一下我们重点品种最新的临床使用反馈和文献，您看方便吗？',status:'启用',creator:'张药学',createdAt:'2026-09-12 10:22',updatedAt:'2026-10-08 16:40',updater:'王药学'},
+ {id:'GS-0002',category:'异议处理',feedback:'安全担忧',content:'非常理解您对患者耐受性的顾虑。这个品种在老年患者中的不良反应发生率与对照相当，我可以把这项真实世界研究的数据发到您邮箱。',status:'启用',creator:'张药学',createdAt:'2026-09-15 14:03',updatedAt:'2026-09-15 14:03',updater:'张药学'},
+ {id:'GS-0003',category:'促成成交',feedback:'价格贵',content:'王老师，要不这样，我们先安排 5 例患者规范试用两周，之后我来门诊跟您回访一次使用感受，您看可以吗？',status:'启用',creator:'李学术',createdAt:'2026-09-20 09:31',updatedAt:'2026-10-11 11:26',updater:'张药学'},
+ {id:'GS-0004',category:'客情维护',feedback:'',content:'王老师，最近换季感冒高发，您出门诊辛苦了。用药方面有任何需要随时微信我。',status:'启用',creator:'张药学',createdAt:'2026-08-30 16:12',updatedAt:'2026-10-15 10:05',updater:'张药学'},
+ {id:'GS-0005',category:'产品介绍',feedback:'竞品比较',content:'我们这个产品是原研工艺，杂质谱控制更严格，适合长期用药的患者，疗效一致性也有生物等效性数据支持。',status:'启用',creator:'王药学',createdAt:'2026-10-06 15:44',updatedAt:'2026-10-06 15:44',updater:'王药学'}
+],
+product:[
+ {id:'PN-0001',scene:'终端拜访',product:'阿卡波糖片',bizCat:'第三终端拜访',subCat:'第三终端拜访',feedback:'疗效疑虑',content:'老师，阿卡波糖片是国家基药目录品种，社区慢病续方开药更方便；配合餐时服用方案，餐后血糖控制更平稳，多数患者两周内就能看到餐后 2 小时血糖的下降。',status:'启用',creator:'张药学',createdAt:'2026-09-10 09:15',updatedAt:'2026-10-12 14:20',updater:'张药学'},
+ {id:'PN-0002',scene:'终端拜访',product:'苯磺酸氨氯地平片',bizCat:'第三终端拜访',subCat:'信息收集和调研',feedback:'',content:'社区高血压患者取药频次高，氨氯地平一天一次服用依从性好，社区药房备货后患者就近续方更方便。',status:'启用',creator:'李学术',createdAt:'2026-09-18 13:27',updatedAt:'2026-09-18 13:27',updater:'李学术'},
+ {id:'PN-0003',scene:'终端拜访',product:'阿托伐他汀钙片',bizCat:'患者随访',subCat:'患者随访',feedback:'价格贵',content:'算下来每天不到一块钱，长期坚持降脂治疗负担小；随访时可以帮患者把服药时间固定在晚饭后，漏服率会明显下降。',status:'启用',creator:'张药学',createdAt:'2026-09-11 10:40',updatedAt:'2026-10-09 09:55',updater:'王药学'},
+ {id:'PN-0004',scene:'终端拜访',product:'盐酸二甲双胍缓释片',bizCat:'患者随访',subCat:'患者随访',feedback:'安全担忧',content:'缓释剂型晚餐后一次服用，胃肠道刺激明显小于普通片；随访时提醒患者随餐服用，不适感会更轻。',status:'停用',creator:'张药学',createdAt:'2026-10-09 10:12',updatedAt:'2026-10-16 09:47',updater:'张药学'},
+ {id:'PN-0005',scene:'终端拜访',product:'硫酸氢氯吡格雷片',bizCat:'跟台服务',subCat:'',feedback:'竞品比较',content:'支架术后抗血小板方案按指南执行，随访时提醒患者不可自行停药，复查周期按医嘱安排。',status:'启用',creator:'张药学',createdAt:'2026-09-25 15:02',updatedAt:'2026-10-14 16:31',updater:'张药学'},
+ {id:'PN-0006',scene:'药房拜访',product:'缬沙坦胶囊',bizCat:'连锁药房拜访',subCat:'首推品种沟通',feedback:'不愿首推',content:'店员首推时可以强调一天一次胶囊剂型，老年患者吞服方便，回头客复购率高。',status:'启用',creator:'王药学',createdAt:'2026-09-28 11:18',updatedAt:'2026-10-13 15:28',updater:'张药学'},
+ {id:'PN-0007',scene:'药房拜访',product:'恩替卡韦分散片',bizCat:'店员教育',subCat:'培训安排',feedback:'',content:'店员培训重点讲分散剂型服用方便、耐药屏障高，慢病顾客长期用药稳定，适合作为肝病品类首推。',status:'停用',creator:'李学术',createdAt:'2026-10-08 09:51',updatedAt:'2026-10-17 11:02',updater:'张药学'},
+ {id:'PN-0008',scene:'商业拜访',product:'甘精胰岛素注射液',bizCat:'供应保障沟通',subCat:'冷链与配送',feedback:'供货与配送',content:'冷链配送全程温控可追溯，月度对账和库存预警都有专人对接，商业公司备货没有后顾之忧。',status:'启用',creator:'张药学',createdAt:'2026-09-14 09:20',updatedAt:'2026-10-10 10:10',updater:'张药学'},
+ {id:'PN-0009',scene:'商业拜访',product:'阿卡波糖片',bizCat:'订单与回款对账',subCat:'账期与返利',feedback:'',content:'季度订单量到位可申请阶梯返利，折算采购成本更有优势；账期按协议执行，月底统一对账。',status:'启用',creator:'张药学',createdAt:'2026-09-16 10:05',updatedAt:'2026-10-18 14:52',updater:'张药学'},
+ {id:'PN-0010',scene:'其他场景拜访',product:'阿托伐他汀钙片',bizCat:'第三终端拜访',subCat:'信息收集和调研',feedback:'',content:'这期科室会主题是血脂管理新进展，面向心内科和内分泌科，会后有病例讨论环节，欢迎老师带病例参加。',status:'启用',creator:'王药学',createdAt:'2026-10-11 16:22',updatedAt:'2026-10-11 16:22',updater:'王药学'}
+]};
+const data={scripts:JSON.parse(JSON.stringify(seed))};
+
+/* ================= 单元格渲染 ================= */
+function idCell(r){ return '<span class="td-mono">'+r.id+'</span>'; }
+function statusCell(r){ return '<span class="st '+(r.status==='启用'?'on':'off')+'">'+r.status+'</span>'; }
+function contentCell(r){ return '<div class="clamp2" title="'+escA(r.content)+'">'+esc(r.content)+'</div>'; }
+function timeCell(r){ return '<span>'+esc(r.updatedAt)+'</span>'; }
+function sceneCell(r){ const s=SCENES[state.scene]; return '<div class="clamp1" title="'+escA(s.useSceneText(r))+'">'+esc(s.useSceneText(r))+'</div>'; }
+function opCellProduct(r){
+  const toStop=r.status==='启用';
+  return '<button class="btn-text" onclick="openView(\''+r.id+'\')">查看</button>'+
+         '<button class="btn-text" onclick="openEdit(\''+r.id+'\')">编辑</button>'+
+         '<button class="btn-text'+(toStop?' red':'')+'" onclick="toggleStatus(\''+r.id+'\')">'+(toStop?'停用':'启用')+'</button>';
+}
+function opCellGeneral(r){ return '<button class="btn-text" onclick="openView(\''+r.id+'\')">查看</button>'; }
+
+/* ================= 场景配置 ================= */
+const SCENES={
+general:{
+  key:'general',label:'通用话术',tabLabel:'通用话术',
+  useSceneText:r=>'通用话术 / '+r.category,
+  createSceneText:'通用话术',
+  filters:[
+    {k:'category',label:'通用类别',type:'select',options:()=>GENERAL_CATS},
+    {k:'feedback',label:'客户反馈',type:'input',ph:'客户反馈关键词'},
+    {k:'status',label:'管理状态',type:'select',options:()=>['启用','停用']},
+    {k:'kw',label:'话术内容',type:'input',ph:'搜索话术内容'}
+  ],
+  kwGet:r=>r.content,
+  columns:[
+    {label:'编号',w:'90px',html:idCell},
+    {label:'使用场景',w:'170px',html:sceneCell},
+    {label:'通用类别',w:'100px',html:r=>esc(r.category)},
+    {label:'客户反馈',w:'110px',html:r=>r.feedback?'<span>'+esc(r.feedback)+'</span>':'<span class="td-dim">—</span>'},
+    {label:'话术内容',html:contentCell},
+    {label:'管理状态',w:'90px',html:statusCell},
+    {label:'更新时间',w:'150px',html:timeCell},
+    {label:'操作',w:'70px',html:opCellGeneral}
+  ],
+  form:[
+    {k:'category',label:'通用类别',type:'select',options:()=>GENERAL_CATS,required:true},
+    {k:'feedback',label:'客户反馈',type:'textarea',rows:2,maxLen:0,tip:'自由文本，由维护人自行填写'},
+    {k:'content',label:'话术内容',type:'textarea',required:true,full:true},
+    {k:'status',label:'管理状态',type:'radio',opts:['启用','停用']}
+  ],
+  importCols:null,
+  exportCols:[['编号',r=>r.id],['使用场景',r=>'通用话术 / '+r.category],['通用类别',r=>r.category],['客户反馈',r=>r.feedback||''],['话术内容',r=>r.content],['管理状态',r=>r.status],['创建时间',r=>r.createdAt],['更新时间',r=>r.updatedAt]]
+},
+product:{
+  key:'product',label:'品种话术',tabLabel:'品种话术',
+  useSceneText:r=>'品种话术 / '+r.scene+' / '+r.bizCat,
+  createSceneText:'品种话术（使用场景由 拜访场景 + 业务类别 生成）',
+  filters:[
+    {k:'product',label:'品种',type:'select',options:()=>PRODUCTS},
+    {k:'bizCat',label:'业务类别',type:'select',options:()=>BIZ_CAT_MAP[state.subScene]},
+    {k:'subCat',label:'类别细分',type:'select',options:()=>{const bc=(state.filters.product||{}).bizCat;return bc?SUB_CAT_MAP[bc]:ALL_SUB;}},
+    {k:'feedback',label:'客户反馈',type:'input',ph:'客户反馈关键词'},
+    {k:'status',label:'管理状态',type:'select',options:()=>['启用','停用']},
+    {k:'kw',label:'话术内容',type:'input',ph:'搜索话术内容'}
+  ],
+  kwGet:r=>r.content,
+  columns:[
+    {label:'编号',w:'90px',html:idCell},
+    {label:'使用场景',w:'190px',html:sceneCell},
+    {label:'品种',w:'160px',html:r=>esc(r.product)},
+    {label:'业务类别',w:'110px',html:r=>esc(r.bizCat)},
+    {label:'类别细分',w:'110px',html:r=>esc(r.subCat)},
+    {label:'客户反馈',w:'110px',html:r=>r.feedback?'<span>'+esc(r.feedback)+'</span>':'<span class="td-dim">—</span>'},
+    {label:'话术内容',html:contentCell},
+    {label:'管理状态',w:'90px',html:statusCell},
+    {label:'更新时间',w:'150px',html:timeCell},
+    {label:'操作',w:'140px',html:opCellProduct}
+  ],
+  form:[
+    {k:'scene',label:'拜访场景（当前选项卡）',type:'static',text:()=>'品种话术 · '+state.subScene,tip:'拜访场景由所选选项卡决定，不可修改'},
+    {k:'product',label:'品种',type:'select',options:()=>PRODUCTS,required:true},
+    {k:'bizCat',label:'业务类别',type:'select',options:()=>BIZ_CAT_MAP[state.subScene],required:true,onchange:'onBizCatChange()'},
+    {k:'subCat',label:'类别细分',type:'select',options:rec=>rec&&rec.bizCat?SUB_CAT_MAP[rec.bizCat]:[]},
+    {k:'feedback',label:'客户反馈',type:'textarea',rows:2,maxLen:0,tip:'自由文本，由维护人自行填写'},
+    {k:'content',label:'话术内容',type:'textarea',required:true,full:true,ph:'建议包含：适用情境 + 核心信息 + 行动建议，不超过 500 字'},
+    {k:'status',label:'管理状态',type:'radio',opts:['启用','停用'],default:'启用',tip:'App 端仅在「管理状态=启用」且命中拜访场景时展示该话术'}
+  ],
+  importCols:[
+    {k:'product',label:'品种',required:true,options:PRODUCTS},
+    {k:'bizCat',label:'业务类别',required:true},
+    {k:'subCat',label:'类别细分'},
+    {k:'feedback',label:'客户反馈'},
+    {k:'content',label:'话术内容',required:true},
+    {k:'status',label:'管理状态'}
+  ],
+  exportCols:[['编号',r=>r.id],['使用场景',r=>'品种话术 / '+r.scene+' / '+r.bizCat],['拜访场景',r=>r.scene],['品种',r=>r.product],['业务类别',r=>r.bizCat],['类别细分',r=>r.subCat],['客户反馈',r=>r.feedback||''],['话术内容',r=>r.content],['管理状态',r=>r.status],['创建时间',r=>r.createdAt],['更新时间',r=>r.updatedAt]]
+}};
+
+/* ================= 状态 ================= */
+const PAGE=8;
+const state={scene:'product',subScene:'终端拜访',selected:new Set(),filters:{},pages:{},drawerMode:null,editing:null};
+Object.keys(SCENES).forEach(k=>{state.filters[k]={};state.pages[k]=1;});
+let imp={results:[],valid:0};
+
+const findRec=(k,id)=>data.scripts[k].find(r=>r.id===id);
+function nextId(k){ const p=PREFIX[k]; let max=0; data.scripts[k].forEach(r=>{const n=parseInt(String(r.id).split('-')[1],10)||0; if(n>max)max=n;}); return p+'-'+String(max+1).padStart(4,'0'); }
+
+/* ================= 渲染 ================= */
+function switchTab(t){ state.scene=(t==='general')?'general':'product'; state.selected.clear(); render(); }
+function switchSubScene(k){
+  if(state.subScene===k)return;
+  state.subScene=k; state.pages.product=1; state.filters.product={}; state.selected.clear();
+  render();
+}
+function renderSubnav(){
+  const el=$('subnav');
+  if(state.scene!=='product'){ el.hidden=true; el.innerHTML=''; return; }
+  el.hidden=false;
+  el.innerHTML=SCENE_LIST.map(k=>'<div class="subpill '+(state.subScene===k?'active':'')+'" onclick="switchSubScene(\''+k+'\')">'+k+'<span class="cnt">'+data.scripts.product.filter(r=>r.scene===k).length+'</span></div>').join('');
+}
+function toggleSelect(id){ state.selected.has(id)?state.selected.delete(id):state.selected.add(id); renderTable(); }
+function toggleSelectAllPage(checked){
+  const rows=applyFilter('product').slice((state.pages.product-1)*PAGE,state.pages.product*PAGE);
+  rows.forEach(r=>{ checked?state.selected.add(r.id):state.selected.delete(r.id); });
+  renderTable();
+}
+function batchDisable(){
+  const ids=[...state.selected]; if(!ids.length)return;
+  const rows=ids.map(id=>findRec('product',id)).filter(Boolean);
+  const msg='确认批量停用选中的 <b>'+rows.length+'</b> 条话术？停用后 App 端将不再展示（历史拜访记录不受影响）。';
+  askConfirm('批量停用话术',msg,()=>{
+    rows.forEach(r=>{ r.status='停用'; });
+    state.selected.clear(); render();
+    showToast('已批量停用 '+rows.length+' 条话术','success');
+  },{danger:true,okText:'确认停用'});
+}
+
+function render(){
+  renderTabs(); renderSubnav(); renderHeaderButtons(); renderBanner(); renderFilters(); renderTable();
+}
+function renderTabs(){
+  const tabs=[['general','通用话术',data.scripts.general.length],['product','品种话术',data.scripts.product.length]];
+  $('main-tabs').innerHTML=tabs.map(t=>'<div class="tab '+(state.scene===t[0]?'active':'')+'" onclick="switchTab(\''+t[0]+'\')">'+t[1]+'<span class="cnt">'+t[2]+'</span></div>').join('');
+}
+function renderHeaderButtons(){
+  const isGeneral=state.scene==='general';
+  $('btn-imp').hidden=isGeneral; $('btn-new').hidden=isGeneral;
+}
+function renderBanner(){
+  const b=$('scene-banner');
+  if(state.scene==='general'){
+    b.hidden=false; b.className='banner';
+    b.innerHTML='通用话术为系统内置内容，仅支持<b>查看</b>与<b>全局启停</b>；通过列表右上角「全局停用 / 全局开启」统一控制 App 端可见性（历史拜访记录不受影响）。';
+  }else{
+    b.hidden=true; b.innerHTML='';
+  }
+}
+function setFilter(k,v,live){
+  const f=state.filters[state.scene];
+  f[k]=v;
+  if(k==='bizCat'){ f.subCat=''; }
+  if(live){state.pages[state.scene]=1;render();}
+}
+function resetFilters(){ state.filters[state.scene]={}; state.pages[state.scene]=1; state.selected.clear(); render(); }
+function renderFilters(){
+  const s=SCENES[state.scene]; const vals=state.filters[state.scene]||{};
+  $('filter-panel').innerHTML='<div class="f-grid">'+s.filters.map(f=>{
+    const v=vals[f.k]||'';
+    if(f.type==='input') return '<div class="f-item"><label>'+f.label+'</label><input placeholder="'+escA(f.ph||'')+'" value="'+escA(v)+'" oninput="setFilter(\''+f.k+'\',this.value,false)" onkeydown="if(event.key===\'Enter\')render()"></div>';
+    const opts=typeof f.options==='function'?f.options():f.options;
+    return '<div class="f-item"><label>'+f.label+'</label><select onchange="setFilter(\''+f.k+'\',this.value,true)"><option value="">全部</option>'+opts.map(o=>'<option value="'+escA(o)+'" '+(o===v?'selected':'')+'>'+esc(o)+'</option>').join('')+'</select></div>';
+  }).join('')+'<div class="f-item f-btns"><label>&nbsp;</label><div><button class="btn btn-primary btn-sm" onclick="render()">查 询</button> <button class="btn btn-sm" onclick="resetFilters()">重 置</button></div></div></div>';
+}
+function applyFilter(k){
+  const s=SCENES[k]; const f=state.filters[k]||{};
+  let list=data.scripts[k].slice();
+  if(k==='product') list=list.filter(r=>r.scene===state.subScene);
+  s.filters.forEach(fd=>{
+    if(fd.k==='kw')return;
+    const v=f[fd.k]; if(!v)return;
+    if(fd.type==='input'){ const lv=String(v).toLowerCase(); list=list.filter(r=>String(r[fd.k]||'').toLowerCase().includes(lv)); return; }
+    list=list.filter(r=>String(fd.get?fd.get(r):(r[fd.k]??''))===v);
+  });
+  if(f.kw){ const kw=f.kw.trim().toLowerCase(); if(kw) list=list.filter(r=>s.kwGet(r).toLowerCase().includes(kw)); }
+  return list;
+}
+function renderTable(){
+  const k=state.scene,s=SCENES[k];
+  const filtered=applyFilter(k); const total=filtered.length;
+  const maxP=Math.max(1,Math.ceil(total/PAGE));
+  let p=Math.min(state.pages[k]||1,maxP); state.pages[k]=p;
+  const rows=filtered.slice((p-1)*PAGE,p*PAGE);
+  const baseCount=k==='product'?data.scripts[k].filter(r=>r.scene===state.subScene).length:data.scripts[k].length;
+  const titleTxt=k==='product'?s.label+' · '+state.subScene:s.label;
+  $('table-title').innerHTML=esc(titleTxt)+' <span class="td-dim" style="font-weight:400">· 共 '+baseCount+' 条，筛选后 '+total+' 条</span>';
+  let headHtml='<tr>';
+  if(k==='product') headHtml+='<th style="width:40px"><input type="checkbox" id="th-check" onchange="toggleSelectAllPage(this.checked)"></th>';
+  headHtml+=s.columns.map(c=>'<th style="width:'+(c.w||'auto')+'">'+c.label+'</th>').join('')+'</tr>';
+  $('table-head').innerHTML=headHtml;
+  $('table-body').innerHTML=rows.map(r=>{
+    let tr='<tr>';
+    if(k==='product') tr+='<td><input type="checkbox" '+(state.selected.has(r.id)?'checked':'')+' onchange="toggleSelect(\''+r.id+'\')"></td>';
+    tr+=s.columns.map(c=>'<td>'+c.html(r)+'</td>').join('')+'</tr>';
+    return tr;
+  }).join('');
+  $('table-empty').hidden=rows.length>0;
+  const hasFilter=Object.values(state.filters[k]||{}).some(v=>v);
+  $('empty-reset').hidden=!hasFilter;
+  $('empty-new').hidden=(k==='general');
+  if(k==='general'){
+    const allOn=data.scripts.general.every(r=>r.status==='启用');
+    $('global-slot').innerHTML='<button class="btn btn-sm '+(allOn?'btn-danger':'btn-primary')+'" onclick="globalToggleGeneral()">'+(allOn?'⏻ 全局停用':'⚡ 全局开启')+'</button>';
+    $('batch-slot').innerHTML='';
+  }else{
+    $('global-slot').innerHTML='';
+    const n=state.selected.size;
+    $('batch-slot').innerHTML='<button class="btn btn-sm'+(n?' btn-danger':'')+'" '+(n?'':'disabled')+' onclick="batchDisable()">⏸ 批量停用（'+n+'）</button>';
+    const pageIds=rows.map(r=>r.id);
+    const selN=pageIds.filter(id=>state.selected.has(id)).length;
+    const th=$('th-check');
+    if(th){ th.checked=pageIds.length>0&&selN===pageIds.length; th.indeterminate=selN>0&&selN<pageIds.length; }
+  }
+  let pg='共 '+total+' 条 · 第 '+p+' / '+maxP+' 页<div class="pg-btns">';
+  pg+='<button class="pg" '+(p<=1?'disabled':'')+' onclick="gotoPage('+(p-1)+')">‹</button>';
+  for(let i=1;i<=maxP;i++){ if(maxP>7&&Math.abs(i-p)>2&&i!==1&&i!==maxP){ if(i===2||i===maxP-1)pg+='<span style="padding:0 2px">…</span>'; continue;} pg+='<button class="pg '+(i===p?'cur':'')+'" onclick="gotoPage('+i+')">'+i+'</button>'; }
+  pg+='<button class="pg" '+(p>=maxP?'disabled':'')+' onclick="gotoPage('+(p+1)+')">›</button></div>';
+  $('pagination').innerHTML=pg;
+}
+function gotoPage(n){ const k=state.scene; const total=applyFilter(k).length; const maxP=Math.max(1,Math.ceil(total/PAGE)); state.pages[k]=Math.min(Math.max(1,n),maxP); renderTable(); }
+
+/* ================= 抽屉（新增 / 编辑 / 查看） ================= */
+function onBizCatChange(){
+  const sel=$('f_subCat'); if(!sel)return;
+  const bc=$('f_bizCat')?$('f_bizCat').value:'';
+  const opts=bc?SUB_CAT_MAP[bc]:[];
+  sel.innerHTML='<option value="">请选择</option>'+opts.map(o=>'<option value="'+escA(o)+'">'+esc(o)+'</option>').join('');
+}
+function fieldHtml(f,rec,ro){
+  let val='';
+  if(rec){ val=rec[f.k]!=null?rec[f.k]:''; }
+  else val=f.default!==undefined?f.default:'';
+  const req=f.required?'<span class="req">*</span>':'';
+  let ctrl='';
+  if(f.type==='static'){ const txt=typeof f.text==='function'?f.text():f.text; ctrl='<div class="static-val"><span class="tag tag-blue">'+esc(txt)+'</span></div>'; }
+  else if(f.type==='select'){
+    const opts=typeof f.options==='function'?f.options(rec):f.options;
+    ctrl='<select id="f_'+f.k+'" '+(ro?'disabled':'')+(f.onchange?' onchange="'+f.onchange+'"':'')+'><option value="">请选择</option>'+opts.map(o=>'<option value="'+escA(o)+'" '+(String(o)===String(val)?'selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+  }
+  else if(f.type==='textarea'){
+    const rows=f.rows||4, max=(f.maxLen!==undefined)?f.maxLen:500;
+    ctrl='<textarea id="f_'+f.k+'" rows="'+rows+'" '+(max?'maxlength="'+max+'"':'')+' placeholder="'+escA(f.ph||'')+'" '+(ro?'disabled':'')+(max?' oninput="$(\'cnt_'+f.k+'\').textContent=this.value.length+\'/'+max+'\'"':'')+'>'+esc(val)+'</textarea>'+(max?'<div class="cnt" id="cnt_'+f.k+'">'+String(val).length+'/'+max+'</div>':'');
+  }
+  else if(f.type==='radio') ctrl='<div class="radio-line">'+f.opts.map(o=>'<label class="rd"><input type="radio" name="f_'+f.k+'" value="'+escA(o)+'" '+(String(o)===String(val)?'checked':'')+(ro?' disabled':'')+'><span>'+esc(o)+'</span></label>').join('')+'</div>';
+  const tip=f.tip?'<div class="tip">'+f.tip+'</div>':'';
+  return '<div class="field'+(f.full?' full':'')+'" id="fw_'+f.k+'"><label class="flabel">'+f.label+req+'</label>'+ctrl+'<div class="fem" id="fem_'+f.k+'"></div>'+tip+'</div>';
+}
+function openDrawer(mode,id){
+  const k=state.scene,s=SCENES[k];
+  if(k==='general'&&mode!=='view'){ showToast('通用话术为系统内置内容，仅支持查看与全局启停','info'); return; }
+  state.drawerMode=mode; state.editing=id||null;
+  const rec=id?findRec(k,id):null;
+  $('drawer-title').textContent=mode==='view'?'查看话术':(rec?'编辑话术（'+rec.id+'）':'新增话术');
+  $('drawer-scene').innerHTML='<span class="tag tag-gray">使用场景（系统生成 · 只读）</span> '+(rec?esc(s.useSceneText(rec)):esc('品种话术 / '+state.subScene));
+  $('drawer-form').innerHTML=s.form.map(f=>fieldHtml(f,rec,mode==='view')).join('');
+  if(mode==='view') $('drawer-foot').innerHTML='<button class="btn" onclick="closeDrawer()">关 闭</button>';
+  else $('drawer-foot').innerHTML='<button class="btn" onclick="closeDrawer()">取 消</button><button class="btn btn-primary" onclick="submitDrawer()">保 存</button>';
+  $('drawer-mask').hidden=false; requestAnimationFrame(()=>$('drawer').classList.add('open'));
+}
+function openCreate(){ openDrawer('create',null); }
+function openEdit(id){ openDrawer('edit',id); }
+function openView(id){ openDrawer('view',id); }
+function closeDrawer(){ $('drawer').classList.remove('open'); $('drawer-mask').hidden=true; state.drawerMode=null; state.editing=null; }
+
+function collectForm(){
+  const s=SCENES[state.scene]; const out={}; const errs=[]; let firstKey=null;
+  s.form.forEach(f=>{
+    if(f.type==='static')return;
+    let v;
+    if(f.type==='radio'){ const c=document.querySelector('input[name="f_'+f.k+'"]:checked'); v=c?c.value:null; }
+    else v=($('f_'+f.k).value||'').trim();
+    if(f.required&&(v===''||v==null)){
+      errs.push(f.k);
+      const w=$('fw_'+f.k); if(w)w.classList.add('err');
+      const m=$('fem_'+f.k); if(m)m.textContent='请填写 / 选择「'+f.label+'」';
+      if(!firstKey)firstKey=f.k;
+    }
+    out[f.k]=v==null?'':v;
+  });
+  if(firstKey){ const w=$('fw_'+firstKey); if(w&&w.scrollIntoView)w.scrollIntoView({behavior:'smooth',block:'center'}); showToast('请完善表单中标红的必填项','error'); }
+  return {vals:out,ok:errs.length===0};
+}
+function submitDrawer(){
+  const k=state.scene;
+  const {vals,ok}=collectForm(); if(!ok)return;
+  vals.scene=state.subScene;
+  doSave(vals);
+}
+function doSave(vals){
+  const k=state.scene;
+  if(state.editing){
+    const r=findRec(k,state.editing);
+    Object.assign(r,vals,{updatedAt:nowStr(),updater:'张药学'});
+    showToast('话术已更新（'+r.id+'）','success');
+  }else{
+    const rec=Object.assign({id:nextId(k),creator:'张药学',createdAt:nowStr(),updatedAt:nowStr(),updater:'张药学'},vals);
+    data.scripts[k].unshift(rec); state.pages[k]=1;
+    showToast('已新增话术（'+rec.id+'）','success');
+  }
+  closeDrawer(); render();
+}
+
+/* ================= 行操作 ================= */
+function toggleStatus(id){
+  const k=state.scene,r=findRec(k,id); if(!r)return;
+  if(r.status==='启用'){
+    askConfirm('停用话术','确认停用该话术？停用后 App 端将不再展示（历史拜访记录不受影响）。',()=>{ r.status='停用'; render(); showToast('已停用','success'); },{danger:true,okText:'确认停用'});
+  }else{
+    r.status='启用'; render(); showToast('已启用（'+r.id+'）','success');
+  }
+}
+
+/* ================= 通用话术全局启停 ================= */
+function globalToggleGeneral(){
+  const allOn=data.scripts.general.every(r=>r.status==='启用');
+  const target=allOn?'停用':'启用';
+  const msg=allOn
+    ?'确认<b>全局停用</b>全部通用话术？停用后 App 端不再展示任何通用话术（历史拜访记录不受影响）。'
+    :'确认<b>全局开启</b>全部通用话术？开启后全部通用话术在 App 端恢复可见。';
+  askConfirm(allOn?'全局停用通用话术':'全局开启通用话术',msg,()=>{
+    data.scripts.general.forEach(r=>{ r.status=target; });
+    render(); showToast(allOn?'已全局停用全部通用话术':'已全局开启全部通用话术','success');
+  },{danger:allOn,okText:allOn?'确认停用':'确认开启'});
+}
+
+/* ================= 导出 ================= */
+function exportCSV(){
+  const k=state.scene,s=SCENES[k];
+  const rows=applyFilter(k);
+  if(!rows.length){ showToast('当前筛选结果为空，无可导出数据','error'); return; }
+  const head=s.exportCols.map(c=>csvEsc(c[0])).join(',');
+  const body=rows.map(r=>s.exportCols.map(c=>csvEsc(c[1](r))).join(',')).join('\n');
+  downloadFile('话术导出_'+s.label+'_'+todayStr()+'.csv',head+'\n'+body);
+  showToast('已导出 '+rows.length+' 条（按当前筛选结果）','success');
+}
+
+/* ================= 导入 ================= */
+function openImport(){
+  if(state.scene==='general'){ showToast('通用话术为系统内置内容，不支持导入','info'); return; }
+  imp={results:[],valid:0};
+  $('imp-scene').textContent=SCENES.product.label+' · '+state.subScene;
+  $('file-name').textContent='';
+  $('imp-preview').innerHTML='<div class="td-dim" style="padding:30px 0;text-align:center">先下载模板填写，再选择文件上传；上传后自动校验是否重复并在此展示</div>';
+  $('imp-ok').disabled=true;
+  $('imp-wrap').hidden=false;
+}
+function closeImport(){ $('imp-wrap').hidden=true; render(); }
+function downloadTemplate(){
+  const cols=importColsOf('product');
+  const head=cols.map(c=>csvEsc(c.label)).join(',');
+  const ex=templateExampleRow().map(csvEsc).join(',');
+  downloadFile('话术导入模板_品种话术-'+state.subScene+'.csv',head+'\n'+ex);
+  showToast('模板已下载（品种话术 · '+state.subScene+'）','info');
+}
+function templateExampleRow(){
+  return ['阿卡波糖片','第三终端拜访','跟踪巡访服务','价格贵','老师，阿卡波糖片是基药目录品种，社区慢病续方开药更方便，餐后血糖控制更平稳。','启用'];
+}
+function handleFile(input){
+  const f=input.files&&input.files[0]; if(!f)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    input.value='';
+    const rows=parseCSV(reader.result);
+    const fail=msg=>{ $('imp-preview').innerHTML='<div class="imp-msg bad" style="padding:20px 0">'+msg+'</div>'; $('imp-ok').disabled=true; };
+    if(!rows.length){ fail('文件为空，请检查后重新上传'); return; }
+    const cols=importColsOf('product');
+    const header=rows[0].map(x=>String(x).trim());
+    const missing=cols.filter(c=>!header.includes(c.label));
+    if(missing.length){ fail('表头与模板不一致（缺少：'+missing.map(m=>m.label).join('、')+'），请下载最新模板后重试'); return; }
+    $('file-name').textContent=f.name+'（'+(rows.length-1)+' 行数据）';
+    checkDup(rows.slice(1).map(r=>cols.map(c=>{ const i=header.indexOf(c.label); return r[i]!=null?r[i]:''; })),cols);
+  };
+  reader.readAsText(f,'utf-8');
+}
+function checkDup(rows,cols){
+  const curScene=state.subScene;
+  const seenInFile=new Set();
+  imp.results=rows.map((row,idx)=>{
+    const obj={};
+    cols.forEach((c,ci)=>{ obj[c.k]=String(row[ci]!=null?row[ci]:'').trim(); });
+    if(obj.status==='')obj.status='启用';
+    const dupKey=[curScene,obj.product,obj.bizCat,obj.subCat,obj.content].join('|');
+    let dup='';
+    if(seenInFile.has(dupKey))dup='与文件内其他行重复';
+    else if(data.scripts.product.some(r=>[r.scene,r.product,r.bizCat,r.subCat,r.content].join('|')===dupKey))dup='与已有话术重复';
+    seenInFile.add(dupKey);
+    return {lineNo:idx+2,obj:Object.assign({scene:curScene},obj),dup:dup};
+  });
+  imp.valid=imp.results.filter(r=>!r.dup).length;
+  renderPreview(cols);
+}
+function renderPreview(cols){
+  const total=imp.results.length,valid=imp.valid,dup=total-valid;
+  let html='<div style="margin:2px 0 10px">共 <b>'+total+'</b> 行 · 可导入 <b style="color:var(--green)">'+valid+'</b> 条 · 重复 <b style="color:'+(dup?'var(--red)':'var(--dim)')+'">'+dup+'</b> 条（重复行不导入）</div>';
+  if(!total){
+    html+='<div class="td-dim" style="padding:20px 0;text-align:center">文件中没有数据行</div>';
+  }else{
+    html+='<div class="preview-wrap"><table style="min-width:900px"><thead><tr><th style="width:60px">行号</th>'+cols.map(c=>'<th>'+c.label+'</th>').join('')+'<th style="width:150px">校验结果</th></tr></thead><tbody>'+
+      imp.results.map(r=>'<tr'+(r.dup?' style="background:var(--red-bg)"':'')+'><td class="td-mono">'+r.lineNo+'</td>'+cols.map(c=>'<td>'+esc(r.obj[c.k]||'—')+'</td>').join('')+'<td>'+(r.dup?'<span style="color:var(--red)">'+esc(r.dup)+'</span>':'<span style="color:var(--green)">✓ 可导入</span>')+'</td></tr>').join('')+
+      '</tbody></table></div>';
+  }
+  $('imp-preview').innerHTML=html;
+  $('imp-ok').disabled=valid===0;
+}
+function confirmImport(){
+  const rows=imp.results.filter(r=>!r.dup);
+  rows.forEach(r=>{
+    const rec=Object.assign({id:nextId('product'),creator:'批量导入',createdAt:nowStr(),updatedAt:nowStr(),updater:'批量导入'},r.obj);
+    data.scripts.product.unshift(rec);
+  });
+  const dup=imp.results.length-rows.length;
+  showToast('成功导入 '+rows.length+' 条话术'+(dup?'，跳过重复 '+dup+' 条':''),'success');
+  closeImport();
+}
+
+/* ================= 快捷键 & 初始化 ================= */
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  if(!$('cf-wrap').hidden){closeConfirm();return;}
+  if(!$('imp-wrap').hidden){closeImport();return;}
+  if(!$('drawer-mask').hidden){closeDrawer();}
+});
+render();
+</script>
+</body>
+</html>

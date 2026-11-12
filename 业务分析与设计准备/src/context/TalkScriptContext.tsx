@@ -1,185 +1,349 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
-import type { TalkScript } from '../types';
+import type { GeneralScript, ProductScript, ScriptManageStatus } from '../types';
 
 /**
- * 品种话术共享 store：品种话术维护页（增删改查/启停/导入导出）
- * 与 baiyee-AI 话术生成场景（采纳入库）操作同一份数据。
+ * 话术管理共享 store（《话术管理功能需求文档》V1.1 口径）：
+ * 通用话术（系统内置，GS 编号）与品种话术（PN 编号，按子场景组织）两个数据集。
+ * 话术管理页（列表/筛选/启停/导入导出/抽屉维护）与 baiyee-AI 采纳入库操作同一份数据。
  *
  * 状态放在模块级：切换登录角色会重建整个工作台（session key），
  * 而「baiyee-AI 生成采纳 → 话术页启用」需要跨会话保持。
  */
 
-export const VARIETIES = [
-  '阿托伐他汀钙片(20mg)',
-  '瑞舒伐他汀钙片(10mg)',
-  '二甲双胍缓释片(500mg)',
-  '氨氯地平片(5mg)',
-  '奥美拉唑肠溶胶囊(20mg)',
-  '辛伐他汀片(20mg)',
+/* ─── 基础字典（需求文档 6.4 场景与类别字典） ─────────────────────── */
+
+/** 品种主数据字典（原型内置 8 个品种） */
+export const SCRIPT_PRODUCTS = [
+  '阿卡波糖片',
+  '苯磺酸氨氯地平片',
+  '阿托伐他汀钙片',
+  '盐酸二甲双胍缓释片',
+  '硫酸氢氯吡格雷片',
+  '缬沙坦胶囊',
+  '恩替卡韦分散片',
+  '甘精胰岛素注射液',
 ] as const;
 
-export const ALL_VARIETIES = ['通用品种', ...VARIETIES];
+/** 通用话术类别 */
+export const GENERAL_CATS = ['开场白', '产品介绍', '异议处理', '促成成交', '客情维护'] as const;
 
-export const FIRST_CATS = ['终端拜访', '商业拜访', '药房拜访', '第三终端拜访', '患者随访', '信息调研', '跟台服务'] as const;
+/** 拜访场景（一级） */
+export const SCENE_LIST = ['终端拜访', '药房拜访', '商业拜访', '其他场景拜访'] as const;
 
-/** 搜索区不提供「信息调研」筛选项（手册规则） */
-export const SEARCH_FIRST_CATS = FIRST_CATS.filter((c) => c !== '信息调研');
-
-export const SUB_CATS: Record<string, string[]> = {
-  终端拜访: ['学术拜访', '日常拜访', '信息收集和调研', '跟踪巡访服务', '第三终端服务'],
-  商业拜访: ['商业信息收集和调研', '商务服务', '商业库存信息收集'],
-  药房拜访: ['药房拜访'],
-  第三终端拜访: ['第三终端拜访', '信息收集和调研', '跟踪巡访服务'],
-  患者随访: ['患者随访/问卷调研'],
-  信息调研: ['潜在客户调研', '现实客户调研'],
-  跟台服务: [],
+/** 拜访场景 → 业务类别（二级） */
+export const BIZ_CAT_MAP: Record<string, readonly string[]> = {
+  终端拜访: ['第三终端拜访', '患者随访', '跟台服务'],
+  药房拜访: ['连锁药房拜访', '单体药房拜访', '店员教育'],
+  商业拜访: ['商业公司首访', '订单与回款对账', '供应保障沟通'],
+  // 需求文档说明：其他场景拜访当前复用终端拜访字典（待业务确认，见 Q12）
+  其他场景拜访: ['第三终端拜访', '患者随访', '跟台服务'],
 };
 
-export const DEPT_RULES = ['不限制', '心血管内科与内分泌科', '三医院重点科室白名单'];
+/** 业务类别 → 类别细分（三级，跟台服务无细分） */
+export const SUB_CAT_MAP: Record<string, readonly string[]> = {
+  第三终端拜访: ['第三终端拜访', '信息收集和调研', '跟踪巡访服务'],
+  患者随访: ['患者随访', '问卷'],
+  跟台服务: [],
+  连锁药房拜访: ['首推品种沟通', '陈列与动销', '会员活动'],
+  单体药房拜访: ['采购计划', '店员推荐'],
+  店员教育: ['培训安排', '物料支持'],
+  商业公司首访: ['合作模式介绍', '品种目录推介'],
+  订单与回款对账: ['订单计划', '账期与返利'],
+  供应保障沟通: ['冷链与配送', '库存与预警'],
+};
 
-/** 判重口径（手册）：同品种下一级+二级+话术内容+客户反馈完全相同视为重复 */
-export function isDuplicateScript(list: TalkScript[], variety: string, firstCat: string, secondCat: string, content: string, feedback: string): boolean {
-  return list.some(
-    (s) => s.variety === variety && s.firstCat === firstCat && s.secondCat === secondCat && s.content === content && s.feedback === feedback,
-  );
+export const ALL_BIZ_CATS = [...new Set(Object.values(BIZ_CAT_MAP).flat())];
+export const ALL_SUB_CATS = [...new Set(Object.values(SUB_CAT_MAP).flat())];
+
+/** 编号规则：类型前缀 + "-" + 4 位流水（需求文档 6.3） */
+const PREFIX = { general: 'GS', product: 'PN' } as const;
+
+/** 判重口径（需求文档 7.3）：拜访场景 + 品种 + 业务类别 + 类别细分 + 话术内容 */
+export function dupKeyOf(scene: string, product: string, bizCat: string, subCat: string, content: string): string {
+  return [scene, product, bizCat, subCat, content].join('|');
 }
 
-const SEED_SCRIPTS: TalkScript[] = [
-  { id: 1, variety: '阿托伐他汀钙片(20mg)', firstCat: '终端拜访', secondCat: '学术拜访', content: '医生您好，阿托伐他汀钙片用于高胆固醇血症与混合型血脂异常，临床研究显示可有效降低LDL-C水平，是经临床验证的降脂治疗选择', feedback: '了解，我有几位患者LDL-C未达标，可以尝试方案调整', isDefault: '否', status: '启用', isCoop: '是', deptRule: '心血管内科与内分泌科' },
-  { id: 2, variety: '阿托伐他汀钙片(20mg)', firstCat: '终端拜访', secondCat: '日常拜访', content: '本次来访想同步阿托伐他汀钙片的最新价格政策与库存情况，方便您制定采购计划', feedback: '价格政策收到，本月采购计划已确认', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 3, variety: '阿托伐他汀钙片(20mg)', firstCat: '患者随访', secondCat: '患者随访/问卷调研', content: '您好，回访用药情况：服药后有无肌肉酸痛等不适，请配合完成一份简短的用药感受问卷', feedback: '没有明显不适，血脂复查已预约', isDefault: '否', status: '启用', isCoop: '否', deptRule: '不限制' },
-  { id: 4, variety: '瑞舒伐他汀钙片(10mg)', firstCat: '终端拜访', secondCat: '学术拜访', content: '瑞舒伐他汀钙片适用于经饮食控制仍不达标的原发性高胆固醇血症，强效降脂同时安全性良好', feedback: '临床上中重度患者确实需要强效降脂方案', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 5, variety: '瑞舒伐他汀钙片(10mg)', firstCat: '终端拜访', secondCat: '信息收集和调研', content: '想了解贵院他汀类药品本月的处方结构与竞品动态，为后续学术支持做参考', feedback: '竞品近期有学术会议推广，处方略有分流', isDefault: '否', status: '禁用', isCoop: '是', deptRule: '不限制' },
-  { id: 6, variety: '二甲双胍缓释片(500mg)', firstCat: '终端拜访', secondCat: '学术拜访', content: '二甲双胍缓释片是2型糖尿病一线用药，缓释剂型胃肠耐受更好，老年患者依从性显著改善', feedback: '认可，老年患者依从性确实是关注点', isDefault: '否', status: '启用', isCoop: '是', deptRule: '心血管内科与内分泌科' },
-  { id: 7, variety: '二甲双胍缓释片(500mg)', firstCat: '终端拜访', secondCat: '跟踪巡访服务', content: '按上次沟通补充缓释片夜间服药依从性数据资料，重点说明与普通片的耐受性对比', feedback: '资料收到，会在科室例会上同步', isDefault: '否', status: '启用', isCoop: '否', deptRule: '不限制' },
-  { id: 8, variety: '二甲双胍缓释片(500mg)', firstCat: '患者随访', secondCat: '患者随访/问卷调研', content: '您好，回访血糖控制情况与胃肠道反应，缓释剂型服用体验是否优于之前的普通片', feedback: '饭后腹胀比之前普通片明显减轻', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 9, variety: '氨氯地平片(5mg)', firstCat: '终端拜访', secondCat: '日常拜访', content: '氨氯地平片适用于高血压，长效制剂一日一次平稳控压，方便老年患者坚持服药', feedback: '门诊老年高血压患者用量稳定', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 10, variety: '氨氯地平片(5mg)', firstCat: '终端拜访', secondCat: '第三终端服务', content: '基层医疗机构慢病目录执行情况与氨氯地平备货情况沟通，确保慢病患者持续用药', feedback: '基层备货正常，下季度按目录采购', isDefault: '否', status: '启用', isCoop: '否', deptRule: '不限制' },
-  { id: 11, variety: '氨氯地平片(5mg)', firstCat: '信息调研', secondCat: '潜在客户调研', content: '想了解贵院高血压用药的市场格局与入院流程，为产品进入贵院做提前准备', feedback: '入院需药事会审批，可先提交资料', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 12, variety: '奥美拉唑肠溶胶囊(20mg)', firstCat: '终端拜访', secondCat: '学术拜访', content: '奥美拉唑肠溶胶囊用于胃溃疡、十二指肠溃疡与反流性食管炎，质子泵抑制剂中安全性与疗效兼备', feedback: '消化科质子泵抑制剂用量稳定', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 13, variety: '奥美拉唑肠溶胶囊(20mg)', firstCat: '药房拜访', secondCat: '药房拜访', content: '想了解贵药房奥美拉唑肠溶胶囊的动销与陈列情况，配合季度学术推广活动', feedback: '动销平稳，周末有客流高峰', isDefault: '否', status: '启用', isCoop: '否', deptRule: '不限制' },
-  { id: 14, variety: '奥美拉唑肠溶胶囊(20mg)', firstCat: '信息调研', secondCat: '现实客户调研', content: '回访上月集中采购的使用反馈与不良反应上报情况，收集真实使用数据', feedback: '无不良反应上报，使用反馈良好', isDefault: '否', status: '禁用', isCoop: '是', deptRule: '不限制' },
-  { id: 15, variety: '辛伐他汀片(20mg)', firstCat: '商业拜访', secondCat: '商务服务', content: '同步辛伐他汀片季度商业政策与回款节奏，确认合作条款执行情况', feedback: '政策清楚，按协议执行', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 16, variety: '辛伐他汀片(20mg)', firstCat: '商业拜访', secondCat: '商业库存信息收集', content: '想核对商业公司当前库存批次与效期情况，确保供应链安全', feedback: '当前库存2个批次，效期均到2028', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 17, variety: '辛伐他汀片(20mg)', firstCat: '第三终端拜访', secondCat: '第三终端拜访', content: '第三终端连锁门店辛伐他汀片铺货与店员教育沟通，提升终端销售能力', feedback: '铺货已完成，店员培训希望安排一次', isDefault: '否', status: '启用', isCoop: '否', deptRule: '不限制' },
-  { id: 18, variety: '辛伐他汀片(20mg)', firstCat: '商业拜访', secondCat: '商业信息收集和调研', content: '了解区域商业流向数据与窜货预警情况，维护市场秩序', feedback: '本季度流向正常，无异动', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 19, variety: '通用品种', firstCat: '终端拜访', secondCat: '学术拜访', content: '您好，本次来访想同步我司产品最新的临床研究进展与学术资料，欢迎定期交流', feedback: '欢迎定期来科室同步资料', isDefault: '是', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 20, variety: '通用品种', firstCat: '终端拜访', secondCat: '日常拜访', content: '您好，例行拜访，想了解近期用药反馈与需求，持续为您的诊疗工作提供支持', feedback: '反馈平稳，有需要会联系您', isDefault: '是', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 21, variety: '通用品种', firstCat: '患者随访', secondCat: '患者随访/问卷调研', content: '您好，按计划进行用药依从性回访，了解您的服药规律与健康状况', feedback: '服药规律，感谢回访', isDefault: '是', status: '启用', isCoop: '否', deptRule: '不限制' },
-  { id: 22, variety: '阿托伐他汀钙片(20mg)', firstCat: '终端拜访', secondCat: '跟踪巡访服务', content: '按约定回访上次学术拜访遗留的疑问并补充资料，跟进治疗方案调整情况', feedback: '资料完整，疑问已解决', isDefault: '否', status: '禁用', isCoop: '是', deptRule: '三医院重点科室白名单' },
-  { id: 23, variety: '二甲双胍缓释片(500mg)', firstCat: '第三终端拜访', secondCat: '信息收集和调研', content: '收集第三终端糖尿病用药目录与采购偏好，了解市场竞争格局', feedback: '目录内品种优先，月度集中采购', isDefault: '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-  { id: 24, variety: '氨氯地平片(5mg)', firstCat: '跟台服务', secondCat: '—', content: '跟台服务过程中同步产品信息与使用反馈，配合手术室规范化用药管理', feedback: '手术跟台安排以医院通知为准', isDefault: '否', status: '禁用', isCoop: '是', deptRule: '不限制' },
+/* ─── 兼容别名：baiyee-AI 生成场景沿用旧变量名（一级=拜访场景、二级=业务类别） ─── */
+
+export const VARIETIES = SCRIPT_PRODUCTS;
+export const FIRST_CATS = SCENE_LIST;
+export const SUB_CATS: Record<string, readonly string[]> = BIZ_CAT_MAP;
+
+/* ─── 种子数据（与新原型 v1.1 一致） ─────────────────────────────── */
+
+const SEED_GENERAL: GeneralScript[] = [
+  { id: 'GS-0001', category: '开场白', feedback: '', content: '王老师您好，我是京卫医药学术部的小林。今天想占用您两分钟，同步一下我们重点品种最新的临床使用反馈和文献，您看方便吗？', status: '启用', creator: '张药学', createdAt: '2026-09-12 10:22', updatedAt: '2026-10-08 16:40', updater: '王药学' },
+  { id: 'GS-0002', category: '异议处理', feedback: '安全担忧', content: '非常理解您对患者耐受性的顾虑。这个品种在老年患者中的不良反应发生率与对照相当，我可以把这项真实世界研究的数据发到您邮箱。', status: '启用', creator: '张药学', createdAt: '2026-09-15 14:03', updatedAt: '2026-09-15 14:03', updater: '张药学' },
+  { id: 'GS-0003', category: '促成成交', feedback: '价格贵', content: '王老师，要不这样，我们先安排 5 例患者规范试用两周，之后我来门诊跟您回访一次使用感受，您看可以吗？', status: '启用', creator: '李学术', createdAt: '2026-09-20 09:31', updatedAt: '2026-10-11 11:26', updater: '张药学' },
+  { id: 'GS-0004', category: '客情维护', feedback: '', content: '王老师，最近换季感冒高发，您出门诊辛苦了。用药方面有任何需要随时微信我。', status: '启用', creator: '张药学', createdAt: '2026-08-30 16:12', updatedAt: '2026-10-15 10:05', updater: '张药学' },
+  { id: 'GS-0005', category: '产品介绍', feedback: '竞品比较', content: '我们这个产品是原研工艺，杂质谱控制更严格，适合长期用药的患者，疗效一致性也有生物等效性数据支持。', status: '启用', creator: '王药学', createdAt: '2026-10-06 15:44', updatedAt: '2026-10-06 15:44', updater: '王药学' },
 ];
 
-let moduleScripts: TalkScript[] | null = null;
+const SEED_PRODUCT: ProductScript[] = [
+  { id: 'PN-0001', scene: '终端拜访', product: '阿卡波糖片', bizCat: '第三终端拜访', subCat: '第三终端拜访', feedback: '疗效疑虑', content: '老师，阿卡波糖片是国家基药目录品种，社区慢病续方开药更方便；配合餐时服用方案，餐后血糖控制更平稳，多数患者两周内就能看到餐后 2 小时血糖的下降。', status: '启用', creator: '张药学', createdAt: '2026-09-10 09:15', updatedAt: '2026-10-12 14:20', updater: '张药学' },
+  { id: 'PN-0002', scene: '终端拜访', product: '苯磺酸氨氯地平片', bizCat: '第三终端拜访', subCat: '信息收集和调研', feedback: '', content: '社区高血压患者取药频次高，氨氯地平一天一次服用依从性好，社区药房备货后患者就近续方更方便。', status: '启用', creator: '李学术', createdAt: '2026-09-18 13:27', updatedAt: '2026-09-18 13:27', updater: '李学术' },
+  { id: 'PN-0003', scene: '终端拜访', product: '阿托伐他汀钙片', bizCat: '患者随访', subCat: '患者随访', feedback: '价格贵', content: '算下来每天不到一块钱，长期坚持降脂治疗负担小；随访时可以帮患者把服药时间固定在晚饭后，漏服率会明显下降。', status: '启用', creator: '张药学', createdAt: '2026-09-11 10:40', updatedAt: '2026-10-09 09:55', updater: '王药学' },
+  { id: 'PN-0004', scene: '终端拜访', product: '盐酸二甲双胍缓释片', bizCat: '患者随访', subCat: '患者随访', feedback: '安全担忧', content: '缓释剂型晚餐后一次服用，胃肠道刺激明显小于普通片；随访时提醒患者随餐服用，不适感会更轻。', status: '停用', creator: '张药学', createdAt: '2026-10-09 10:12', updatedAt: '2026-10-16 09:47', updater: '张药学' },
+  { id: 'PN-0005', scene: '终端拜访', product: '硫酸氢氯吡格雷片', bizCat: '跟台服务', subCat: '', feedback: '竞品比较', content: '支架术后抗血小板方案按指南执行，随访时提醒患者不可自行停药，复查周期按医嘱安排。', status: '启用', creator: '张药学', createdAt: '2026-09-25 15:02', updatedAt: '2026-10-14 16:31', updater: '张药学' },
+  { id: 'PN-0006', scene: '药房拜访', product: '缬沙坦胶囊', bizCat: '连锁药房拜访', subCat: '首推品种沟通', feedback: '不愿首推', content: '店员首推时可以强调一天一次胶囊剂型，老年患者吞服方便，回头客复购率高。', status: '启用', creator: '王药学', createdAt: '2026-09-28 11:18', updatedAt: '2026-10-13 15:28', updater: '张药学' },
+  { id: 'PN-0007', scene: '药房拜访', product: '恩替卡韦分散片', bizCat: '店员教育', subCat: '培训安排', feedback: '', content: '店员培训重点讲分散剂型服用方便、耐药屏障高，慢病顾客长期用药稳定，适合作为肝病品类首推。', status: '停用', creator: '李学术', createdAt: '2026-10-08 09:51', updatedAt: '2026-10-17 11:02', updater: '张药学' },
+  { id: 'PN-0008', scene: '商业拜访', product: '甘精胰岛素注射液', bizCat: '供应保障沟通', subCat: '冷链与配送', feedback: '供货与配送', content: '冷链配送全程温控可追溯，月度对账和库存预警都有专人对接，商业公司备货没有后顾之忧。', status: '启用', creator: '张药学', createdAt: '2026-09-14 09:20', updatedAt: '2026-10-10 10:10', updater: '张药学', isCoop: '是' },
+  { id: 'PN-0009', scene: '商业拜访', product: '阿卡波糖片', bizCat: '订单与回款对账', subCat: '账期与返利', feedback: '', content: '季度订单量到位可申请阶梯返利，折算采购成本更有优势；账期按协议执行，月底统一对账。', status: '启用', creator: '张药学', createdAt: '2026-09-16 10:05', updatedAt: '2026-10-18 14:52', updater: '张药学', isCoop: '否' },
+  { id: 'PN-0010', scene: '其他场景拜访', product: '阿托伐他汀钙片', bizCat: '第三终端拜访', subCat: '信息收集和调研', feedback: '', content: '这期科室会主题是血脂管理新进展，面向心内科和内分泌科，会后有病例讨论环节，欢迎老师带病例参加。', status: '启用', creator: '王药学', createdAt: '2026-10-11 16:22', updatedAt: '2026-10-11 16:22', updater: '王药学' },
+];
 
-function initialScripts(): TalkScript[] {
-  if (!moduleScripts) moduleScripts = SEED_SCRIPTS.map((s) => ({ ...s }));
-  return moduleScripts;
+/* ─── 模块级持久化（跨角色切换保留 AI 采纳入库数据） ─────────────── */
+
+interface ScriptStoreData {
+  general: GeneralScript[];
+  product: ProductScript[];
 }
 
-export type NewScriptInput = Pick<TalkScript, 'variety' | 'firstCat' | 'secondCat' | 'content' | 'feedback'>;
+let moduleData: ScriptStoreData | null = null;
+
+function initialData(): ScriptStoreData {
+  if (!moduleData) {
+    moduleData = {
+      general: SEED_GENERAL.map((s) => ({ ...s })),
+      product: SEED_PRODUCT.map((s) => ({ ...s })),
+    };
+  }
+  return moduleData;
+}
+
+function nowStr(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 演示环境默认操作人 */
+export const CURRENT_USER = '张药学';
+
+function nextId(kind: 'general' | 'product'): string {
+  const prefix = PREFIX[kind];
+  let max = 0;
+  (moduleData?.[kind] ?? []).forEach((r) => {
+    const n = parseInt(String(r.id).split('-')[1], 10) || 0;
+    if (n > max) max = n;
+  });
+  return `${prefix}-${String(max + 1).padStart(4, '0')}`;
+}
+
+/* ─── Store 定义 ─────────────────────────────────────────────────── */
+
+/** 新增/编辑品种话术的可写字段（编号、场景、审计字段由 store 维护；status 缺省按启用） */
+export type ProductScriptInput = Pick<ProductScript, 'product' | 'bizCat' | 'subCat' | 'feedback' | 'content'> & {
+  scene: string;
+  status?: ProductScript['status'];
+  isCoop?: '是' | '否';
+};
+
+export interface ImportRowInput {
+  product: string;
+  bizCat: string;
+  subCat: string;
+  feedback: string;
+  content: string;
+  status: '启用' | '停用';
+}
 
 interface TalkScriptStore {
-  scripts: TalkScript[];
-  addScript: (data: NewScriptInput) => void;
-  updateScript: (id: number, patch: { content: string; feedback: string }) => void;
-  removeScript: (id: number) => void;
-  removeScripts: (ids: number[]) => void;
-  toggleStatus: (id: number) => void;
-  toggleCoop: (id: number) => void;
-  setDeptRule: (id: number, rule: string) => void;
-  /** baiyee-AI 采纳：置 isAI + 待启用 + 合作性 + 确认人留痕 */
-  adoptFromAI: (data: NewScriptInput & { confirmBy: string }) => void;
+  general: GeneralScript[];
+  product: ProductScript[];
+  /** 新增品种话术：生成 PN 编号、插入列表首位（FR-18） */
+  addProduct: (data: ProductScriptInput) => ProductScript;
+  /** 编辑品种话术：保留编号与拜访场景，更新业务字段与更新人/时间（FR-18） */
+  updateProduct: (id: string, patch: Omit<ProductScriptInput, 'scene'>) => void;
+  /** 单条启停（FR-12） */
+  setProductStatus: (id: string, status: ScriptManageStatus) => void;
+  /** 批量启停（FR-13，本期仅停用；能力通用） */
+  batchSetProductStatus: (ids: string[], status: ScriptManageStatus) => void;
+  /** CSV 导入：按模板顺序写入，创建人固定"批量导入"（FR-24） */
+  importProducts: (scene: string, rows: ImportRowInput[]) => void;
+  /** AI 撤销采纳专用删除（页面无删除入口，需求 7.2 不提供物理删除） */
+  removeProduct: (id: string) => void;
+  /** 通用话术单条启停（FR-07） */
+  setGeneralStatus: (id: string, status: '启用' | '停用') => void;
+  /** 通用话术批量启停（FR-07） */
+  batchSetGeneralStatus: (ids: string[], status: '启用' | '停用') => void;
+  /** 通用话术全局启停（FR-07） */
+  setAllGeneralStatus: (status: '启用' | '停用') => void;
+  /** baiyee-AI 采纳：置 isAI + 待启用 + 确认人留痕 */
+  adoptFromAI: (data: ProductScriptInput & { confirmBy: string }) => void;
 }
 
 const TalkScriptContext = createContext<TalkScriptStore | null>(null);
 
 export function TalkScriptProvider({ children }: { children: ReactNode }) {
-  const [scripts, setScripts] = useState<TalkScript[]>(() => [...initialScripts()]);
+  const [data, setData] = useState<ScriptStoreData>(() => ({
+    general: [...initialData().general],
+    product: [...initialData().product],
+  }));
 
   const sync = useCallback(() => {
-    setScripts([...(moduleScripts ?? [])]);
+    if (moduleData) setData({ general: [...moduleData.general], product: [...moduleData.product] });
   }, []);
 
-  const addScript = useCallback(
-    (data: NewScriptInput) => {
-      moduleScripts = [
-        { id: Date.now(), ...data, isDefault: data.variety === '通用品种' ? '是' : '否', status: '启用', isCoop: '是', deptRule: '不限制' },
-        ...(moduleScripts ?? []),
-      ];
+  const addProduct = useCallback(
+    (input: ProductScriptInput): ProductScript => {
+      const rec: ProductScript = {
+        id: nextId('product'),
+        scene: input.scene,
+        product: input.product,
+        bizCat: input.bizCat,
+        subCat: input.subCat,
+        feedback: input.feedback,
+        content: input.content,
+        status: input.status ?? '启用',
+        isCoop: input.isCoop,
+        creator: CURRENT_USER,
+        createdAt: nowStr(),
+        updatedAt: nowStr(),
+        updater: CURRENT_USER,
+      };
+      moduleData = { ...(moduleData ?? initialData()), product: [rec, ...(moduleData?.product ?? [])] };
+      sync();
+      return rec;
+    },
+    [sync],
+  );
+
+  const updateProduct = useCallback(
+    (id: string, patch: Omit<ProductScriptInput, 'scene'>) => {
+      moduleData = {
+        ...(moduleData ?? initialData()),
+        product: (moduleData?.product ?? []).map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                product: patch.product,
+                bizCat: patch.bizCat,
+                subCat: patch.subCat,
+                feedback: patch.feedback,
+                content: patch.content,
+                status: patch.status ?? s.status,
+                isCoop: patch.isCoop,
+                updatedAt: nowStr(),
+                updater: CURRENT_USER,
+              }
+            : s,
+        ),
+      };
       sync();
     },
     [sync],
   );
 
-  const updateScript = useCallback(
-    (id: number, patch: { content: string; feedback: string }) => {
-      moduleScripts = (moduleScripts ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s));
+  const setProductStatus = useCallback(
+    (id: string, status: ScriptManageStatus) => {
+      moduleData = {
+        ...(moduleData ?? initialData()),
+        product: (moduleData?.product ?? []).map((s) => (s.id === id ? { ...s, status, updatedAt: nowStr(), updater: CURRENT_USER } : s)),
+      };
       sync();
     },
     [sync],
   );
 
-  const removeScript = useCallback(
-    (id: number) => {
-      moduleScripts = (moduleScripts ?? []).filter((s) => s.id !== id);
-      sync();
-    },
-    [sync],
-  );
-
-  const removeScripts = useCallback(
-    (ids: number[]) => {
+  const batchSetProductStatus = useCallback(
+    (ids: string[], status: ScriptManageStatus) => {
       const set = new Set(ids);
-      moduleScripts = (moduleScripts ?? []).filter((s) => !set.has(s.id));
+      moduleData = {
+        ...(moduleData ?? initialData()),
+        product: (moduleData?.product ?? []).map((s) =>
+          set.has(s.id) ? { ...s, status, updatedAt: nowStr(), updater: CURRENT_USER } : s,
+        ),
+      };
       sync();
     },
     [sync],
   );
 
-  const toggleStatus = useCallback(
-    (id: number) => {
-      // 启用→禁用；禁用/待启用（AI 入库初始态）→启用
-      moduleScripts = (moduleScripts ?? []).map((s) =>
-        s.id === id ? { ...s, status: s.status === '启用' ? '禁用' : '启用' } : s,
-      );
+  const importProducts = useCallback(
+    (scene: string, rows: ImportRowInput[]) => {
+      const stamp = nowStr();
+      const recs: ProductScript[] = rows.map((r) => ({
+        id: nextId('product'),
+        scene,
+        product: r.product,
+        bizCat: r.bizCat,
+        subCat: r.subCat,
+        feedback: r.feedback,
+        content: r.content,
+        status: r.status,
+        isCoop: scene === '商业拜访' ? '是' : undefined,
+        creator: '批量导入',
+        createdAt: stamp,
+        updatedAt: stamp,
+        updater: '批量导入',
+      }));
+      moduleData = { ...(moduleData ?? initialData()), product: [...recs, ...(moduleData?.product ?? [])] };
       sync();
     },
     [sync],
   );
 
-  const toggleCoop = useCallback(
-    (id: number) => {
-      moduleScripts = (moduleScripts ?? []).map((s) => (s.id === id ? { ...s, isCoop: s.isCoop === '是' ? '否' : '是' } : s));
+  const removeProduct = useCallback(
+    (id: string) => {
+      moduleData = { ...(moduleData ?? initialData()), product: (moduleData?.product ?? []).filter((s) => s.id !== id) };
       sync();
     },
     [sync],
   );
 
-  const setDeptRule = useCallback(
-    (id: number, rule: string) => {
-      moduleScripts = (moduleScripts ?? []).map((s) => (s.id === id ? { ...s, deptRule: rule } : s));
+  const setGeneralStatus = useCallback(
+    (id: string, status: '启用' | '停用') => {
+      moduleData = {
+        ...(moduleData ?? initialData()),
+        general: (moduleData?.general ?? []).map((s) => (s.id === id ? { ...s, status, updatedAt: nowStr(), updater: CURRENT_USER } : s)),
+      };
+      sync();
+    },
+    [sync],
+  );
+
+  const batchSetGeneralStatus = useCallback(
+    (ids: string[], status: '启用' | '停用') => {
+      const set = new Set(ids);
+      moduleData = {
+        ...(moduleData ?? initialData()),
+        general: (moduleData?.general ?? []).map((s) =>
+          set.has(s.id) ? { ...s, status, updatedAt: nowStr(), updater: CURRENT_USER } : s,
+        ),
+      };
+      sync();
+    },
+    [sync],
+  );
+
+  const setAllGeneralStatus = useCallback(
+    (status: '启用' | '停用') => {
+      moduleData = {
+        ...(moduleData ?? initialData()),
+        general: (moduleData?.general ?? []).map((s) => ({ ...s, status, updatedAt: nowStr(), updater: CURRENT_USER })),
+      };
       sync();
     },
     [sync],
   );
 
   const adoptFromAI = useCallback(
-    (data: NewScriptInput & { confirmBy: string }) => {
-      moduleScripts = [
-        {
-          id: Date.now(),
-          ...data,
-          isDefault: '否',
-          status: '待启用',
-          isCoop: '是',
-          deptRule: '不限制',
-          isAI: true,
-          confirmBy: data.confirmBy,
-        },
-        ...(moduleScripts ?? []),
-      ];
+    (input: ProductScriptInput & { confirmBy: string }) => {
+      const { confirmBy, ...rest } = input;
+      const rec: ProductScript = {
+        id: nextId('product'),
+        ...rest,
+        isCoop: rest.scene === '商业拜访' ? (rest.isCoop ?? '是') : rest.isCoop,
+        status: '待启用',
+        creator: CURRENT_USER,
+        createdAt: nowStr(),
+        updatedAt: nowStr(),
+        updater: CURRENT_USER,
+        isAI: true,
+        confirmBy,
+      };
+      moduleData = { ...(moduleData ?? initialData()), product: [rec, ...(moduleData?.product ?? [])] };
       sync();
     },
     [sync],
@@ -187,7 +351,20 @@ export function TalkScriptProvider({ children }: { children: ReactNode }) {
 
   return (
     <TalkScriptContext.Provider
-      value={{ scripts, addScript, updateScript, removeScript, removeScripts, toggleStatus, toggleCoop, setDeptRule, adoptFromAI }}
+      value={{
+        general: data.general,
+        product: data.product,
+        addProduct,
+        updateProduct,
+        setProductStatus,
+        batchSetProductStatus,
+        importProducts,
+        removeProduct,
+        setGeneralStatus,
+        batchSetGeneralStatus,
+        setAllGeneralStatus,
+        adoptFromAI,
+      }}
     >
       {children}
     </TalkScriptContext.Provider>

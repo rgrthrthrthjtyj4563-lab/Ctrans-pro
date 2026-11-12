@@ -11,6 +11,13 @@ logs/
 *.log
 .claude-replay.*
 .tmp-*
+.DS_Store
+
+# Figma Make local toolchain (site.json is required by vite.config.ts, keep it tracked)
+.figma/*
+!.figma/make/
+.figma/make/*
+!.figma/make/site.json
 
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the

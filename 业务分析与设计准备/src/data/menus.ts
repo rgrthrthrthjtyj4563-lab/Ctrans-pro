@@ -84,15 +84,22 @@ const SEED_MENU_ITEMS: MenuSeedItem[] = [
   item({ id: 'group-biz', name: '业务管理', type: 'group', parentId: null, section: '', iconKey: 'clipboard-list', sort: 2, workspace: 'pharma' }),
   item({ id: 'menu-budget-plan', name: '预算计划', type: 'page', parentId: 'group-biz', pageId: 'budget-plan', sort: 1, workspace: 'pharma' }),
   item({ id: 'menu-task-dispatch', name: '任务执行', type: 'page', parentId: 'group-biz', pageId: 'task-dispatch', sort: 2, workspace: 'pharma' }),
-  item({ id: 'menu-hospital-visits', name: '医院拜访', type: 'page', parentId: 'group-biz', pageId: 'hospital-visits', sort: 3, workspace: 'pharma' }),
-  item({ id: 'menu-settlement', name: '结算明细', type: 'page', parentId: 'group-biz', pageId: 'settlement', sort: 4, workspace: 'pharma' }),
+  // 医院拜访（hospital-visits）药厂侧入口已移除（2026-10-30）：拜访数据统一走「业务数据管理」的拜访管理审核工作台；
+  // 服务商工作空间保留原「医院拜访」菜单（填报与初审视角）
+  // 结算明细（settlement）独立页已移除（2026-11-06）：与「任务执行」内结算流程重复；发起/确认/统计统一走任务执行
   item({ id: 'menu-biz-detail-export', name: '业务明细导出', type: 'page', parentId: 'group-biz', pageId: 'biz-detail-export', sort: 5, workspace: 'pharma' }),
-  item({ id: 'menu-talk-script-variety', name: '品种话术维护', type: 'page', parentId: 'group-biz', pageId: 'talk-script-variety', sort: 6, workspace: 'pharma' }),
+  item({ id: 'menu-talk-script-variety', name: '话术管理', type: 'page', parentId: 'group-biz', pageId: 'talk-script-variety', sort: 6, workspace: 'pharma' }),
   item({ id: 'menu-baiyee-ai', name: 'baiyee-AI', type: 'page', parentId: 'group-biz', pageId: 'baiyee-ai', sort: 7, workspace: 'pharma' }),
+
+  // ── 药厂：业务数据管理（拜访管理审核工作台，2026-10-30 自独立设计稿移植）────
+  item({ id: 'group-visit-data', name: '业务数据管理', type: 'group', parentId: null, section: '', iconKey: 'table-2', sort: 3, workspace: 'pharma' }),
+  item({ id: 'menu-visit-audit-hospital', name: '医院拜访管理', type: 'page', parentId: 'group-visit-data', pageId: 'visit-audit-hospital', sort: 1, workspace: 'pharma' }),
+  item({ id: 'menu-visit-audit-commercial', name: '商业拜访管理', type: 'page', parentId: 'group-visit-data', pageId: 'visit-audit-commercial', sort: 2, workspace: 'pharma' }),
+  item({ id: 'menu-visit-audit-pharmacy', name: '药房拜访管理', type: 'page', parentId: 'group-visit-data', pageId: 'visit-audit-pharmacy', sort: 3, workspace: 'pharma' }),
 
   // ── 药厂：合作与授权 ───────────────────────────────────────────────────────
   // 2026-10-20 还原两页版：「服务商准入」（准入任务/审核）与「合作关系」（台账/导入）分列。
-  item({ id: 'group-coop', name: '合作与授权', type: 'group', parentId: null, section: '', iconKey: 'handshake', sort: 3, workspace: 'pharma' }),
+  item({ id: 'group-coop', name: '合作与授权', type: 'group', parentId: null, section: '', iconKey: 'handshake', sort: 4, workspace: 'pharma' }),
   item({ id: 'menu-vendor-access', name: '服务商准入', type: 'page', parentId: 'group-coop', pageId: 'vendor-access', sort: 1, workspace: 'pharma' }),
   item({ id: 'menu-pharma-cooperation', name: '合作关系', type: 'page', parentId: 'group-coop', pageId: 'pharma-cooperation', sort: 2, workspace: 'pharma' }),
   item({ id: 'menu-variety-auth', name: '业务授权', type: 'page', parentId: 'group-coop', pageId: 'variety-auth', sort: 3, workspace: 'pharma' }),
@@ -100,21 +107,22 @@ const SEED_MENU_ITEMS: MenuSeedItem[] = [
   item({ id: 'menu-contract-management', name: '合同管理', type: 'page', parentId: 'group-coop', pageId: 'contract-management', sort: 5, workspace: 'pharma' }),
 
   // ── 药厂：基础数据 ─────────────────────────────────────────────────────────
-  item({ id: 'group-basedata', name: '基础数据', type: 'group', parentId: null, section: '', iconKey: 'database', sort: 4, workspace: 'pharma' }),
+  item({ id: 'group-basedata', name: '基础数据', type: 'group', parentId: null, section: '', iconKey: 'database', sort: 5, workspace: 'pharma' }),
   item({ id: 'menu-varieties', name: '品种管理', type: 'page', parentId: 'group-basedata', pageId: 'varieties', sort: 1, workspace: 'pharma' }),
   item({ id: 'menu-doctors', name: '医生主数据', type: 'page', parentId: 'group-basedata', pageId: 'doctors', sort: 2, workspace: 'pharma' }),
-  item({ id: 'menu-price-config', name: '价目表配置', type: 'page', parentId: 'group-basedata', pageId: 'price-config', sort: 3, workspace: 'pharma' }),
-  item({ id: 'menu-execution-chain', name: '执行链路配置', type: 'page', parentId: 'group-basedata', pageId: 'execution-chain', sort: 4, workspace: 'pharma' }),
-  item({ id: 'menu-business-switch', name: '药厂配置开关', type: 'page', parentId: 'group-basedata', pageId: 'business-switch', sort: 5, workspace: 'pharma' }),
+  // 问卷配置（2026-11-09）：问卷库主数据，被价目「适用问卷」与任务「调查问卷服务项目」引用；放在价目表配置之前，先有内容再定价
+  item({ id: 'menu-questionnaire-config', name: '问卷配置', type: 'page', parentId: 'group-basedata', pageId: 'questionnaire-config', sort: 3, workspace: 'pharma' }),
+  item({ id: 'menu-price-config', name: '价目表配置', type: 'page', parentId: 'group-basedata', pageId: 'price-config', sort: 4, workspace: 'pharma' }),
+  item({ id: 'menu-execution-chain', name: '执行链路配置', type: 'page', parentId: 'group-basedata', pageId: 'execution-chain', sort: 5, workspace: 'pharma' }),
+  item({ id: 'menu-business-switch', name: '药厂配置开关', type: 'page', parentId: 'group-basedata', pageId: 'business-switch', sort: 6, workspace: 'pharma' }),
 
   // ── 药厂：扩展能力 ─────────────────────────────────────────────────────────
-  item({ id: 'menu-scenario-center', name: '业务搭建中心', type: 'page', parentId: null, pageId: 'scenario-center', section: '', iconKey: 'blocks', sort: 5, workspace: 'pharma' }),
+  item({ id: 'menu-scenario-center', name: '业务搭建中心', type: 'page', parentId: null, pageId: 'scenario-center', section: '', iconKey: 'blocks', sort: 6, workspace: 'pharma' }),
 
   // ── 服务商业务管理 ─────────────────────────────────────────────────────────
   item({ id: 'group-provider-biz', name: '业务管理', type: 'group', parentId: null, section: '', iconKey: 'clipboard-list', sort: 2, workspace: 'provider' }),
   item({ id: 'menu-p-task', name: '任务执行', type: 'page', parentId: 'group-provider-biz', pageId: 'task-dispatch', sort: 1, workspace: 'provider' }),
   item({ id: 'menu-p-visits', name: '医院拜访', type: 'page', parentId: 'group-provider-biz', pageId: 'hospital-visits', sort: 2, workspace: 'provider' }),
-  item({ id: 'menu-p-settlement', name: '结算明细', type: 'page', parentId: 'group-provider-biz', pageId: 'settlement', sort: 3, workspace: 'provider' }),
   item({ id: 'menu-performance-team', name: '团队工作质量评价', type: 'page', parentId: 'group-provider-biz', pageId: 'performance-team', sort: 4, workspace: 'provider' }),
   item({ id: 'menu-performance-specialist', name: '服务专员绩效', type: 'page', parentId: 'group-provider-biz', pageId: 'performance-specialist', sort: 5, workspace: 'provider' }),
   item({ id: 'menu-performance-settings', name: '绩效设置', type: 'page', parentId: 'group-provider-biz', pageId: 'performance-settings', sort: 6, workspace: 'provider' }),
@@ -127,7 +135,7 @@ const SEED_MENU_ITEMS: MenuSeedItem[] = [
   item({ id: 'menu-provider-partners', name: '合作药厂与业务授权', type: 'page', parentId: 'group-provider-coop', pageId: 'provider-partners', sort: 3, workspace: 'provider' }),
 
   // ── 企业管理（药厂 + 服务商共有；服务商多一个工作组管理） ───────────────────
-  item({ id: 'group-enterprise', name: '企业管理', type: 'group', parentId: null, section: '', iconKey: 'users', sort: 6, workspace: 'any' }),
+  item({ id: 'group-enterprise', name: '企业管理', type: 'group', parentId: null, section: '', iconKey: 'users', sort: 7, workspace: 'any' }),
   item({ id: 'menu-org-structure', name: '组织架构', type: 'page', parentId: 'group-enterprise', pageId: 'org-structure', sort: 1, workspace: 'any' }),
   item({ id: 'menu-user-manage', name: '用户管理', type: 'page', parentId: 'group-enterprise', pageId: 'user-manage', sort: 2, workspace: 'any' }),
   item({ id: 'menu-workgroup-manage', name: '工作组管理', type: 'page', parentId: 'group-enterprise', pageId: 'workgroup-manage', sort: 3, workspace: 'provider' }),

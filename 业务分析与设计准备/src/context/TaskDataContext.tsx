@@ -48,6 +48,7 @@ import {
   validateSettlementPeriods,
   workGroupEnabled,
 } from "../domain/taskV4"
+import { questionnaireTaskSnapshot } from "../data/questionnaireStore"
 import type {
   BudgetPlan,
   ChainChangeRecord,
@@ -58,6 +59,7 @@ import type {
   ExecutionChain,
   PriceBook,
   PriceItem,
+  QuestionnaireTaskSnapshot,
   PriceRatio,
   ProviderSubAuth,
   ReportFile,
@@ -99,6 +101,27 @@ export function formatMoney(n: number, masked = false): string {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
+}
+
+/** 问卷类项目 → 计价快照（题目版本 + 公私单价），任务创建时锁定；无问卷项目返回 undefined */
+function buildQuestionnaireSnapshots(
+  items: ServiceItem[],
+): QuestionnaireTaskSnapshot[] | undefined {
+  const seen = new Set<string>()
+  const snaps: QuestionnaireTaskSnapshot[] = []
+  items.forEach((it) => {
+    if (!it.questionnaire) return
+    const key = `${it.questionnaire.code}|${it.variety}`
+    if (seen.has(key)) return
+    seen.add(key)
+    const snap = questionnaireTaskSnapshot(
+      it.questionnaire.code,
+      it.variety,
+      it.unitPrice,
+    )
+    if (snap) snaps.push(snap)
+  })
+  return snaps.length ? snaps : undefined
 }
 
 export const DEMO_NOW = "2026-08-24 12:00"
@@ -970,6 +993,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
         priceBookId: snapshot.id,
         priceBookSnapshot: snapshot,
         chainSnapshot: clone(chain),
+        questionnaireSnapshots: buildQuestionnaireSnapshots(items),
         recommendedAmount: rec.amount,
         recommendedConfigured: rec.configured,
         planLocked: false,

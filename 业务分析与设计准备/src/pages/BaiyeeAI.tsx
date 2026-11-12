@@ -205,16 +205,16 @@ function buildSinglePackageItems(p: ScriptParams): ScriptBatchItem[] {
 }
 
 /** 既有话术合规体检 → 面板条目（前两条预置提示/高危，附改写建议） */
-function buildCheckupItems(p: ScriptParams, scripts: { variety: string; firstCat: string; secondCat: string; content: string; feedback: string }[]): ScriptBatchItem[] {
-  const rows = (p.variety === ALL_PRODUCTS_OPTION ? scripts : scripts.filter((s) => s.variety === p.variety)).slice(0, 24);
+function buildCheckupItems(p: ScriptParams, scripts: { product: string; bizCat: string; subCat: string; content: string; feedback: string }[]): ScriptBatchItem[] {
+  const rows = (p.variety === ALL_PRODUCTS_OPTION ? scripts : scripts.filter((s) => s.product === p.variety)).slice(0, 24);
   return rows.map((s, i) => {
     const row = CHECKUP_ROWS[i] as { risk: '提示' | '高危'; note: string; rewrite: string } | undefined;
     const riskLevel: BatchRisk = i === 0 ? 'warn' : i === 1 ? 'high' : 'none';
     return {
       id: i + 1,
       code: String(i + 1).padStart(2, '0'),
-      product: s.variety,
-      role: `${s.firstCat} · ${s.secondCat}`,
+      product: s.product,
+      role: `${s.bizCat} · ${s.subCat || '—'}`,
       confidence: 85 + ((i * 5) % 11),
       riskLevel,
       riskTitle: row?.note ?? '',
@@ -273,7 +273,8 @@ export function BaiyeeAI({ navigate }: { navigate: NavigateFn }) {
   const [batchSelected, setBatchSelected] = useState<number[]>([]);
   const [batchConfirm, setBatchConfirm] = useState<{ mid: string; kind: 'all-pending' | 'selected' } | null>(null);
   const { credits, spend, refund, billing } = useAICredit();
-  const { scripts: talkScripts, adoptFromAI, removeScript } = useTalkScript();
+  // 品种话术库（V1.1 话术管理重构：store 为 general/product 两个数据集，此处取品种话术）
+  const { product: talkScripts, adoptFromAI, removeProduct: removeScript } = useTalkScript();
   const userName = usePermissionOptional()?.principal?.name ?? '李航';
   const [narrow, setNarrow] = useState(isNarrowViewport);
   const [railOpen, setRailOpen] = useState(() => !isNarrowViewport());
@@ -381,7 +382,7 @@ export function BaiyeeAI({ navigate }: { navigate: NavigateFn }) {
       return p.variety === ALL_PRODUCTS_OPTION ? 1000 : AI_MODES[1].cost;
     }
     if (p.mode === 'checkup') {
-      const n = p.variety === ALL_PRODUCTS_OPTION ? talkScripts.length : talkScripts.filter((s) => s.variety === p.variety).length;
+      const n = p.variety === ALL_PRODUCTS_OPTION ? talkScripts.length : talkScripts.filter((s) => s.product === p.variety).length;
       return Math.max(1, n) * AI_MODES[2].cost;
     }
     return AI_MODES[0].cost;
@@ -433,7 +434,7 @@ export function BaiyeeAI({ navigate }: { navigate: NavigateFn }) {
   const confirmAdoptScript = (mid: string, payload: ScriptPayload) => {
     markScriptConfirmed(mid);
     payload.items.forEach((it) =>
-      adoptFromAI({ variety: payload.variety, firstCat: payload.firstCat, secondCat: payload.secondCat, content: it.content, feedback: it.feedback, confirmBy: `${userName} · ${stamp()}` }),
+      adoptFromAI({ scene: payload.firstCat, product: payload.variety, bizCat: payload.secondCat, subCat: '', content: it.content, feedback: it.feedback, confirmBy: `${userName} · ${stamp()}` }),
     );
     setScriptFlow('done');
     push({ id: id(), role: 'ai', kind: 'scriptDone', script: payload });
@@ -477,9 +478,10 @@ export function BaiyeeAI({ navigate }: { navigate: NavigateFn }) {
       .forEach((it) => {
         const content = it.riskLevel === 'high' ? rewriteOf(it) : it.content;
         adoptFromAI({
-          variety: it.product,
-          firstCat: payload.firstCat,
-          secondCat: it.role,
+          scene: payload.firstCat,
+          product: it.product,
+          bizCat: payload.secondCat,
+          subCat: '',
           content,
           feedback: BATCH_FEEDBACK[it.role] ?? '（AI 批次生成）',
           confirmBy: `${userName} · ${stamp()}`,
@@ -886,12 +888,12 @@ interface ScriptHandlers {
   batchRevert: (mid: string, itemId: number) => void;
 }
 
-/** 从自然语言解析话术剧本预填参数（品种名精确包含匹配 + 类别词匹配 + 全部品种关键词） */
+/** 从自然语言解析话术剧本预填参数（品种名精确包含匹配 + 拜访场景词匹配 + 全部品种关键词） */
 function parseScriptPreset(text: string): ScriptParams {
   const allProducts = text.includes('全部品种') || text.includes('全品种') || text.includes('所有品种');
   const variety = allProducts ? ALL_PRODUCTS_OPTION : VARIETIES.find((v) => text.includes(v)) ?? '';
   const firstCat = FIRST_CATS.find((c) => text.includes(c)) ?? '终端拜访';
-  const secondCat = firstCat === '跟台服务' ? '—' : (SUB_CATS[firstCat] ?? [])[0] ?? '';
+  const secondCat = (SUB_CATS[firstCat] ?? [])[0] ?? '';
   return { variety, firstCat, secondCat, mode: 'single', notes: '' };
 }
 
@@ -960,11 +962,12 @@ function Chip({ active, disabled, onClick, children }: { active?: boolean; disab
 function ScriptParamCard({ msgId, locked, initial, onConfirm }: { msgId: string; locked?: boolean; initial: ScriptParams; onConfirm: (mid: string, p: ScriptParams) => void }) {
   const [p, setP] = useState<ScriptParams>(initial);
   const [whyOpen, setWhyOpen] = useState(true);
-  const subCats = p.firstCat === '跟台服务' ? [] : p.firstCat ? SUB_CATS[p.firstCat] ?? [] : [];
+  // 话术管理 V1.1 字典：一级=拜访场景，二级=业务类别（选项随场景联动）
+  const subCats = p.firstCat ? SUB_CATS[p.firstCat] ?? [] : [];
   // 「全部品种」仅话术包 / 体检可选；单条生成必须绑定具体品种
   const ready = !!p.variety
     && !!p.firstCat
-    && (p.firstCat === '跟台服务' || !!p.secondCat)
+    && !!p.secondCat
     && !(p.mode === 'single' && p.variety === ALL_PRODUCTS_OPTION);
   const noteChips = ['老年适用', '起效快', '医保目录内', '与竞品对比'];
   return (
@@ -980,18 +983,16 @@ function ScriptParamCard({ msgId, locked, initial, onConfirm }: { msgId: string;
         </span>
       </div>
       <div style={{ ...S.detailrow, alignItems: 'flex-start' }}>
-        <span style={S.detailk}>一级类别</span>
+        <span style={S.detailk}>拜访场景</span>
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {FIRST_CATS.map((c) => (
-            <Chip key={c} disabled={locked} active={p.firstCat === c} onClick={() => setP((prev) => ({ ...prev, firstCat: c, secondCat: c === '跟台服务' ? '—' : '' }))}>{c}</Chip>
+            <Chip key={c} disabled={locked} active={p.firstCat === c} onClick={() => setP((prev) => ({ ...prev, firstCat: c, secondCat: '' }))}>{c}</Chip>
           ))}
         </span>
       </div>
-      {p.firstCat === '跟台服务' ? (
-        <div style={S.detailrow}><span style={S.detailk}>二级类别</span><span style={S.detailv}>—（跟台服务暂无二级类别）</span></div>
-      ) : p.firstCat ? (
+      {p.firstCat ? (
         <div style={{ ...S.detailrow, alignItems: 'flex-start' }}>
-          <span style={S.detailk}>二级类别</span>
+          <span style={S.detailk}>业务类别</span>
           <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {subCats.map((c) => (
               <Chip key={c} disabled={locked} active={p.secondCat === c} onClick={() => setP((prev) => ({ ...prev, secondCat: c }))}>{c}</Chip>
@@ -1236,7 +1237,7 @@ function ReportBlock({ payload }: { payload: ScriptPayload }) {
 
 function ScriptResultCard({ msgId, locked, payload, onAdopt, onRegenerate, onTune }: { msgId: string; locked?: boolean; payload: ScriptPayload; onAdopt: (mid: string, items: ScriptItem[], p: ScriptParams) => void; onRegenerate: (mid: string, p: ScriptParams) => void; onTune: (mid: string, p: ScriptParams) => void }) {
   const params: ScriptParams = { variety: payload.variety, firstCat: payload.firstCat, secondCat: payload.secondCat, mode: payload.mode, notes: payload.notes };
-  const varietyScripts = useTalkScript().scripts.filter((s) => s.variety === payload.variety);
+  const varietyScripts = useTalkScript().product.filter((s) => s.product === payload.variety);
 
   if (payload.mode === 'checkup') {
     const rows = varietyScripts.slice(0, 6);
@@ -1250,7 +1251,7 @@ function ScriptResultCard({ msgId, locked, payload, onAdopt, onRegenerate, onTun
             return (
               <div key={s.id} style={{ border: '1px solid #EDF0ED', borderRadius: 8, padding: '8px 10px', background: risk ? '#FBFCFA' : '#FFFFFF' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 'var(--fs-12)', color: '#242725', minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.firstCat}/{s.secondCat} · {s.content}</span>
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#242725', minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.bizCat}/{s.subCat || '—'} · {s.content}</span>
                   {risk ? (
                     <span style={{ fontSize: 'var(--fs-11)', padding: '1px 7px', borderRadius: 999, background: risk.risk === '高危' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)', color: risk.risk === '高危' ? 'var(--color-danger-fg)' : 'var(--color-warning-fg)', flexShrink: 0 }}>{risk.risk}</span>
                   ) : (
@@ -1261,7 +1262,7 @@ function ScriptResultCard({ msgId, locked, payload, onAdopt, onRegenerate, onTun
                   <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-12)', color: '#875C21' }}>
                     {risk.note}
                     {risk.risk === '高危' && (
-                      <button type="button" onClick={() => onAdopt(msgId, [{ label: '改写', content: risk.rewrite, feedback: s.feedback }], { ...params, secondCat: s.secondCat })} style={{ ...S.outline, marginTop: 6, display: 'inline-block', padding: '3px 8px' }}>
+                      <button type="button" onClick={() => onAdopt(msgId, [{ label: '改写', content: risk.rewrite, feedback: s.feedback }], { ...params, secondCat: s.bizCat })} style={{ ...S.outline, marginTop: 6, display: 'inline-block', padding: '3px 8px' }}>
                         采纳改写（入库待启用）
                       </button>
                     )}
@@ -1338,7 +1339,7 @@ function ScriptAdoptCard({ msgId, locked, payload, onConfirm, onCancel }: { msgI
       <b style={{ fontSize: 'var(--fs-14)' }}>采纳 AI 话术{count > 1 ? `（${count} 条）` : ''}</b>
       <div style={{ marginTop: 10 }}>
         <div style={S.detailrow}><span style={S.detailk}>目标品种</span><span style={S.detailv}>{payload.variety}</span></div>
-        <div style={S.detailrow}><span style={S.detailk}>类别</span><span style={S.detailv}>{payload.firstCat} / {payload.secondCat}</span></div>
+        <div style={S.detailrow}><span style={S.detailk}>拜访场景 / 业务类别</span><span style={S.detailv}>{payload.firstCat} / {payload.secondCat}</span></div>
         <div style={S.detailrow}><span style={S.detailk}>入库状态</span><span style={S.detailv}>待启用（启用后才会下发移动端）</span></div>
         <div style={S.detailrow}><span style={S.detailk}>来源</span><span style={S.detailv}>✦ AI 生成 · baiyee-AI</span></div>
         <div style={S.detailrow}><span style={S.detailk}>确认人</span><span style={S.detailv}>{userName} · {stamp()}</span></div>
@@ -1816,7 +1817,7 @@ function ResultCanvasPanel({ open, payload, selected, onSelect, onClose, onAdopt
   const st = batchStats(payload.items);
   const checkupMode = payload.mode === 'checkup';
   // 批次留痕按真实入库数计（种子预置的采纳态仅为视觉演示，不对应库内行）
-  const libraryScripts = useTalkScript().scripts;
+  const libraryScripts = useTalkScript().product;
   const realAdopted = payload.items.filter(
     (it) => it.status === 'accepted' && libraryScripts.some((s) => s.isAI && (s.content === it.content || (it.riskLevel === 'high' && s.content === rewriteOf(it)))),
   ).length;

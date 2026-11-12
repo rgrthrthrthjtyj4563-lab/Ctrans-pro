@@ -16,14 +16,15 @@ import { Dashboard } from "./pages/Dashboard"
 import { STARTUP_GUIDE_TITLE, StartupGuideDrawer, type StartupGuideBannerState } from "./components/StartupGuide"
 import { useStartupGuide } from "./hooks/useStartupGuide"
 import { VisitManagement } from "./pages/VisitManagement"
+import { VisitAuditWorkbench } from "./pages/VisitAuditWorkbench"
 import { TaskExecution } from "./pages/TaskExecution"
 import { BudgetPlanPage } from "./pages/BudgetPlan"
 import { BudgetAnalysis } from "./pages/BudgetAnalysis"
 import { VarietyManage } from "./pages/VarietyManage"
 import { BusinessAuthorization } from "./pages/BusinessAuthorization"
 import { PriceTableConfig } from "./pages/PriceTableConfig"
+import { QuestionnaireConfig } from "./pages/QuestionnaireConfig"
 import { DoctorMaster } from "./pages/DoctorMaster"
-import { Settlement } from "./pages/Settlement"
 import { AuditLog } from "./pages/AuditLog"
 import { RepFilingManage } from "./pages/RepFilingManage"
 import { VendorAccessManage } from "./pages/VendorAccessManage"
@@ -106,9 +107,9 @@ const pageLabels: Record<string, string> = {
   "rep-filing": "服务人员备案",
   "vendor-access": "服务商准入",
   "vendor-access-records": "提交记录",
-  settlement: "结算明细",
   "business-switch": "药厂配置开关",
   "price-config": "价目表配置",
+  "questionnaire-config": "问卷配置",
   roles: "角色与数据范围",
   menus: "菜单管理",
   "role-preview": "角色预览",
@@ -123,11 +124,14 @@ const pageLabels: Record<string, string> = {
   "performance-specialist": "服务专员绩效",
   "performance-settings": "绩效设置",
   "biz-detail-export": "业务明细导出",
-  "talk-script-variety": "品种话术维护",
+  "talk-script-variety": "话术管理",
   "baiyee-ai": "baiyee-AI",
   "scenario-center": "业务搭建中心",
   "tenant-management": "系统服务",
   "tenant-package": "租户套餐管理",
+  "visit-audit-hospital": "医院拜访管理",
+  "visit-audit-commercial": "商业拜访管理",
+  "visit-audit-pharmacy": "药房拜访管理",
 }
 
 const pageSections: Record<string, string> = {
@@ -139,7 +143,6 @@ const pageSections: Record<string, string> = {
   "budget-plan": "业务管理",
   analytics: "业务管理",
   "task-dispatch": "业务管理",
-  settlement: "业务管理",
   "performance-team": "业务管理",
   "performance-specialist": "业务管理",
   "performance-settings": "业务管理",
@@ -154,6 +157,7 @@ const pageSections: Record<string, string> = {
   "vendor-access-records": "合作管理",
   "business-switch": "基础数据",
   "price-config": "基础数据",
+  "questionnaire-config": "基础数据",
   roles: "企业管理",
   menus: "系统服务",
   "role-preview": "企业管理",
@@ -169,6 +173,9 @@ const pageSections: Record<string, string> = {
   "scenario-center": "扩展能力",
   "tenant-management": "系统服务",
   "tenant-package": "系统服务",
+  "visit-audit-hospital": "业务数据管理",
+  "visit-audit-commercial": "业务数据管理",
+  "visit-audit-pharmacy": "业务数据管理",
 }
 
 // ─── Sidebar item ─────────────────────────────────────────────────────────────
@@ -1004,6 +1011,13 @@ function AppShell() {
         return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} navFocus={navFocus} />
       case "pharmacy-visits":
         return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} navFocus={navFocus} />
+      // 业务数据管理：拜访管理审核工作台（独立设计稿移植，页面内容自带样式与交互）
+      case "visit-audit-hospital":
+        return <VisitAuditWorkbench key="hospital" page="hospital" />
+      case "visit-audit-commercial":
+        return <VisitAuditWorkbench key="business" page="business" />
+      case "visit-audit-pharmacy":
+        return <VisitAuditWorkbench key="pharmacy" page="pharmacy" />
       case "budget-plan":
         return (
           <BudgetPlanPage
@@ -1036,14 +1050,7 @@ function AppShell() {
       case "variety-auth":
         return <BusinessAuthorization addToast={addToast} focusProviderTenantId={navFocus?.businessAuthProviderTenantId} />
       case "pharma-cooperation":
-        return (
-          <PharmaCooperation
-            addToast={addToast}
-            onOpenAuthorization={(providerTenantId) =>
-              navigate("variety-auth", { businessAuthProviderTenantId: providerTenantId })
-            }
-          />
-        )
+        return <PharmaCooperation addToast={addToast} />
       case "contract-management":
         return (
           <ContractManagement addToast={addToast} navigate={navigate} navFocus={navFocus} />
@@ -1052,14 +1059,8 @@ function AppShell() {
         return <ProviderPartners addToast={addToast} />
       case "price-config":
         return <PriceTableConfig addToast={addToast} currentRole={currentRole ?? undefined} />
-      case "settlement":
-        return (
-          <Settlement
-            addToast={addToast}
-            currentRole={currentRole ?? undefined}
-            navigate={navigate}
-          />
-        )
+      case "questionnaire-config":
+        return <QuestionnaireConfig addToast={addToast} />
       case "audit-log":
         return <AuditLog />
       case "platform-audit":
@@ -1119,13 +1120,7 @@ function AppShell() {
           <BizDetailExport addToast={addToast} currentRole={currentRole ?? undefined} />
         )
       case "talk-script-variety":
-        return (
-          <TalkScriptVariety
-            addToast={addToast}
-            currentRole={currentRole ?? undefined}
-            navigate={navigate}
-          />
-        )
+        return <TalkScriptVariety addToast={addToast} />
       case "scenario-center":
         return <ScenarioCenter addToast={addToast} />
       case "tenant-management":

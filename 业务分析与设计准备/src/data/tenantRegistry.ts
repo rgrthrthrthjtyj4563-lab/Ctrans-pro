@@ -64,7 +64,8 @@ export interface TenantAdminDesignee {
   phone: string
   /** 登录账号（企业内唯一，2026-09-18 起由向导/弹窗填写；缺省回落 rt-手机后4位） */
   account?: string
-  department: string
+  /** 2026-11-04 起开户界面不再录入所属部门（历史数据保留） */
+  department?: string
   /** 展示用角色名（实际授权角色由租户类型推导） */
   roleLabel: string
 }
@@ -94,7 +95,8 @@ export interface TenantRecord {
     userId: string
     name: string
     phone: string
-    department: string
+    /** 2026-11-04 起开户界面不再录入所属部门（历史数据保留） */
+    department?: string
     roleLabel: string
     roleId: string
     memberStatus: "pending_activation" | "active"
@@ -139,6 +141,12 @@ interface TenantRegistryState {
   assignments: RoleAssignment[]
   /** 运行时成员身份快照（调岗 / 建档 / 移除 / 重新加入后的全量；按 id 覆盖种子） */
   memberships: TenantMembership[]
+  /**
+   * 已删除组织节点墓碑（2026-10-28 组织架构改造）：种子节点无法通过过滤
+   * state.orgs「删除」（allOrgs 会用种子回填），删除统一记墓碑；
+   * 恢复演示数据时一并清空。
+   */
+  deletedOrgIds: string[]
   /** 租户侧操作流水（详情页「操作日志」页签展示；全局审计另走操作日志页） */
   activityLog: TenantAuditLine[]
   /** 幂等键（type+uscc）→ 已执行的建租结果（连续点击/刷新重放不重复建租） */
@@ -169,6 +177,7 @@ export const RESUME_REASON_OPTIONS = [
 ] as const
 
 export const TERMINATE_REASON_OPTIONS = [
+  { code: "OPENING_VOIDED", label: "开户作废（未激活）" },
   { code: "CONTRACT_ENDED", label: "合作协议终止" },
   { code: "SUBJECT_DEREGISTERED", label: "企业主体注销" },
   { code: "RISK_CONFIRMED", label: "合规风险坐实清退" },
@@ -652,6 +661,7 @@ function buildSeedState(): TenantRegistryState {
     createIdempotency: {},
     collisionDemoDone: false,
     memberships: [],
+    deletedOrgIds: [],
   }
 }
 
@@ -664,16 +674,20 @@ function loadState(): TenantRegistryState {
     if (raw) {
       const parsed = JSON.parse(raw) as TenantRegistryState
       if (parsed?.version === 4 && Array.isArray(parsed.tenants)) {
-        return { ...parsed, memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [] }
+        return {
+          ...parsed,
+          memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [],
+          deletedOrgIds: Array.isArray(parsed.deletedOrgIds) ? parsed.deletedOrgIds : [],
+        }
       }
       return buildSeedState()
     }
     // v3 → v4 原地升级：组织 / 用户 / 授权 / 流水全部保留，仅补 memberships 空表
     const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY_V3)
     if (legacy) {
-      const parsed = JSON.parse(legacy) as Omit<TenantRegistryState, "version" | "memberships"> & { version: number }
+      const parsed = JSON.parse(legacy) as Omit<TenantRegistryState, "version" | "memberships" | "deletedOrgIds"> & { version: number }
       if (parsed?.version === 3 && Array.isArray(parsed.tenants)) {
-        const upgraded: TenantRegistryState = { ...parsed, version: 4, memberships: [] }
+        const upgraded: TenantRegistryState = { ...parsed, version: 4, memberships: [], deletedOrgIds: [] }
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(upgraded))
         return upgraded
       }
@@ -721,13 +735,14 @@ export function getTenantRegistrySnapshot(): TenantRegistryState {
  * 都以覆盖副本形式进 state.orgs），不在种子里的运行时节点按原顺序追加。
  */
 export function allOrgs(): PermOrg[] {
+  const deleted = new Set(state.deletedOrgIds)
   const overrides = new Map(state.orgs.map((o) => [o.id, o] as const))
   const merged = PERM_ORGS.map((seed) => overrides.get(seed.id) ?? seed)
   const seedIds = new Set(PERM_ORGS.map((o) => o.id))
   for (const org of state.orgs) {
     if (!seedIds.has(org.id)) merged.push(org)
   }
-  return merged
+  return merged.filter((o) => !deleted.has(o.id))
 }
 
 /**
@@ -737,7 +752,19 @@ export function allOrgs(): PermOrg[] {
 export function upsertRuntimeOrg(org: PermOrg): void {
   const idx = state.orgs.findIndex((o) => o.id === org.id)
   const next = idx >= 0 ? state.orgs.map((o, i) => (i === idx ? { ...o, ...org } : o)) : [...state.orgs, org]
-  commit({ orgs: next })
+  commit({ orgs: next, deletedOrgIds: state.deletedOrgIds.filter((id) => id !== org.id) })
+}
+
+/**
+ * 删除一个组织节点（组织架构页「删除部门」唯一落盘入口）。前置校验（无成员、
+ * 无下级、无业务引用）由调用方完成；本函数只负责把运行时副本移走并记墓碑，
+ * 保证刷新后种子节点不会被 allOrgs 回填。
+ */
+export function removeRuntimeOrg(orgId: string): void {
+  commit({
+    orgs: state.orgs.filter((o) => o.id !== orgId),
+    deletedOrgIds: state.deletedOrgIds.includes(orgId) ? state.deletedOrgIds : [...state.deletedOrgIds, orgId],
+  })
 }
 
 /** 运行时成员身份快照（cooperationModel 启动时据此覆盖种子 TENANT_MEMBERSHIPS） */
@@ -1072,7 +1099,10 @@ export function resumeTenant(tenantId: string, reasonCode: string, note: string,
 
 export function terminateTenant(tenantId: string, reasonCode: string, note: string, actor: string): OpResult {
   const tenant = state.tenants.find((t) => t.id === tenantId)
-  if (!tenant || tenant.status !== "suspended") return { ok: false, error: "仅已暂停租户可终止（先暂停再终止）", audits: [] }
+  // 待激活租户从未开通使用，允许直接终止（开户作废）；正常租户须先暂停再终止
+  if (!tenant || (tenant.status !== "suspended" && tenant.status !== "pending_activation")) {
+    return { ok: false, error: "仅待激活或已暂停租户可终止（正常租户先暂停再终止）", audits: [] }
+  }
   const reasonLabel = TERMINATE_REASON_OPTIONS.find((r) => r.code === reasonCode)?.label ?? reasonCode
   const line = audit("TENANT_TERMINATED", tenant.shortName, actor, {
     code: tenant.primaryCode,

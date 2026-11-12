@@ -5,7 +5,7 @@
  * 数据源 = cooperationModel（服务商准入通过后的合作生效记录 + 外部已准入批量导入 + 软件服务方运行时建租户）。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Eye, Pause, Play, ShieldX, Upload } from 'lucide-react';
+import { Pause, Play, ShieldX, Upload } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
 import { Button } from '../components/Button';
@@ -13,7 +13,6 @@ import { Modal } from '../components/Modal';
 import { StatusTag } from '../components/StatusTag';
 import { usePermission } from '../context/PermissionContext';
 import {
-  activeAuthSummaryOfRelationship,
   subscribeCooperation,
   relationshipsOfPharma,
   pauseRelationship,
@@ -29,11 +28,9 @@ const mono = "'JetBrains Mono', monospace";
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
-  /** 「查看授权」跳转业务授权页并预选该服务商（业务授权是产品/区域唯一维护入口） */
-  onOpenAuthorization?: (providerTenantId: string) => void;
 }
 
-export function PharmaCooperation({ addToast, onOpenAuthorization }: Props) {
+export function PharmaCooperation({ addToast }: Props) {
   const store = usePermission();
   const { principal, can, previewReadOnly, logAudit } = store;
   const pharmaTenantId = principal.realm === 'TENANT' ? principal.tenantId : '';
@@ -100,12 +97,11 @@ export function PharmaCooperation({ addToast, onOpenAuthorization }: Props) {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
                 <thead>
-                  <tr>{['服务商', '合作状态', '合作生效', '业务授权摘要', '暂停/终止说明', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                  <tr>{['服务商', '合作状态', '合作生效', '暂停/终止说明', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {rows.map(rel => {
+                      {rows.map(rel => {
                     const providerName = tenantNameOf(rel.providerTenantId);
-                    const sum = activeAuthSummaryOfRelationship(rel.id);
                     return (
                       <tr key={rel.id}>
                         <td style={tdStyle}>
@@ -115,17 +111,9 @@ export function PharmaCooperation({ addToast, onOpenAuthorization }: Props) {
                               <span style={{ fontSize: 'var(--fs-11)', padding: '1px 7px', borderRadius: 4, color: '#2F6BCE', background: '#EBF2FE', border: '1px solid #C9DDF7', fontWeight: 600 }}>↧ 外部准入</span>
                             )}
                           </div>
-                          <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>{rel.id}</div>
                         </td>
                         <td style={tdStyle}><StatusTag status={rel.status === 'active' ? '合作中' : rel.status === 'paused' ? '已暂停' : '已终止'} size="sm" /></td>
                         <td style={{ ...tdStyle, fontFamily: mono }}>{rel.effectiveFrom}</td>
-                        <td style={tdStyle}>
-                          <div style={{ fontSize: 'var(--fs-12)' }}>已授权产品 {sum.varieties.length} 个</div>
-                          <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>授权区域 {sum.regions.length} 个</div>
-                          {onOpenAuthorization && (
-                            <Button variant="ghost" size="sm" icon={<Eye size={13} />} onClick={() => onOpenAuthorization(rel.providerTenantId)}>查看授权</Button>
-                          )}
-                        </td>
                         <td style={tdStyle}>
                           {rel.status === 'paused' && <span style={{ color: '#C77A16' }}>{rel.pausedAt} · {rel.pausedReason}</span>}
                           {rel.status === 'terminated' && <span style={{ color: '#C73A3A' }}>{rel.terminatedAt} · {rel.terminatedReason}</span>}

@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>已接收任务包 - 拆分给服务专员</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #202c3c;
+      --muted: #75839a;
+      --line: #dce2e8;
+      --soft: #f7f8fa;
+      --green: #08745f;
+      --green-pale: #eaf5f2;
+      --orange: #c75a00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--ink);
+      background: #f3f5f7;
+      font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; cursor: pointer; }
+    .legacy-page { min-height: 100vh; padding: 18px 26px 30px; background: #fff; }
+    .filters { display: grid; grid-template-columns: minmax(500px, 1fr) minmax(500px, 1fr); column-gap: 7vw; row-gap: 9px; padding: 0 0 14px; border-bottom: 1px solid #ddd; }
+    .legacy-field { min-width: 0; display: grid; grid-template-columns: 85px minmax(0, 1fr); align-items: center; }
+    .legacy-field label { padding-right: 12px; color: #222; }
+    .legacy-field input, .legacy-field select { width: 100%; height: 27px; padding: 3px 8px; border: 1px solid #c9c9c9; border-radius: 3px; color: #666; background: linear-gradient(#fff, #f5f5f5); }
+    .date-range { display: flex; align-items: center; gap: 7px; }
+    .date-range input { min-width: 0; }
+    .legacy-filter-actions { grid-column: 2; display: flex; justify-content: flex-end; gap: 5px; }
+    .legacy-button { min-height: 34px; padding: 0 14px; border: 1px solid #8c7bbd; border-radius: 2px; color: #fff; background: #9583c2; }
+    .legacy-button:hover { background: #806db1; }
+    .list-title { margin: 11px 0 0; padding: 9px 12px; color: #fff; background: #317fc6; font-weight: 650; }
+    .legacy-table-wrap { overflow: auto; border: 1px solid #d4d4d4; }
+    .legacy-table { width: 100%; min-width: 1150px; border-collapse: collapse; white-space: nowrap; text-align: center; font-size: 12px; }
+    .legacy-table th { height: 29px; padding: 4px 8px; border: 1px solid #ddd; color: #666; background: linear-gradient(#f5f5f5, #eaeaea); }
+    .legacy-table td { height: 34px; padding: 4px 8px; border: 1px solid #ddd; color: #333; }
+    .legacy-table tbody tr:nth-child(odd) { background: #fafafa; }
+    .legacy-table tbody tr:hover { background: #f1f7fc; }
+    .dialog.records { width: min(920px, 94vw); height: auto; max-height: 88vh; }
+    .records-body { display: flex; flex-direction: column; gap: 14px; }
+    .summary-bar { font-size: 13px; color: #475569; padding: 10px 14px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .summary-bar .highlight { font-weight: 700; color: #0d9488; margin: 0 2px; }
+    .person-card { border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; overflow: hidden; }
+    .person-card-header { padding: 12px 16px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .person-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .person-name { font-size: 14px; font-weight: 700; color: #1e293b; }
+    .group-badge { background: #e2e8f0; color: #475569; font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+    .meta-text { font-size: 12px; color: #94a3b8; }
+    .person-amount { text-align: right; }
+    .amount-label { font-size: 12px; color: #64748b; margin-right: 4px; }
+    .total-amount-val { font-size: 16px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+    .person-services-body { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 10px; }
+    .service-item-block { border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px 12px; min-width: 180px; display: flex; flex-direction: column; gap: 6px; }
+    .sib-top { display: flex; justify-content: space-between; align-items: center; }
+    .sib-name { font-size: 12px; font-weight: 500; color: #475569; }
+    .sib-count { font-size: 13px; font-weight: 700; color: #1e293b; }
+    .sib-unit { font-size: 12px; font-weight: normal; color: #94a3b8; margin-left: 1px; }
+    .sib-bottom { display: flex; justify-content: space-between; align-items: baseline; padding-top: 4px; border-top: 1px dashed #f1f5f9; }
+    .sib-subtotal-label { font-size: 11px; color: #94a3b8; }
+    .sib-amount { font-size: 13px; font-weight: 600; color: #0d9488; }
+    .row-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 5px; }
+    .row-action { min-height: 27px; padding: 3px 9px; border: 1px solid #4994df; border-radius: 2px; color: #fff; background: #5aa5f4; }
+    .row-action:hover { background: #438fdf; }
+    .row-action.decompose { border-color: #397bd4; background: #458ce8; font-weight: 650; }
+    .row-action.decompose::after { content: '  ›'; font-size: 16px; line-height: 10px; }
+    .toast { position: fixed; top: 18px; left: 50%; z-index: 10; transform: translate(-50%, -15px); padding: 9px 16px; border: 1px solid #b7dfd3; border-radius: 5px; color: #086e5a; background: #f0faf6; opacity: 0; pointer-events: none; transition: .2s; }
+    .toast.show { transform: translate(-50%, 0); opacity: 1; }
+    .primary {
+      border: 1px solid var(--green);
+      border-radius: 5px;
+      padding: 8px 16px;
+      color: white;
+      background: var(--green);
+    }
+    .primary:hover { background: #056653; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      display: none;
+      background: #16243535;
+    }
+    .modal-backdrop.is-open { display: flex; align-items: center; justify-content: center; padding: 22px; }
+    .dialog {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      width: min(1240px, 96vw);
+      height: min(850px, 92vh);
+      border-radius: 5px;
+      background: #fff;
+      box-shadow: 0 12px 40px #15223524;
+    }
+    .dialog-header {
+      height: 51px;
+      flex: 0 0 51px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    .dialog-title { margin: 0; font-size: 15px; font-weight: 650; }
+    .modal-context { margin-left: 10px; color: #91a0b6; font-size: 12px; font-weight: 400; }
+    .icon-button {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      color: #9aa5b4;
+      background: transparent;
+      font-size: 19px;
+      line-height: 1;
+    }
+    .icon-button:hover { color: var(--ink); }
+    .dialog-body { flex: 1; min-height: 0; overflow: auto; padding: 17px 19px 14px; }
+    .layout { min-height: 480px; display: grid; grid-template-columns: 272px minmax(620px, 1fr); gap: 14px; }
+    .groups, .allocation {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+    }
+    .groups { align-self: start; min-height: 480px; overflow: hidden; }
+    .group-heading { padding: 10px 12px 8px; font-weight: 650; }
+    .search { padding: 0 12px 7px; }
+    .search input {
+      width: 100%; height: 30px; padding: 0 10px;
+      border: 1px solid var(--line); border-radius: 6px; outline: 0;
+    }
+    .search input:focus, .number-input:focus, .top-total:focus { border-color: #86b7ad; box-shadow: 0 0 0 2px #08745f14; }
+    .select-tools { height: 31px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+    .tool-actions { display: flex; gap: 10px; }
+    .text-button { padding: 0; border: 0; background: none; color: var(--muted); }
+    .text-button:hover { color: var(--green); }
+    .group-item { min-height: 66px; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #edf0f3; }
+    .group-item:last-child { border-bottom: 0; }
+    .group-item.current { background: #f2f7fc; }
+    .group-copy { flex: 1; min-width: 0; }
+    .group-name { margin-bottom: 1px; font-size: 14px; color: #d5483f; }
+    .group-name.orange { color: #d58a13; }
+    .group-note { color: #91a0b6; line-height: 1.55; }
+    .tag { white-space: nowrap; padding: 2px 7px; border-radius: 3px; color: #df5149; background: #fff0ef; }
+    .tag.waiting { color: #c88515; background: #fff7e9; }
+    .tag.assigned { color: #08745f; background: #eaf5f2; }
+    .tag.unassigned { color: #df5149; background: #fff0ef; }
+    .group-check { display: none; }
+    .group-item { cursor: pointer; }
+    .group-item:has(.group-check:checked) { background: #f2f7fc; }
+    .alloc-head .combo-total { margin-left: auto; }
+    .combo-total { width: 205px; height: 27px; margin-left: 10px; padding: 0 8px; border: 1px solid #bfe0d7; border-radius: 5px; outline: 0; color: var(--ink); font-size: 12px; vertical-align: 1px; }
+    .combo-total:focus { border-color: #86b7ad; box-shadow: 0 0 0 2px #08745f14; }
+    .combo-total::placeholder { color: #a8b4c2; }
+    .combo-total:disabled { background: #f5f6f8; color: #b3bdca; }
+    .combo-remove { margin-left: 6px; padding: 3px 9px; border: 1px solid #eba7a2; border-radius: 3px; background: #fff; color: #d5483f; font-size: 12px; vertical-align: 1px; }
+    .combo-remove:hover { background: #fff0ef; }
+    .empty-tip { padding: 30px 0 34px; text-align: center; color: #91a0b6; }
+    input[type="checkbox"] { width: 13px; height: 13px; margin: 0; accent-color: #1677ec; }
+    .allocation { padding: 13px 14px 14px; }
+    .alloc-head { display: flex; align-items: center; gap: 12px; min-height: 26px; }
+    .alloc-head strong { font-size: 14px; }
+    .sub-total { color: var(--muted); white-space: nowrap; }
+    .money { color: var(--green); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .4px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 620px; border-collapse: collapse; white-space: nowrap; }
+    th { height: 40px; padding: 0 10px; color: #929eaf; background: #f6f7f8; text-align: left; font-weight: 550; }
+    th[data-tip] { position: relative; z-index: 1; cursor: help; text-decoration: underline dotted #b6c0cc; text-underline-offset: 4px; }
+    th[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      left: 50%;
+      top: calc(100% + 7px);
+      transform: translateX(-50%);
+      z-index: 20;
+      padding: 6px 11px;
+      border-radius: 5px;
+      color: #fff;
+      background: #202c3c;
+      font-size: 12px;
+      font-weight: 400;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .15s;
+    }
+    th[data-tip]:hover::after { opacity: 1; }
+    td { height: 39px; padding: 4px 10px; border-top: 1px solid #edf0f2; }
+    td.numeric, th.numeric { text-align: right; }
+    .muted { color: #687792; }
+    .count { font-variant-numeric: tabular-nums; }
+    .danger { color: #d40000; }
+    .number-input { width: 78px; height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; outline: 0; text-align: center; color: var(--ink); }
+    .row-amount { font-weight: 650; }
+    .table-total td { height: 37px; background: #f7f8f9; }
+    .dialog-footer {
+      min-height: 52px;
+      flex: 0 0 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 17px 0 19px;
+      border-top: 1px solid var(--line);
+      background: #fff;
+      box-shadow: 0 -3px 10px #1e2d3d08;
+    }
+    .summary { display: flex; flex-wrap: wrap; gap: 20px; color: #687792; }
+    .summary b { margin-left: 4px; font-size: 14px; font-variant-numeric: tabular-nums; }
+    .summary .balance { color: var(--green); }
+    .footer-actions { display: flex; gap: 8px; }
+    .secondary { min-width: 56px; height: 33px; padding: 0 13px; border: 1px solid #d1d9e1; border-radius: 5px; background: white; }
+    .secondary:hover { background: #f6f8fa; }
+    .footer-actions .primary { min-width: 56px; height: 33px; padding: 0 14px; }
+    @media (max-width: 1100px) {
+      .filters { grid-template-columns: 1fr; row-gap: 8px; }
+      .legacy-filter-actions { grid-column: 1; }
+    }
+    @media (max-width: 850px) {
+      .legacy-page { padding: 12px; }
+      .legacy-field { grid-template-columns: 90px minmax(0, 1fr); }
+      .dialog-body { padding: 12px; }
+      .layout { grid-template-columns: minmax(215px, 26vw) minmax(560px, 1fr); }
+      .alloc-head { flex-wrap: wrap; }
+    }
+    @media (max-width: 620px) {
+      .legacy-page { padding: 10px; }
+      .legacy-field { grid-template-columns: 74px minmax(0, 1fr); }
+      .dialog-header { padding: 0 14px; }
+      .dialog-body { padding: 10px; }
+      .layout { display: block; }
+      .groups { min-height: 0; margin-bottom: 12px; }
+      .group-item { min-height: 56px; }
+      .allocation { padding: 11px; }
+      .alloc-head { gap: 8px; }
+      .sub-total { font-size: 12px; }
+      .summary { gap: 5px 12px; font-size: 11px; }
+      .summary b { font-size: 12px; }
+      .dialog-footer { min-height: 60px; flex-basis: 60px; padding: 5px 10px; }
+      .footer-actions { margin-left: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="legacy-page">
+    <section class="filters" aria-label="任务包筛选">
+      <div class="legacy-field"><label for="productFilter">品种:</label><select id="productFilter"><option value="">请选择品种</option><option>阿司匹林_1.0</option><option>奥美拉唑肠溶胶囊 (20mg)</option></select></div>
+      <div class="legacy-field"><label for="providerFilter">服务提供商:</label><select id="providerFilter"><option value="">服务提供商</option><option>演示服务商A</option><option>演示服务商B</option></select></div>
+      <div class="legacy-field"><label>推广时段:</label><div class="date-range"><input id="startDate" type="date" aria-label="推广开始日期"><span>—</span><input id="endDate" type="date" aria-label="推广结束日期"></div></div>
+      <div class="legacy-filter-actions"><button class="legacy-button" id="searchTasks">搜索 ⌕</button><button class="legacy-button" id="resetFilters">重置 ⟳</button></div>
+    </section>
+    <h1 class="list-title">已接收任务包列表</h1>
+    <div class="legacy-table-wrap">
+      <table class="legacy-table" aria-label="已接收任务包列表">
+        <thead><tr><th><input type="checkbox" aria-label="全选任务包"></th><th>客户名称</th><th>所属品种</th><th>来源服务提供商</th><th>推广时段</th><th>本组任务包金额 (￥)</th><th>已分配专员金额 (￥)</th><th>剩余可分配金额 (￥)</th><th>操作</th></tr></thead>
+        <tbody id="taskRows">
+          <tr data-product="阿司匹林_1.0" data-provider="演示服务商A" data-start="2026-01-01" data-end="2026-08-31"><td><input type="checkbox" aria-label="选择任务包一"></td><td>演示药厂3</td><td>阿司匹林_1.0</td><td>演示服务商A</td><td>2026-01-01—2026-08-31</td><td>229,920</td><td>112,000</td><td>117,920</td><td><div class="row-actions"><button class="row-action record-btn" data-pkg="pkg-jan" data-task="演示药厂3 · 阿司匹林_1.0 · 2026-01-01—2026-08-31">拆解记录</button></div></td></tr>
+          <tr data-product="阿司匹林_1.0" data-provider="演示服务商A" data-start="2026-07-01" data-end="2026-07-31"><td><input type="checkbox" aria-label="选择任务包二"></td><td>演示药厂3</td><td>阿司匹林_1.0</td><td>演示服务商A</td><td>2026-07-01—2026-07-31</td><td>179,600</td><td>45,400</td><td>134,200</td><td><div class="row-actions"><button class="row-action decompose start-split" data-pkg="pkg-aspirin" data-task="演示药厂3 · 阿司匹林_1.0 · 2026-07-01—2026-07-31">拆解给服务专员</button><button class="row-action record-btn" data-pkg="pkg-aspirin" data-task="演示药厂3 · 阿司匹林_1.0 · 2026-07-01—2026-07-31">拆解记录</button></div></td></tr>
+          <tr data-product="奥美拉唑肠溶胶囊 (20mg)" data-provider="演示服务商A" data-start="2026-07-01" data-end="2026-08-31"><td><input type="checkbox" aria-label="选择任务包三"></td><td>演示药厂3</td><td>奥美拉唑肠溶胶囊 (20mg)</td><td>演示服务商A</td><td>2026-07-01—2026-08-31</td><td>142,400</td><td>16,000</td><td>126,400</td><td><div class="row-actions"><button class="row-action decompose start-split" data-pkg="pkg-omeprazole" data-task="演示药厂3 · 奥美拉唑肠溶胶囊 (20mg) · 2026-07-01—2026-08-31">拆解给服务专员</button><button class="row-action record-btn" data-pkg="pkg-omeprazole" data-task="演示药厂3 · 奥美拉唑肠溶胶囊 (20mg) · 2026-07-01—2026-08-31">拆解记录</button></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="modal-backdrop" id="backdrop" aria-hidden="true">
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <header class="dialog-header">
+        <h1 class="dialog-title" id="dialogTitle">拆分任务包到服务专员 <span class="modal-context" id="activeTask"></span></h1>
+        <button class="icon-button" id="closeIcon" aria-label="关闭">×</button>
+      </header>
+      <div class="dialog-body">
+        <div class="layout">
+          <aside class="groups">
+            <div class="group-heading">选择服务专员（可多选）</div>
+            <div class="search"><input id="groupSearch" type="search" placeholder="搜索专员" aria-label="搜索服务专员"></div>
+            <div class="select-tools"><span>已选 <b id="selectedCount">0</b> / 6</span><span class="tool-actions"><button class="text-button" id="selectAll">全选</button><button class="text-button" id="clearAll">清空</button></span></div>
+            <label class="group-item" data-group="张伟">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">张伟</span><span class="group-note" style="display:block">￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+            <label class="group-item" data-group="王芳">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">王芳</span><span class="group-note" style="display:block">￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+            <label class="group-item" data-group="李娜">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">李娜</span><span class="group-note" style="display:block">￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+            <label class="group-item" data-group="刘洋">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">刘洋</span><span class="group-note" style="display:block">￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+            <label class="group-item" data-group="陈静">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">陈静</span><span class="group-note" style="display:block">￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+            <label class="group-item" data-group="杨帆">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">杨帆</span><span class="group-note" style="display:block">￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+          </aside>
+
+          <section class="allocation" aria-label="服务专员分配明细">
+            <div class="alloc-head">
+              <strong id="activeSpecialistName">张伟</strong>
+              <span class="sub-total">分项金额合计 <b class="money group-sum">￥0</b></span>
+              <input class="combo-total" id="sectionTotal" inputmode="numeric" placeholder="输入专员总金额，自动折算次数" aria-label="专员总金额">
+              <button type="button" class="combo-remove" id="sectionRemove">移除</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>服务项目</th><th class="numeric">单价</th><th class="numeric" data-tip="本组收到次数减去其他专员已占用的次数，为该服务项目当前还能分给这位专员的上限">剩余可分配次数</th><th class="numeric">次数</th><th class="numeric">分项金额</th></tr></thead>
+                <tbody id="allocationRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+      <footer class="dialog-footer">
+        <div class="summary"><span>总拆分金额<b id="splitTotal">￥0</b></span><span>本组任务包金额<b id="planTotal">￥0</b></span><span>剩余可分配金额<b class="balance" id="balance">￥0</b></span></div>
+        <div class="footer-actions"><button class="secondary" id="cancel">取消</button><button class="primary" id="save">保存</button></div>
+      </footer>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="backdropRecords" aria-hidden="true">
+    <section class="dialog records" role="dialog" aria-modal="true" aria-labelledby="recordsTitle">
+      <header class="dialog-header">
+        <h1 class="dialog-title" id="recordsTitle">拆解记录 <span class="modal-context" id="recordsTask"></span></h1>
+        <button class="icon-button" id="closeRecordsIcon" aria-label="关闭">×</button>
+      </header>
+      <div class="dialog-body">
+        <div class="records-body">
+          <div class="summary-bar">共 <span class="highlight" id="recordCount">0</span> 条拆解记录，累计拆解总额 <span class="highlight" id="recordTotal">￥0</span></div>
+          <div id="recordCards"></div>
+        </div>
+      </div>
+      <footer class="dialog-footer">
+        <div class="summary"><span>拆解记录为只读查看，调整分配请使用「拆解给服务专员」</span></div>
+        <div class="footer-actions"><button class="secondary" id="closeRecordsBtn">关闭</button></div>
+      </footer>
+    </section>
+  </div>
+  <script>
+    (() => {
+      const backdrop = document.getElementById('backdrop');
+      const checks = [...document.querySelectorAll('.group-check')];
+      const SERVICES = [
+        { name: '医院拜访', unit: '次', price: 200 },
+        { name: '科室会议', unit: '场', price: 2000 },
+        { name: '临床应用研究报告', unit: '份', price: 15000 },
+        { name: '问卷样本量', unit: '份', price: 20 },
+        { name: '分析总结', unit: '份', price: 3000 }
+      ];
+      const SPECIALISTS = [
+        { name: '张伟' },
+        { name: '王芳' },
+        { name: '李娜' },
+        { name: '刘洋' },
+        { name: '陈静' },
+        { name: '杨帆' }
+      ];
+      const PACKAGES = {
+        'pkg-aspirin': {
+          client: '演示药厂3', provider: '演示服务商A', product: '阿司匹林_1.0', period: '2026-07-01—2026-07-31',
+          combos: [
+            { id: 'a', product: '阿司匹林_1.0', received: [228, 16, 4, 1650, 3] }
+          ]
+        },
+        'pkg-omeprazole': {
+          client: '演示药厂3', provider: '演示服务商A', product: '奥美拉唑肠溶胶囊 (20mg)', period: '2026-07-01—2026-08-31',
+          combos: [
+            { id: 'o', product: '奥美拉唑肠溶胶囊 (20mg)', received: [182, 13, 3, 1300, 3] }
+          ]
+        }
+      };
+      let sectionSeq = 0;
+      const newSection = (comboId = '', quantities = SERVICES.map(() => ''), total = null) => ({ id: `s-${++sectionSeq}`, comboId, quantities: [...quantities], total });
+      // 模拟「已保存的历史分配」：打开弹框时作为初始值展示，可继续修改
+      const draft = {
+        'pkg-aspirin': {
+          '张伟': [newSection('a', ['76', '5', '', '360', ''])],
+          '李娜': [newSection('a', ['30', '2', '', '150', ''])]
+        },
+        'pkg-omeprazole': {
+          '王芳': [newSection('o', ['40', '2', '', '200', ''])]
+        }
+      };
+      let currentPkg = 'pkg-aspirin';
+      let activeSpecialist = '张伟';
+      let lastTrigger = null;
+      let toastTimer = null;
+      let sectionTotalTimer = null;
+
+      const pkg = () => PACKAGES[currentPkg];
+      const sectionsOf = name => {
+        if (!draft[currentPkg]) draft[currentPkg] = {};
+        if (!draft[currentPkg][name]) draft[currentPkg][name] = [];
+        return draft[currentPkg][name];
+      };
+      const comboById = comboId => pkg().combos.find(combo => combo.id === comboId) || null;
+      const comboLabel = combo => combo.product;
+      const sectionAmount = section => section.quantities.reduce((sum, value, index) => sum + (Number(value) || 0) * SERVICES[index].price, 0);
+      const specialistAmount = name => sectionsOf(name).reduce((sum, section) => sum + sectionAmount(section), 0);
+      const pkgAmount = () => pkg().combos.reduce((sum, combo) => sum + combo.received.reduce((s, n, i) => s + n * SERVICES[i].price, 0), 0);
+      const assignedTotal = () => SPECIALISTS.reduce((sum, { name }) => sum + specialistAmount(name), 0);
+      // 剩余可分配次数 = 本组收到次数 − 其他专员（含未保存的本次填写）已占用次数
+      const remainingFor = (comboId, index, excludeName) => {
+        const combo = comboById(comboId);
+        if (!combo) return 0;
+        let used = 0;
+        SPECIALISTS.forEach(({ name }) => {
+          if (name === excludeName) return;
+          sectionsOf(name).forEach(section => {
+            if (section.comboId === comboId) used += Number(section.quantities[index]) || 0;
+          });
+        });
+        return Math.max(0, combo.received[index] - used);
+      };
+      const money = value => '￥' + Math.max(0, Math.round(value)).toLocaleString('en-US');
+      const escapeHtml = value => String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+      const showToast = message => {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+      };
+
+      const open = trigger => {
+        lastTrigger = trigger;
+        currentPkg = trigger.dataset.pkg || 'pkg-aspirin';
+        document.getElementById('activeTask').textContent = trigger.dataset.task || '';
+        const firstWithSections = SPECIALISTS.find(({ name }) => sectionsOf(name).length) || SPECIALISTS[0];
+        renderSpecialist(firstWithSections.name);
+        backdrop.classList.add('is-open');
+        backdrop.setAttribute('aria-hidden', 'false');
+        document.getElementById('closeIcon').focus();
+      };
+      const close = () => {
+        backdrop.classList.remove('is-open');
+        backdrop.setAttribute('aria-hidden', 'true');
+        if (lastTrigger) lastTrigger.focus();
+      };
+      document.querySelectorAll('.start-split').forEach(button => button.addEventListener('click', () => open(button)));
+      document.getElementById('closeIcon').addEventListener('click', close);
+      document.getElementById('cancel').addEventListener('click', close);
+      document.getElementById('save').addEventListener('click', () => {
+        const count = SPECIALISTS.filter(({ name }) => specialistAmount(name) > 0).length;
+        close();
+        showToast(`拆分配置已保存（演示）：${count} 位专员将在移动端收到待填报任务`);
+      });
+      backdrop.addEventListener('click', event => { if (event.target === backdrop) close(); });
+      document.addEventListener('keydown', event => { if (event.key === 'Escape' && backdrop.classList.contains('is-open')) close(); });
+
+      // 拆解记录（只读）：已结算/对账中的旧包用固定模拟记录，可拆解的任务包从当前拆分数据实时生成
+      const recordsBackdrop = document.getElementById('backdropRecords');
+      const RECORD_TIMES = { '张伟': '2026-07-05 10:23', '王芳': '2026-07-04 14:02', '李娜': '2026-07-06 15:41', '刘洋': '2026-07-07 11:35', '陈静': '2026-07-08 09:18', '杨帆': '2026-07-09 17:26' };
+      const STATIC_RECORDS = {
+        'pkg-jan': [
+          { time: '2026-03-11 10:05', op: 'gz01', name: '王芳', comboLabel: '阿司匹林_1.0', q: [80, 3, 1, 600, 1] },
+          { time: '2026-04-02 15:47', op: 'gz01', name: '刘洋', comboLabel: '阿司匹林_1.0', q: [60, 2, 1, 700, 1] },
+          { time: '2026-05-20 09:30', op: 'gz01', name: '陈静', comboLabel: '阿司匹林_1.0', q: [45, 0, 0, 0, 1] }
+        ]
+      };
+      const recordAmount = record => record.q.reduce((sum, value, index) => sum + value * SERVICES[index].price, 0);
+      const recordsFor = key => {
+        if (STATIC_RECORDS[key]) return STATIC_RECORDS[key];
+        const previousPkg = currentPkg;
+        currentPkg = key;
+        const list = [];
+        SPECIALISTS.forEach(({ name }) => sectionsOf(name).forEach(section => {
+          const combo = comboById(section.comboId);
+          if (!combo) return;
+          const quantities = SERVICES.map((service, index) => Number(section.quantities[index]) || 0);
+          if (!quantities.some(value => value)) return;
+          list.push({ time: RECORD_TIMES[name] || '2026-07-10 10:00', op: 'gz01', name, comboLabel: comboLabel(combo), q: quantities });
+        }));
+        currentPkg = previousPkg;
+        return list;
+      };
+      const renderRecords = key => {
+        const list = recordsFor(key);
+        const cards = list.map(record => {
+          const blocks = SERVICES.map((service, index) => {
+            const count = record.q[index];
+            if (!count) return '';
+            return `<div class="service-item-block"><div class="sib-top"><span class="sib-name">${service.name}</span><span class="sib-count">${count.toLocaleString('en-US')} <span class="sib-unit">${service.unit}</span></span></div><div class="sib-bottom"><span class="sib-subtotal-label">分项金额</span><span class="sib-amount">￥${(count * service.price).toLocaleString('en-US')}</span></div></div>`;
+          }).join('');
+          return `<div class="person-card"><div class="person-card-header"><div class="person-info"><span class="person-name">${escapeHtml(record.name)}</span><span class="group-badge">${escapeHtml(record.comboLabel)}</span><span class="meta-text">拆分时间：${record.time}</span><span class="meta-text">操作人：${escapeHtml(record.op)}</span></div><div class="person-amount"><span class="amount-label">个人拆分总额:</span><span class="total-amount-val">￥${recordAmount(record).toLocaleString('en-US')}</span></div></div><div class="person-services-body">${blocks}</div></div>`;
+        });
+        const total = list.reduce((sum, record) => sum + recordAmount(record), 0);
+        document.getElementById('recordCards').innerHTML = cards.join('') || '<div class="empty-tip">暂无拆解记录</div>';
+        document.getElementById('recordCount').textContent = list.length;
+        document.getElementById('recordTotal').textContent = '￥' + total.toLocaleString('en-US');
+      };
+      let lastRecordTrigger = null;
+      const openRecords = trigger => {
+        lastRecordTrigger = trigger;
+        document.getElementById('recordsTask').textContent = trigger.dataset.task || '';
+        renderRecords(trigger.dataset.pkg);
+        recordsBackdrop.classList.add('is-open');
+        recordsBackdrop.setAttribute('aria-hidden', 'false');
+        document.getElementById('closeRecordsIcon').focus();
+      };
+      const closeRecords = () => {
+        recordsBackdrop.classList.remove('is-open');
+        recordsBackdrop.setAttribute('aria-hidden', 'true');
+        if (lastRecordTrigger) lastRecordTrigger.focus();
+      };
+      document.querySelectorAll('.record-btn').forEach(button => button.addEventListener('click', () => openRecords(button)));
+      document.getElementById('closeRecordsIcon').addEventListener('click', closeRecords);
+      document.getElementById('closeRecordsBtn').addEventListener('click', closeRecords);
+      recordsBackdrop.addEventListener('click', event => { if (event.target === recordsBackdrop) closeRecords(); });
+      document.addEventListener('keydown', event => { if (event.key === 'Escape' && recordsBackdrop.classList.contains('is-open')) closeRecords(); });
+
+      const filterTasks = () => {
+        const product = document.getElementById('productFilter').value;
+        const provider = document.getElementById('providerFilter').value;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        document.querySelectorAll('#taskRows tr').forEach(row => {
+          const matches = (!product || row.dataset.product === product)
+            && (!provider || row.dataset.provider === provider)
+            && (!startDate || row.dataset.end >= startDate)
+            && (!endDate || row.dataset.start <= endDate);
+          row.hidden = !matches;
+        });
+      };
+      document.getElementById('searchTasks').addEventListener('click', filterTasks);
+      document.getElementById('resetFilters').addEventListener('click', () => {
+        ['productFilter', 'providerFilter', 'startDate', 'endDate'].forEach(id => { document.getElementById(id).value = ''; });
+        document.querySelectorAll('#taskRows tr').forEach(row => { row.hidden = false; });
+      });
+      document.querySelector('.legacy-table thead input[type="checkbox"]').addEventListener('change', event => {
+        document.querySelectorAll('#taskRows tr:not([hidden]) input[type="checkbox"]').forEach(box => { box.checked = event.target.checked; });
+      });
+
+      const renderTable = () => {
+        const sections = sectionsOf(activeSpecialist);
+        if (!sections.length) sections.push(newSection(pkg().combos[0].id));
+        // 任务包为单品种，每位专员固定一个分组，无需选择
+        const section = sections[0];
+        draft[currentPkg][activeSpecialist] = [section];
+        const rows = SERVICES.map((service, i) => {
+          const remaining = remainingFor(section.comboId, i, activeSpecialist);
+          return `<tr><td>${service.name}</td><td class="numeric muted">${money(service.price)}</td><td class="numeric muted count">${remaining} ${service.unit}</td><td class="numeric"><input class="number-input quantity" data-section="${section.id}" data-index="${i}" value="${section.quantities[i] ?? ''}" inputmode="numeric" aria-label="${service.name}次数"></td><td class="numeric row-amount">${money((Number(section.quantities[i]) || 0) * service.price)}</td></tr>`;
+        });
+        rows.push(`<tr class="table-total"><td colspan="3"></td><td class="numeric muted">${escapeHtml(activeSpecialist)} 小计</td><td class="numeric money group-sum">${money(specialistAmount(activeSpecialist))}</td></tr>`);
+        document.getElementById('allocationRows').innerHTML = rows.join('');
+        document.getElementById('sectionTotal').value = section.total ?? '';
+      };
+      const updateSummary = () => {
+        document.querySelectorAll('.group-sum').forEach(node => node.textContent = money(specialistAmount(activeSpecialist)));
+        document.querySelectorAll('.group-item').forEach(item => {
+          const name = item.dataset.group;
+          const amount = specialistAmount(name);
+          item.querySelector('.group-note').textContent = money(amount);
+          const status = item.querySelector('.tag');
+          status.textContent = amount > 0 ? '已分配' : '未分配';
+          status.classList.toggle('assigned', amount > 0);
+          status.classList.toggle('unassigned', amount === 0);
+        });
+        document.getElementById('splitTotal').textContent = money(assignedTotal());
+        document.getElementById('planTotal').textContent = money(pkgAmount());
+        document.getElementById('balance').textContent = money(pkgAmount() - assignedTotal());
+        document.getElementById('selectedCount').textContent = checks.filter(check => check.checked).length;
+      };
+      const renderSpecialist = name => {
+        activeSpecialist = name;
+        document.querySelectorAll('.group-item').forEach(item => item.classList.toggle('current', item.dataset.group === name));
+        document.getElementById('activeSpecialistName').textContent = name;
+        renderTable();
+        updateSummary();
+      };
+
+      const applySectionTotal = silent => {
+        const section = sectionsOf(activeSpecialist)[0];
+        if (!section) return;
+        const rawTarget = Number(String(document.getElementById('sectionTotal').value).replace(/[^\d.]/g, ''));
+        if (!rawTarget) return;
+        let remainingCash = rawTarget;
+        section.quantities = SERVICES.map((service, index) => {
+          const available = remainingFor(section.comboId, index, activeSpecialist);
+          const quantity = Math.min(available, Math.floor(remainingCash / service.price));
+          remainingCash -= quantity * service.price;
+          return quantity || '';
+        });
+        section.total = rawTarget;
+        renderTable();
+        updateSummary();
+        if (!silent && remainingCash > 0) showToast(`按单价折算后，该专员尚有 ${money(remainingCash)} 未分配`);
+      };
+      document.getElementById('sectionTotal').addEventListener('input', () => {
+        clearTimeout(sectionTotalTimer);
+        sectionTotalTimer = setTimeout(() => applySectionTotal(true), 700);
+      });
+      document.getElementById('sectionTotal').addEventListener('keydown', event => {
+        if (event.key === 'Enter') applySectionTotal(false);
+      });
+      document.getElementById('sectionRemove').addEventListener('click', () => {
+        const section = sectionsOf(activeSpecialist)[0];
+        if (section) {
+          section.quantities = SERVICES.map(() => '');
+          section.total = null;
+        }
+        renderTable();
+        updateSummary();
+        showToast('已清空该专员的分配');
+      });
+      document.getElementById('allocationRows').addEventListener('input', event => {
+        const input = event.target.closest('.quantity');
+        if (!input) return;
+        const section = sectionsOf(activeSpecialist)[0];
+        if (!section) return;
+        const index = Number(input.dataset.index);
+        const available = remainingFor(section.comboId, index, activeSpecialist);
+        let value = input.value.replace(/[^\d]/g, '');
+        if (value !== '' && Number(value) > available) {
+          value = String(available);
+          input.value = value;
+          showToast(`超出本组剩余可分配次数，已按上限调整为 ${available}`);
+        }
+        section.quantities[index] = value;
+        input.closest('tr').querySelector('.row-amount').textContent = money((Number(value) || 0) * SERVICES[index].price);
+        updateSummary();
+      });
+
+      checks.forEach(check => check.addEventListener('change', () => {
+        const name = check.closest('.group-item').dataset.group;
+        if (check.checked) renderSpecialist(name);
+        else {
+          const nextSelected = checks.find(candidate => candidate.checked);
+          if (activeSpecialist === name && nextSelected) renderSpecialist(nextSelected.closest('.group-item').dataset.group);
+          else updateSummary();
+        }
+      }));
+      document.getElementById('selectAll').addEventListener('click', () => {
+        checks.forEach(check => { check.checked = true; });
+        renderSpecialist(activeSpecialist);
+      });
+      document.getElementById('clearAll').addEventListener('click', () => {
+        checks.forEach(check => { check.checked = false; });
+        updateSummary();
+      });
+      document.getElementById('groupSearch').addEventListener('input', event => {
+        const query = event.target.value.trim().toLocaleLowerCase();
+        document.querySelectorAll('.group-item').forEach(item => { item.hidden = !item.dataset.group.toLocaleLowerCase().includes(query); });
+      });
+    })();
+  </script>
+</body>
+</html>

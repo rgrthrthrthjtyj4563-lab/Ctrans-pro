@@ -196,7 +196,8 @@ export function AcceptanceTab({
                     <button
                       type="button"
                       onClick={() =>
-                        navigate("hospital-visits", {
+                        // 药厂侧拜访入口统一走业务数据管理的审核工作台（hospital-visits 药厂侧已下线）
+                        navigate("visit-audit-hospital", {
                           serviceMonth: activeMonth,
                           provider: task.provider,
                         })

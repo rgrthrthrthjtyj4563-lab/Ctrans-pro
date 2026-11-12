@@ -282,6 +282,14 @@ export function roundingToastText(
   }；适用单价 ${formatCNY(log.unitPrice)}；调整后金额 ${formatCNY(log.afterAmount)}、数量 ${log.afterQty}。${log.reason}`
 }
 
+/** 区域名归一化（去省/市/自治区等后缀）：合作授权用全名（广东省），预算行登记用短名（广东），匹配走宽松口径 */
+function normalizeRegionForBudget(name: string): string {
+  return name.replace(
+    /(省|市|自治区|壮族自治区|回族自治区|维吾尔自治区|特别行政区)$/g,
+    "",
+  )
+}
+
 export function recommendedBudget(params: {
   provider: string
   varieties: string[]
@@ -306,7 +314,13 @@ export function recommendedBudget(params: {
     const varietyHit = varieties.some((v) => p.varieties.includes(v))
     if (!varietyHit) return false
     if (p.regions.includes("全国")) return true
-    return regions.some((r) => p.regions.includes(r) || r === "全国")
+    return regions.some(
+      (r) =>
+        r === "全国" ||
+        p.regions.some(
+          (pr) => normalizeRegionForBudget(pr) === normalizeRegionForBudget(r),
+        ),
+    )
   })
   if (!matched.length)
     return { amount: 0, configured: false, detail: "未配置预算" }

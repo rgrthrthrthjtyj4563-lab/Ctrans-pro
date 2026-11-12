@@ -9,6 +9,18 @@ import { EmptyState } from '../components/EmptyState';
 import type { Role } from '../types';
 import { markPriceConfigStarted } from '../components/StartupGuide';
 import type { ToastMessage } from '../components/Toast';
+import {
+  useQuestionnaireStoreSync, registerScheme, renameScheme, unlinkService, questionnairesOfScheme, SURVEY_GROUP,
+} from '../data/questionnaireStore';
+import {
+  usePriceTableStoreSync, getDb, applyDraft, mutateDB, SEED,
+  clone, money, nval, today, nowStamp,
+  CATALOG_CATEGORIES, CATEGORY_DOMAINS, MODE_CONFIG, BASE_SERVICES, EMPTY_ROW, meetingTier, meetingLevel,
+  tiersOf, isArchived, modeKey, activeMode, visibleTiers, referenceTiers, activeSet,
+  groupOfKey, labelKey, resolved, candidateFor, selectGroupCandidate, hasOptionalValues,
+  draftOnlyService, draftOnlyTier,
+  type ServiceItem, type Snapshot, type VendorState, type VendorKey, type DB, type PriceRow, type PriceSet,
+} from '../data/priceTableStore';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
@@ -35,252 +47,6 @@ const panelStyle: React.CSSProperties = {
   background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8,
 };
 const numTd: React.CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T;
-}
-const money = (n: number | null | undefined) =>
-  '¥' + Number(n ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const nval = (x: unknown): number | null => {
-  if (String(x ?? '').trim() === '') return null;
-  const n = Number(x);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-};
-const formatDate = (d: Date) => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
-const nowStamp = () => formatDate(new Date()) + ' ' + new Date().toTimeString().slice(0, 5);
-const today = () => formatDate(new Date());
-
-// ===== 档位体系（医院等级 / 城市线级 / 会议组合） =====
-const HOSP = ['三级甲等', '三级乙等', '二级甲等', '二级乙等', '一级', '社区', '民营', '未分级'];
-const CITY = ['普通', '一线', '新一线', '二线', '三线', '四线', '五线'];
-const HOSP_CITY = CITY.slice(1).map((t) => '城市线级｜' + t);
-const MEETING = ['医院等级 × 按场次', '区域等级 × 按场次', '区域等级 × 按人数'];
-const MEETING_LEVELS: Record<string, string[]> = {
-  '医院等级 × 按场次': ['三甲', '三乙', '三级', '二甲', '二乙', '二级', '一级', '未评级'],
-  '区域等级 × 按场次': ['一线区域', '二线区域', '三线区域', '四线区域'],
-  '区域等级 × 按人数': ['一线区域', '二线区域', '三线区域', '四线区域'],
-};
-const meetingTier = (mode: string, level: string) => mode + '｜' + level;
-const meetingTiers = (mode: string) => (MEETING_LEVELS[mode] ?? []).map((l) => meetingTier(mode, l));
-const meetingLevel = (tier: string) => tier.split('｜').slice(-1)[0];
-
-// 按旧价目表「价目类别」筛选顺序展示；这份目录不意味着每项已有演示价格。
-const CATALOG_CATEGORIES = [
-  '医院拜访', '商业拜访', '药房拜访', '问卷调查', '会议', '药事报告', '医院信息调研', '科室信息调研', '医生信息调研', '竞品调研',
-  '市场容量调研报告', '竞品分析调研报告', '月度推广计划', '问卷调研分析报告', '流向分析报告', '信息反馈', '信息调研', '医学问询', '不良反应监测', '医院协访',
-  '流向统计', '区域价格追踪', '库存信息收集', '药房协访', '义诊', '跟台服务', '品种准入', '服务商报告链', '商业调研', '随访',
-  '药店调研', '市场环境分析报告', '市场推广策略', '问卷设计', '准入潜力评估', '终端产品使用调研', '政策调研报告',
-];
-
-type ServiceType = 'hospital' | 'city' | 'meeting' | 'flat' | 'custom';
-interface ServiceItem { id: string; group: string; name: string; unit: string; type: ServiceType; initialTier?: string }
-const BASE_SERVICES: ServiceItem[] = [
-  { id: 'academic', group: '医院拜访', name: '学术拜访', unit: '次', type: 'hospital' },
-  { id: 'home', group: '医院拜访', name: '上门日常拜访', unit: '次', type: 'hospital' },
-  { id: 'online', group: '医院拜访', name: '网络日常拜访', unit: '次', type: 'hospital' },
-  { id: 'research', group: '医院拜访', name: '信息收集和调研', unit: '次', type: 'hospital' },
-  { id: 'follow', group: '医院拜访', name: '跟踪巡访服务', unit: '次', type: 'hospital' },
-  { id: 'third', group: '医院拜访', name: '第三终端服务', unit: '次', type: 'hospital' },
-  { id: 'commerce', group: '商业拜访', name: '每次商业拜访定价', unit: '次', type: 'city' },
-  { id: 'commResearch', group: '商业调研', name: '商业信息收集和调研', unit: '次', type: 'city' },
-  { id: 'stockResearch', group: '商业拜访', name: '商业库存信息收集', unit: '次', type: 'city' },
-  { id: 'pharmacy', group: '药房拜访', name: '药房拜访', unit: '次', type: 'city' },
-  { id: 'meeting', group: '会议', name: '科室会议', unit: '场', type: 'meeting' },
-  { id: 'inventory', group: '库存信息收集', name: '库存信息收集', unit: '条', type: 'flat' },
-  { id: 'report', group: '市场环境分析报告', name: '市场环境分析报告', unit: '份', type: 'flat' },
-  { id: 'surveyReport', group: '问卷调研分析报告', name: '问卷调研分析报告', unit: '份', type: 'flat' },
-  { id: 'terminalReport', group: '终端产品使用调研', name: '终端产品使用调研', unit: '份', type: 'flat' },
-];
-
-// ===== 计价方式（价格依据按业务组配置；未启用方式只读保留已填价格） =====
-interface ModeOption { value: string; label: string; view: string }
-const MODE_CONFIG: Record<string, { title: string; services: string[]; options: ModeOption[] }> = {
-  hospital: {
-    title: '医院拜访', services: ['academic', 'home', 'online', 'research', 'follow', 'third'], options: [
-      { value: 'hospital', label: '按医院等级', view: '医院等级价格' },
-      { value: 'regional', label: '按城市线级', view: '城市线级价格' },
-    ],
-  },
-  commerce: {
-    title: '商业拜访', services: ['commerce', 'stockResearch'], options: [
-      { value: 'ordinary', label: '普通金额', view: '普通价格' },
-      { value: 'regional', label: '按城市线级', view: '城市线级价格' },
-    ],
-  },
-  commResearch: {
-    title: '商业调研', services: ['commResearch'], options: [
-      { value: 'ordinary', label: '普通金额', view: '普通价格' },
-      { value: 'regional', label: '按城市线级', view: '城市线级价格' },
-    ],
-  },
-  pharmacy: {
-    title: '药房拜访', services: ['pharmacy'], options: [
-      { value: 'ordinary', label: '普通金额', view: '普通价格' },
-      { value: 'regional', label: '按城市线级', view: '城市线级价格' },
-    ],
-  },
-  meeting: {
-    title: '会议', services: ['meeting'], options: [
-      { value: '医院等级 × 按场次', label: '医院等级 × 按场次', view: '医院等级价格' },
-      { value: '区域等级 × 按场次', label: '省份区域等级 × 按场次', view: '省份区域等级价格' },
-      { value: '区域等级 × 按人数', label: '省份区域等级 × 按人数', view: '省份区域等级 · 按人数' },
-    ],
-  },
-};
-
-// ===== 数据模型：价格按品种隔离；草稿-发布两态；已发布值用于对照 =====
-interface PriceRow { pub: number | null; priv: number | null; limit: number | null; overPub: number | null; overPriv: number | null }
-const EMPTY_ROW: PriceRow = { pub: null, priv: null, limit: null, overPub: null, overPriv: null };
-type PriceSet = 'base' | 'split';
-/** serviceId -> tier -> 价格行 */
-type Book = Record<string, Record<string, PriceRow>>;
-/** 品种价目：公私两套价目集（升级版按业务日期二选一读取） */
-type PriceBooks = Record<PriceSet, Book>;
-interface Rules {
-  mode: 'unified' | 'split-basic' | 'upgrade';
-  cutoff: string | null;
-  hospital: string; commerce: string; commResearch: string; pharmacy: string; meeting: string;
-}
-interface Snapshot {
-  version: number;
-  effective: string;
-  pricesByProduct: PriceBooks[];
-  rules: Rules;
-  enabled: Record<string, boolean>;
-  /** 每个品种各大类的发包标准价：'serviceId|tier' */
-  candidatesByProduct: string[][];
-  customServices: ServiceItem[];
-  /** 自建档位：serviceId -> 方式 -> tier 列表 */
-  extraTiers: Record<string, Record<string, string[]>>;
-  archivedTiers: Record<string, string[]>;
-  archivedServices: string[];
-}
-interface VendorState {
-  name: string;
-  products: string[];
-  published: Snapshot;
-  draft: Snapshot | null;
-  updatedAtByProduct: string[];
-}
-type VendorKey = 'A' | 'B';
-type DB = Record<VendorKey, VendorState>;
-
-// ===== 快照上的派生计算 =====
-const baseTiers = (s: ServiceItem): string[] =>
-  s.type === 'hospital' ? [...HOSP, ...HOSP_CITY] : s.type === 'city' ? CITY : s.type === 'meeting' ? MEETING.flatMap(meetingTiers) : [s.initialTier || '标准'];
-const extras = (w: Snapshot, s: ServiceItem, mode: string) => w.extraTiers[s.id]?.[mode] ?? [];
-const tiersOf = (s: ServiceItem, w: Snapshot) => [...new Set([...baseTiers(s), ...Object.values(w.extraTiers[s.id] ?? {}).flat()])];
-const isArchived = (w: Snapshot, s: ServiceItem) => w.archivedServices.includes(s.id);
-const modeKey = (s: ServiceItem): string | null =>
-  s.type === 'hospital' ? 'hospital' : s.group === '商业调研' ? 'commResearch' : s.type === 'city' ? (s.id === 'pharmacy' ? 'pharmacy' : 'commerce') : s.type === 'meeting' ? 'meeting' : null;
-const activeMode = (s: ServiceItem, w: Snapshot) => {
-  const ruleOf = (key: string) => (w.rules as unknown as Record<string, string | null>)[key];
-  return s.type === 'hospital' ? (ruleOf('hospital') || 'hospital')
-    : s.type === 'city' ? (ruleOf(modeKey(s) ?? '') || 'ordinary')
-      : s.type === 'meeting' ? w.rules.meeting : 'standard';
-};
-const modeBaseTiers = (s: ServiceItem, mode: string): string[] =>
-  s.type === 'hospital' ? (mode === 'regional' ? HOSP_CITY : HOSP)
-    : s.type === 'city' ? (mode === 'regional' ? CITY.slice(1) : ['普通'])
-      : s.type === 'meeting' ? meetingTiers(mode) : [s.initialTier || '标准'];
-const activeTiersOf = (s: ServiceItem, w: Snapshot, mode: string, base: string[]) =>
-  [...new Set([...base, ...extras(w, s, mode)])].filter((t) => !w.archivedTiers[s.id]?.includes(t));
-const visibleTiers = (s: ServiceItem, w: Snapshot, mode?: string) => {
-  const m = mode ?? activeMode(s, w);
-  return activeTiersOf(s, w, m, modeBaseTiers(s, m));
-};
-const referenceTiers = (s: ServiceItem, w: Snapshot) =>
-  s.type === 'hospital' ? visibleTiers(s, w, 'hospital') : s.type === 'city' ? visibleTiers(s, w, 'ordinary') : visibleTiers(s, w);
-/** 升级版按业务日期选价目集：达到切换日期读 split，否则 base */
-const activeSet = (w: Snapshot, date: string): PriceSet => (w.rules.mode === 'upgrade' && w.rules.cutoff && date >= w.rules.cutoff ? 'split' : 'base');
-const groupOfKey = (services: ServiceItem[], key: string) => services.find((s) => s.id === key.split('|')[0])?.group;
-const labelKey = (services: ServiceItem[], key: string) => {
-  const [id, t] = String(key ?? '').split('|');
-  const s = services.find((x) => x.id === id);
-  return s ? s.name + ' · ' + (s.type === 'meeting' ? t.replace('｜', ' · ') : t) : key;
-};
-const resolved = (w: Snapshot, set: PriceSet, id: string, tier: string, product: number): PriceRow =>
-  w.pricesByProduct[product]?.[set]?.[id]?.[tier] ?? EMPTY_ROW;
-const candidateFor = (w: Snapshot, product: number) => w.candidatesByProduct[product] ?? [];
-const referenceValid = (services: ServiceItem[], w: Snapshot, key: string, product: number) => {
-  const [id, tier] = String(key ?? '').split('|');
-  const s = services.find((x) => x.id === id);
-  return !!s && !isArchived(w, s) && !!w.enabled[id] && referenceTiers(s, w).includes(tier);
-};
-/** 发包标准价的主金额（对公），含不可用原因 */
-const candidatePrice = (services: ServiceItem[], w: Snapshot, key: string, product: number): { value: number | null; reason: string } => {
-  const [id, tier] = String(key ?? '').split('|');
-  if (!referenceValid(services, w, key, product)) return { value: null, reason: '发包标准价目与当前方式不匹配，请重新选择' };
-  const row = resolved(w, activeSet(w, today()), id, tier, product);
-  return { value: row.pub, reason: row.pub === null ? '所选发包标准价的主金额未配置' : row.pub === 0 ? '发包标准价为 0，不能换算计划数量' : '' };
-};
-/** 每大类只能有一项发包标准价：替换该大类的候选 */
-const selectGroupCandidate = (d: Snapshot, key: string, product: number, services: ServiceItem[]) => {
-  const g = groupOfKey(services, key);
-  const choices = d.candidatesByProduct[product];
-  const idx = choices.findIndex((old) => groupOfKey(services, old) === g);
-  if (idx >= 0) choices.splice(idx, 1, key); else choices.push(key);
-};
-const hasOptionalValues = (row?: PriceRow) => !!row && (row.limit != null || row.overPub != null || row.overPriv != null);
-const draftOnlyService = (pub: Snapshot, w: Snapshot, s: ServiceItem) =>
-  !!w.customServices.some((x) => x.id === s.id) && !pub.customServices.some((x) => x.id === s.id);
-const draftOnlyTier = (pub: Snapshot, w: Snapshot, s: ServiceItem, tier: string) =>
-  Object.values(w.extraTiers[s.id] ?? {}).some((rows) => rows.includes(tier)) && !Object.values(pub.extraTiers[s.id] ?? {}).some((rows) => rows.includes(tier));
-
-// ===== 种子 =====
-function makePrices(scale: number): { base: Book; split: Book } {
-  const base: Book = {}, split: Book = {};
-  BASE_SERVICES.forEach((s, i) => {
-    base[s.id] = {}; split[s.id] = {};
-    baseTiers(s).forEach((tier, j) => {
-      let v = s.type === 'hospital' ? Math.max(160, 500 - i * 28 - j * 35)
-        : s.type === 'city' ? Math.max(110, 400 - i * 7 - j * 22)
-          : s.id === 'meeting' ? 1800 + j * 250 : s.id === 'report' ? 5000 : s.type === 'flat' ? 300 + i * 30 : 3400;
-      if (s.id === 'academic' && tier === '三级甲等') v = 500;
-      if (s.id === 'commerce' && tier === '普通') v = 400;
-      if (s.id === 'pharmacy' && tier === '普通') v = 250;
-      if (s.id === 'report') v = 5000;
-      if (s.id === 'surveyReport') v = 3200;
-      if (s.id === 'terminalReport') v = 4200;
-      const empty = (s.id === 'stockResearch' && tier === '五线') || (s.id === 'online' && tier === '未分级') || (s.id === 'academic' && tier === '城市线级｜五线');
-      if (s.type === 'meeting') {
-        v = 2000 + (j % 8) * 80 + (j >= 8 ? 180 : 0);
-        base[s.id][tier] = { pub: Math.round(v * scale), priv: Math.round(v * scale * 0.8), limit: 20, overPub: Math.round(100 * scale), overPriv: Math.round(80 * scale) };
-        split[s.id][tier] = { pub: Math.round(v * scale * 1.12), priv: Math.round(v * scale * 0.9), limit: 20, overPub: Math.round(110 * scale), overPriv: Math.round(88 * scale) };
-      } else {
-        base[s.id][tier] = { pub: empty ? null : Math.round(v * scale), priv: empty ? null : Math.round(v * scale * 0.18), limit: null, overPub: null, overPriv: null };
-        split[s.id][tier] = { pub: empty ? null : Math.round(v * scale * 1.12), priv: empty ? null : Math.round(v * scale * 0.23), limit: null, overPub: null, overPriv: null };
-      }
-    });
-  });
-  return { base, split };
-}
-
-function seedVendor(name: string, scale: number, mode: Rules['mode'], products: string[]): VendorState {
-  const rules: Rules = {
-    mode, cutoff: mode === 'upgrade' ? '2026-11-01' : null,
-    hospital: 'hospital', commerce: 'ordinary', commResearch: 'ordinary', pharmacy: 'ordinary', meeting: '医院等级 × 按场次',
-  };
-  const published: Snapshot = {
-    version: 1, effective: '2026-09-01',
-    pricesByProduct: [makePrices(scale), makePrices(scale)],
-    rules,
-    enabled: Object.fromEntries(BASE_SERVICES.map((s) => [s.id, true])),
-    candidatesByProduct: [],
-    customServices: [], extraTiers: {}, archivedTiers: {}, archivedServices: [],
-  };
-  const seedGroups = CATALOG_CATEGORIES.filter((g) => BASE_SERVICES.some((s) => s.group === g));
-  const candidates = seedGroups.map((g) => {
-    const s = BASE_SERVICES.find((x) => x.group === g)!;
-    return s.id + '|' + referenceTiers(s, published)[0];
-  });
-  published.candidatesByProduct = [[...candidates], [...candidates]];
-  return { name, products, published, draft: null, updatedAtByProduct: products.map(() => published.effective + ' 09:00') };
-}
-const SEED: DB = {
-  A: seedVendor('百益制药', 1, 'upgrade', ['希刻劳', '泰诺林']),
-  B: seedVendor('东方恒业', 0.84, 'split-basic', ['双黄连', '格华止']),
-};
 
 type OptionalValues = { limit: number | null; overPub: number | null; overPriv: number | null };
 
@@ -509,25 +275,38 @@ function AddTierModal({ svc, mode, toast, onClose, onCreate }: {
   );
 }
 
-// ===== 弹窗：管理价目类别（改名 / 停用 / 恢复 / 草稿删除） =====
-function ManageServiceModal({ svc, isCustom, archived, canDelete, toast, onClose, onSaveMeta, onDelete, onArchive, onRestore }: {
+// ===== 弹窗：管理价目类别（改名 / 档位改名 / 停用 / 恢复 / 草稿删除） =====
+function ManageServiceModal({ svc, isCustom, archived, canDelete, tiers, toast, onClose, onSaveMeta, onDelete, onArchive, onRestore }: {
   svc: ServiceItem;
   isCustom: boolean;
   archived: boolean;
   canDelete: boolean;
+  tiers: { name: string; archived: boolean }[];
   toast: (title: string, type: ToastMessage['type']) => void;
   onClose: () => void;
-  onSaveMeta: (name: string, unit: string) => void;
+  onSaveMeta: (name: string, unit: string, renames: { from: string; to: string }[]) => void;
   onDelete: () => void;
   onArchive: () => void;
   onRestore: () => void;
 }) {
   const [name, setName] = useState(svc.name);
   const [unit, setUnit] = useState(svc.unit);
+  const [tierEdits, setTierEdits] = useState<Record<string, string>>({});
   const sourceLabel = ({ custom: '用户自定义', hospital: '医院等级', city: '城市线', meeting: '会议档位', flat: '标准价' } as Record<string, string>)[svc.type] ?? '已有价目';
+  /** 收集档位改名：清空或未改动视为不改；改名后的完整类别名单不能重名 */
+  const collectRenames = (): { from: string; to: string }[] | null => {
+    const edits = tiers
+      .map((t) => ({ from: t.name, to: (tierEdits[t.name] ?? '').trim() }))
+      .filter((r) => r.to !== '' && r.to !== r.from);
+    const finals = tiers.map((t) => edits.find((r) => r.from === t.name)?.to ?? t.name);
+    if (new Set(finals).size !== finals.length) { toast('类别名称不能重复', 'warning'); return null; }
+    return edits;
+  };
   const saveMeta = () => {
     if (!name.trim() || !unit.trim()) { toast('名称和计量单位不能为空', 'warning'); return; }
-    onSaveMeta(name.trim(), unit.trim());
+    const renames = collectRenames();
+    if (!renames) return;
+    onSaveMeta(name.trim(), unit.trim(), renames);
   };
   return (
     <Modal open title="管理价目类别" onClose={onClose} width={480}
@@ -554,6 +333,23 @@ function ManageServiceModal({ svc, isCustom, archived, canDelete, toast, onClose
             <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: '#F7F9FC', color: '#4A596D', fontWeight: 600 }}>{sourceLabel}</div>
           </div>
         </div>
+        {isCustom && !archived && tiers.length > 0 && (
+          <div style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#657388', fontWeight: 600 }}>类别（档位）改名</span>
+            <div style={{ display: 'grid', gap: 6, maxHeight: 168, overflow: 'auto', padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 8 }}>
+              {tiers.map((t) => (
+                <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input style={inputStyle} value={tierEdits[t.name] ?? t.name} maxLength={30} aria-label={`改名${t.name}`}
+                    onChange={(e) => setTierEdits((p) => ({ ...p, [t.name]: e.target.value }))} />
+                  {t.archived && <Tag label="已停用" color="warning" />}
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-12)', color: '#98A2B3' }}>
+              修改后随「保存修改」生效；留空或保持原文即不修改。改名会同步更新价格行、发包标准价引用和停用记录，价格数值不变。
+            </p>
+          </div>
+        )}
         <p style={{ margin: 0, fontSize: 'var(--fs-12)', color: '#98A2B3' }}>
           {canDelete
             ? '尚未发布的自建价目类别可从草稿中删除；若本大类还有其他价目，请先更换发包标准价。'
@@ -617,9 +413,11 @@ function UniformModal({ svc, viewLabel, tierCount, showOptional, toast, onClose,
 export function PriceTableConfig({ addToast, currentRole }: Props) {
   const { can } = usePermission();
   const canEdit = can('price-config', 'edit');
+  useQuestionnaireStoreSync(); // 适用问卷绑定落在共享 store，保存后摘要即时刷新
   const toast = (title: string, type: ToastMessage['type'] = 'info') => addToast({ type, title });
 
-  const [db, setDb] = useState<DB>(() => clone(SEED));
+  usePriceTableStoreSync(); // 价目数据在共享 priceTableStore：本页维护，问卷配置/任务发包读同一份
+  const db = getDb();
   const [view, setView] = useState<'list' | 'catalog' | 'editor'>('list');
   const [vendorId, setVendorId] = useState<VendorKey>('A');
   const [product, setProduct] = useState(0);
@@ -627,6 +425,7 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
   const [priceView, setPriceView] = useState<string | null>(null);
   const [group, setGroup] = useState('医院拜访');
   const [groupQuery, setGroupQuery] = useState('');
+  const [collapsedDomains, setCollapsedDomains] = useState<Record<string, boolean>>({});
   const [showArchived, setShowArchived] = useState(false);
   const [optionalVisible, setOptionalVisible] = useState<Record<string, boolean>>({});
   const [highlightTier, setHighlightTier] = useState<string | null>(null);
@@ -645,14 +444,11 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
     | { kind: 'addTier' }
     | { kind: 'manageService' }
     | { kind: 'uniform' }
-    | { kind: 'standard' }
     | { kind: 'confirmDeleteService' }
     | { kind: 'confirmDeleteTier'; tier: string }
     | { kind: 'confirmArchiveTier'; tier: string }
     | { kind: 'confirmReset' }
   >(null);
-  const [standardFilter, setStandardFilter] = useState<string | null>(null);
-  const [standardChoice, setStandardChoice] = useState<string | null>(null);
   const closeModal = () => setModal(null);
 
   // ===== 派生数据 =====
@@ -665,19 +461,15 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
   const set = activeSet(w, todayStr);
   const svc = services.find((s) => s.id === serviceId) ?? services[0];
 
-  /** 修改都先落到草稿；已发布快照不动，用于对照 */
-  const writeDraft = (fn: (draft: Snapshot, v: VendorState) => void) =>
-    setDb((prev) => {
-      const next = clone(prev);
-      const v = next[vendorId];
-      if (!v.draft) v.draft = clone(v.published);
-      fn(v.draft, v);
-      v.updatedAtByProduct[product] = nowStamp();
-      markPriceConfigStarted(); // 新手引导：价目板块首次产生配置即完成，标记永不复位
-      return next;
-    });
-  const mutate = (fn: (d: DB) => void) =>
-    setDb((prev) => { const next = clone(prev); fn(next); markPriceConfigStarted(); return next; });
+  /** 修改都先落到共享 store 的草稿；已发布快照不动，用于对照 */
+  const writeDraft = (fn: (draft: Snapshot, v: VendorState) => void) => {
+    applyDraft(vendorId, product, fn);
+    markPriceConfigStarted(); // 新手引导：价目板块首次产生配置即完成，标记永不复位
+  };
+  const mutate = (fn: (d: DB) => void) => {
+    mutateDB(fn);
+    markPriceConfigStarted();
+  };
 
   // 新增类别后滚动定位到新档位
   useEffect(() => {
@@ -707,14 +499,19 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
 
   const openProduct = (vid: VendorKey, pi: number) => {
     setVendorId(vid); setProduct(pi);
-    setGroup('医院拜访'); setGroupQuery(''); setShowArchived(false);
+    setGroup('医院拜访'); setGroupQuery(''); setCollapsedDomains({}); setShowArchived(false);
     setServiceId('academic'); setPriceView(null); setOptionalVisible({}); setHighlightTier(null);
     setView('catalog');
   };
 
   // ===== 目录页 =====
   const matchQuery = (g: string) => g.toLowerCase().includes(groupQuery.trim().toLowerCase());
-  const matchCount = CATALOG_CATEGORIES.filter(matchQuery).length;
+  // 树形导航：搜索命中业务域名时整域保留，否则按子类筛选；计数与实际展示一致
+  const searching = groupQuery.trim() !== '';
+  const domains = CATEGORY_DOMAINS
+    .map((d) => ({ ...d, matched: matchQuery(d.name) ? d.categories : d.categories.filter(matchQuery) }))
+    .filter((d) => !searching || d.matched.length > 0);
+  const matchCount = domains.reduce((n, d) => n + d.matched.length, 0);
   const groupServices = services.filter((s) => s.group === group && (!isArchived(w, s) || showArchived));
   const activeCount = services.filter((s) => s.group === group && !isArchived(w, s)).length;
   const standardKey = candidateFor(w, product).find((k) => groupOfKey(services, k) === group);
@@ -745,7 +542,6 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
   const oldBook = pub.pricesByProduct[product];
   const oldSet = activeSet(pub, todayStr);
   const selected = candidateFor(w, product).find((k) => groupOfKey(services, k) === svc.group);
-  const selectedPrice = selected ? candidatePrice(services, w, selected, product) : null;
   const editLocked = readOnly || !canEdit;
 
   const commitPrice = (tier: string, field: keyof PriceRow, n: number | null) => {
@@ -775,6 +571,7 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
       });
     });
     if (v.limit !== null || v.overPub !== null || v.overPriv !== null) setOptionalVisible((p) => ({ ...p, [item.id]: true }));
+    if (item.group === SURVEY_GROUP) registerScheme(item.id, item.name, item.group); // 登记为问卷计价方案
     closeModal();
     setServiceId(item.id);
     setPriceView(null);
@@ -812,15 +609,42 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
 
   // 管理价目类别
   const openManageService = (id: string) => { setServiceId(id); setModal({ kind: 'manageService' }); };
-  const saveServiceMeta = (name: string, unit: string) => {
+  const saveServiceMeta = (name: string, unit: string, renames: { from: string; to: string }[]) => {
     const s = svc;
     if (services.some((x) => x.id !== s.id && x.group === s.group && x.name === name)) { toast('当前业务大类已有同名价目类别', 'warning'); return; }
+    if (renames.length) {
+      const finals = tiersOf(s, w).map((t) => renames.find((r) => r.from === t)?.to ?? t);
+      if (new Set(finals).size !== finals.length) { toast('类别名称不能重复', 'warning'); return; }
+    }
     writeDraft((d) => {
       const item = d.customServices.find((x) => x.id === s.id);
       if (item) { item.name = name; item.unit = unit; }
+      if (!renames.length) return;
+      const map = new Map(renames.map((r) => [r.from, r.to]));
+      if (item?.initialTier && map.has(item.initialTier)) item.initialTier = map.get(item.initialTier)!;
+      const ex = d.extraTiers[s.id];
+      if (ex) for (const mode of Object.keys(ex)) ex[mode] = ex[mode].map((t) => map.get(t) ?? t);
+      if (d.archivedTiers[s.id]) d.archivedTiers[s.id] = d.archivedTiers[s.id].map((t) => map.get(t) ?? t);
+      d.pricesByProduct.forEach((b) => {
+        (['base', 'split'] as PriceSet[]).forEach((st) => {
+          const book = b[st][s.id];
+          if (!book) return;
+          for (const t of Object.keys(book)) {
+            const nt = map.get(t);
+            if (nt) { book[nt] = book[t]; delete book[t]; }
+          }
+        });
+      });
+      d.candidatesByProduct.forEach((keys) => {
+        keys.forEach((k, i) => {
+          const [id, t] = k.split('|');
+          if (id === s.id && map.has(t)) keys[i] = id + '|' + map.get(t)!;
+        });
+      });
     });
+    if (s.group === SURVEY_GROUP && name !== s.name) renameScheme(s.id, name); // 同步问卷侧方案登记名
     closeModal();
-    toast('价目类别已更新', 'success');
+    toast(renames.length ? '价目类别已更新，类别改名已同步到价格与发包标准价' : '价目类别已更新', 'success');
   };
   const deleteService = () => {
     const s = svc;
@@ -849,6 +673,7 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
       });
     });
     setOptionalVisible((p) => { const n = { ...p }; delete n[s.id]; return n; });
+    unlinkService(s.id); // 清除其作为计价方案的默认/例外引用
     closeModal();
     setGroup(s.group);
     setView('catalog');
@@ -940,30 +765,6 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
     toast('已将统一金额应用到当前业务全部档位', 'success');
   };
 
-  // 发包标准价
-  const standardGroupServices = services.filter((s) => s.group === svc.group && w.enabled[s.id] && !isArchived(w, s));
-  const standardFilterSvc = services.find((s) => s.id === standardFilter) ?? standardGroupServices[0];
-  const openStandard = () => {
-    if (!standardGroupServices.length) { toast('本大类没有已开展的分类', 'warning'); return; }
-    const sel = candidateFor(w, product).find((k) => groupOfKey(services, k) === svc.group);
-    const initFilter = standardGroupServices.some((s) => s.id === standardFilter)
-      ? standardFilter!
-      : standardGroupServices.find((s) => s.id === sel?.split('|')[0])?.id ?? standardGroupServices[0].id;
-    setStandardFilter(initFilter);
-    setStandardChoice(sel ?? null);
-    setModal({ kind: 'standard' });
-  };
-  const applyStandard = () => {
-    const key = standardChoice;
-    if (!key || !referenceValid(services, w, key, product) || groupOfKey(services, key) !== svc.group) {
-      toast('请选择当前业务大类中的一项价目', 'warning');
-      return;
-    }
-    writeDraft((d) => selectGroupCandidate(d, key, product, services));
-    closeModal();
-    toast('发包标准价已更新为 ' + labelKey(services, key), 'success');
-  };
-
   // 重置本品种价目（恢复系统默认价目）
   const resetProduct = () => {
     mutate((d) => {
@@ -994,6 +795,7 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
           isCustom={!!w.customServices.some((x) => x.id === svc.id)}
           archived={isArchived(w, svc)}
           canDelete={draftOnlyService(pub, w, svc)}
+          tiers={tiersOf(svc, w).map((t) => ({ name: t, archived: (w.archivedTiers[svc.id] ?? []).includes(t) }))}
           toast={toast} onClose={closeModal}
           onSaveMeta={saveServiceMeta} onDelete={deleteService} onArchive={archiveService} onRestore={restoreService} />
       )}
@@ -1001,40 +803,6 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
         <UniformModal svc={svc} viewLabel={viewOption?.view ?? '当前价目'} tierCount={rs.length} showOptional={showOptional}
           toast={toast} onClose={closeModal} onApply={applyUniform} />
       )}
-      {modal?.kind === 'standard' && (
-        <Modal open title={`更换${svc.group}发包标准价`} onClose={closeModal} width={560}
-          footer={<>
-            <Button variant="outline" onClick={closeModal}>取消</Button>
-            <Button variant="primary" onClick={applyStandard}>确认选择</Button>
-          </>}>
-          <p style={{ margin: '0 0 10px', fontSize: 'var(--fs-12)', color: '#667085' }}>在本大类中只能选一项分类价目。任务计划读取被选行的主金额；执行档位价格另按当前计价方式决定。</p>
-          <label style={{ display: 'grid', gap: 4 }}>
-            <span style={{ fontSize: 'var(--fs-12)', color: '#657388', fontWeight: 600 }}>业务分类</span>
-            <select style={{ ...inputStyle }} value={standardFilterSvc?.id ?? ''} onChange={(e) => setStandardFilter(e.target.value)}>
-              {standardGroupServices.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid var(--color-border)', borderRadius: 8, marginTop: 10 }}>
-            {(standardFilterSvc ? referenceTiers(standardFilterSvc, w) : []).map((t) => {
-              const k = standardFilterSvc!.id + '|' + t;
-              const row = resolved(w, set, standardFilterSvc!.id, t, product);
-              return (
-                <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderBottom: '1px solid #F3F4F6', cursor: 'pointer', background: standardChoice === k ? 'var(--color-brand-subtle)' : undefined }}>
-                  <input type="radio" name="standard-choice" checked={standardChoice === k} onChange={() => setStandardChoice(k)} />
-                  <span style={{ display: 'grid', gap: 2 }}>
-                    <strong style={{ fontSize: 'var(--fs-13)' }}>{meetingLevel(t)}</strong>
-                    <small style={{ color: '#667085', fontSize: 'var(--fs-11)' }}>
-                      主金额 {row.pub === null ? '未配置' : money(row.pub)}/{standardFilterSvc!.unit}{selected === k ? ' · 当前标准价' : ''}
-                    </small>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-          <p style={{ margin: '10px 0 0', fontSize: 'var(--fs-12)', color: '#98A2B3' }}>切换业务分类后仍只保留一个选择。更换标准价不会改变发包比例。</p>
-        </Modal>
-      )}
-
       <ConfirmDialog open={modal?.kind === 'confirmDeleteService'} title="删除草稿价目类别" variant="warning"
         description={`将从草稿中删除“${svc.name}”及其全部类别价格。该操作不影响已发布版本；若这是本大类唯一价目，其发包选择也会移除。`}
         confirmLabel="确认删除" onCancel={closeModal} onConfirm={confirmDeleteService} />
@@ -1150,13 +918,27 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
                   placeholder="搜索业务大类" aria-label="搜索业务大类" autoComplete="off" />
                 <div style={{ color: '#98A2B3', fontSize: 'var(--fs-11)', padding: '6px 3px 0' }}>匹配 {matchCount} / {CATALOG_CATEGORIES.length} 类</div>
               </div>
-              <div style={{ flex: 1, overflow: 'auto' }}>
-                {CATALOG_CATEGORIES.map((g) => matchQuery(g) && (
-                  <button key={g} type="button" onClick={() => setGroup(g)}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', border: 0, background: g === group ? 'var(--color-brand-subtle)' : 'transparent', padding: '8px 10px', borderRadius: 6, color: g === group ? 'var(--color-brand)' : '#637186', fontSize: 'var(--fs-12)', textAlign: 'left', cursor: 'pointer', fontWeight: g === group ? 650 : 400 }}>
-                    {g}
-                  </button>
-                ))}
+              <div style={{ flex: 1, overflow: 'auto', paddingBottom: 6 }}>
+                {domains.map((d) => {
+                  const expanded = searching || !collapsedDomains[d.name];
+                  return (
+                    <div key={d.name}>
+                      <button type="button" onClick={() => setCollapsedDomains((p) => ({ ...p, [d.name]: !!expanded }))}
+                        aria-expanded={expanded}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', border: 0, background: 'transparent', padding: '8px 10px', borderRadius: 6, color: '#3D4C63', fontSize: 'var(--fs-12)', fontWeight: 650, textAlign: 'left', cursor: 'pointer' }}>
+                        <span style={{ color: '#98A2B3', fontSize: 10, width: 10, flexShrink: 0 }}>{expanded ? '▾' : '▸'}</span>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                        <span style={{ color: '#98A2B3', fontSize: 'var(--fs-11)', fontWeight: 400 }}>{searching ? d.matched.length : d.categories.length}</span>
+                      </button>
+                      {expanded && d.matched.map((g) => (
+                        <button key={g} type="button" onClick={() => setGroup(g)}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', border: 0, background: g === group ? 'var(--color-brand-subtle)' : 'transparent', padding: '7px 10px 7px 26px', borderRadius: 6, color: g === group ? 'var(--color-brand)' : '#637186', fontSize: 'var(--fs-12)', textAlign: 'left', cursor: 'pointer', fontWeight: g === group ? 650 : 400 }}>
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
                 {matchCount === 0 && <div style={{ padding: 16, color: '#98A2B3', fontSize: 'var(--fs-11)', textAlign: 'center' }}>没有匹配的业务大类</div>}
               </div>
             </div>
@@ -1224,21 +1006,7 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
           <Button variant="outline" size="sm" onClick={() => setView('catalog')}>返回价目表</Button>
         </>} />
       <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* 发包标准价 */}
-        <div style={{ ...panelStyle, background: '#F9FBFF', borderColor: '#D9E4F8', padding: '15px 17px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <h3 style={{ margin: 0, fontSize: 'var(--fs-13)', fontWeight: 650 }}>{svc.group} · 发包标准价</h3>
-            <Button variant="outline" size="sm" onClick={openStandard}>更换标准价</Button>
-          </div>
-          <div style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', marginTop: 6 }}>
-            <strong>{selected ? labelKey(services, selected) : '尚未选择'}</strong>
-            <span style={{ color: '#667085' }}>
-              {' '}· 主金额 {selectedPrice && selectedPrice.value !== null ? money(selectedPrice.value) : '待配置'}/{selected ? services.find((x) => x.id === selected.split('|')[0])?.unit || svc.unit : svc.unit}
-            </span>
-            {selectedPrice?.reason && <Tag label="标准价待处理" color="warning" />}
-          </div>
-          <p style={{ margin: '5px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>本大类只选一项价目用于任务金额和计划数量；下方矩阵用于当前方式的执行取价。</p>
-        </div>
+        {svc.group === SURVEY_GROUP && <SurveySchemePanel svc={svc} />}
 
         {/* 计价方式视图切换 */}
         {options.length > 1 && (
@@ -1367,6 +1135,41 @@ export function PriceTableConfig({ addToast, currentRole }: Props) {
       </div>
 
       {modalLayer}
+    </div>
+  );
+}
+
+// ===== 方案上下文：问卷计价（只读反查——归属在「问卷配置」按品种维护） =====
+function SurveySchemePanel({ svc }: { svc: ServiceItem }) {
+  const bound = questionnairesOfScheme(svc.id);
+  const chipStyle: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 999,
+    background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', whiteSpace: 'nowrap',
+  };
+  return (
+    <div style={{ ...panelStyle, background: '#F6FBF8', borderColor: '#D3EADF', padding: '13px 17px', display: 'grid', gap: 10 }}>
+      <div>
+        <h3 style={{ margin: 0, fontSize: 'var(--fs-13)', fontWeight: 650 }}>问卷计价 · 关联问卷（按品种）</h3>
+        <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#667085' }}>
+          本方案只维护价格；各品种选用哪个方案在「问卷配置 › 计价归属」中维护，此处仅反查。
+        </p>
+      </div>
+      <div style={{ display: 'grid', gap: 6 }}>
+        <span style={{ fontSize: 'var(--fs-12)', color: '#657388', fontWeight: 600 }}>绑定本方案的问卷（共 {bound.length} 份）</span>
+        {bound.length === 0 && (
+          <span style={{ fontSize: 'var(--fs-12)', color: '#8592A1' }}>暂无问卷的任何品种选用本方案。</span>
+        )}
+        {bound.map((r) => (
+          <div key={r.code} style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 'var(--fs-13)' }}>{r.name}</strong>
+            <span style={{ fontSize: 'var(--fs-11)', color: '#98A2B3' }}>{r.code} · {r.audience}{r.status === '停用' ? ' · 已停用' : ''}</span>
+            {r.varieties.map((v) => <span key={v} style={chipStyle}>{v}</span>)}
+          </div>
+        ))}
+      </div>
+      <p style={{ margin: 0, fontSize: 'var(--fs-12)', color: '#98A2B3' }}>
+        取价口径：问卷按填写对象落到本方案同名档位；价格随品种与公私口径在下方矩阵维护，任务创建时快照锁定题目版本与公私单价。
+      </p>
     </div>
   );
 }

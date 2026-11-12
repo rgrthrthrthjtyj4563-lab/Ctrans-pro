@@ -285,11 +285,9 @@ export function TenantPackageManagement({ addToast }: { addToast: (msg: { type: 
                       <span className="font-mono-nums" title={menuNamesOf(p.menuIds).join("、")}>
                         {p.menuIds.length} 项
                       </span>
-                      <div className="tm-sub">页面级功能</div>
                     </td>
                     <td>
                       <span className="font-mono-nums">{boundTenantCount(p.id)}</span>
-                      <div className="tm-sub">待激活/正常/暂停</div>
                     </td>
                     <td style={{ maxWidth: 260 }}>
                       <span className="tm-sub" style={{ color: "#6B7280", marginTop: 0 }} title={p.remark}>{p.remark || "—"}</span>
@@ -304,15 +302,18 @@ export function TenantPackageManagement({ addToast }: { addToast: (msg: { type: 
                         <button type="button" className="tm-row-btn" onClick={() => toggleStatus(p)}>
                           {p.status === "enabled" ? "停用" : "启用"}
                         </button>
-                        <button
-                          type="button"
-                          className="tm-row-btn tm-row-btn--danger"
-                          disabled={p.isDefault}
-                          title={p.isDefault ? "默认套餐不可删除（存量租户按它回落开通）" : undefined}
-                          onClick={() => setDeleting(p)}
-                        >
-                          删除
-                        </button>
+                        {/* 删除入口只对「未绑定租户」的套餐开放；已绑定租户的套餐不出现删除按钮 */}
+                        {boundTenantCount(p.id) === 0 && (
+                          <button
+                            type="button"
+                            className="tm-row-btn tm-row-btn--danger"
+                            disabled={p.isDefault}
+                            title={p.isDefault ? "默认套餐不可删除（存量租户按它回落开通）" : undefined}
+                            onClick={() => setDeleting(p)}
+                          >
+                            删除
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -367,7 +368,7 @@ export function TenantPackageManagement({ addToast }: { addToast: (msg: { type: 
               将删除套餐 <b>{deleting.name}</b>（关联菜单 {deleting.menuIds.length} 项）。
             </p>
             <ul style={{ margin: 0, paddingLeft: 18, color: "#6B7280", fontSize: "var(--fs-13)", lineHeight: 1.8 }}>
-              <li>当前绑定租户数：{boundTenantCount(deleting.id)}（大于 0 时无法删除，需先在租户管理换绑）</li>
+              <li>当前绑定租户数：{boundTenantCount(deleting.id)}；仅未绑定租户的套餐会出现删除入口</li>
               <li>删除后不可恢复；未被任何租户绑定时无存量影响</li>
             </ul>
           </div>

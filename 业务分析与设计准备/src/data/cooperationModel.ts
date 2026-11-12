@@ -523,6 +523,9 @@ function buildSeedState(): CooperationState {
       { id: "ba-08", relationshipId: "rel-baiyi-smart", kind: "variety", items: ["阿托伐他汀钙片"], lineRegions: ["陕西省", "江苏省", "浙江省", "广东省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-20 11:00" },
       { id: "ba-08b", relationshipId: "rel-baiyi-smart", kind: "variety", items: ["二甲双胍缓释片"], lineRegions: ["陕西省", "江苏省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-20 11:01" },
       { id: "ba-08c", relationshipId: "rel-baiyi-smart", kind: "variety", items: ["辛伐他汀片"], lineRegions: ["陕西省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-20 11:01" },
+      // 问卷计价桥接（2026-11-10）：希刻劳/泰诺林 授权智联（陕西/江苏）与东方恒业（希刻劳 · 广东），支撑问卷任务发包
+      { id: "ba-08d", relationshipId: "rel-baiyi-smart", kind: "variety", items: ["希刻劳", "泰诺林"], lineRegions: ["陕西省", "江苏省"], status: "active", grantedBy: "李航", grantedAt: "2026-11-10 10:00" },
+      { id: "ba-01g", relationshipId: "rel-baiyi-east", kind: "variety", items: ["希刻劳"], lineRegions: ["广东省"], status: "active", grantedBy: "李航", grantedAt: "2026-11-10 10:01" },
       { id: "ba-09", relationshipId: "rel-baiyi-smart", kind: "region", items: ["江苏省"], status: "active", grantedBy: "李航", grantedAt: "2026-05-20 11:02" },
       // 百益 × 康晟云服（对齐旧 AUTH-002/005/006）
       { id: "ba-10", relationshipId: "rel-baiyi-kangsheng", kind: "variety", items: ["二甲双胍缓释片"], lineRegions: ["山东省"], status: "active", grantedBy: "李航", grantedAt: "2026-03-01 09:00" },

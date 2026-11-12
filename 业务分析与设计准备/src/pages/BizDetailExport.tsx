@@ -9,7 +9,6 @@ import {
   FileDown,
   Info,
   ListChecks,
-  MoreVertical,
   Plus,
   Receipt,
   RefreshCw,
@@ -21,7 +20,7 @@ import { PageHeader } from '../components/PageHeader';
 import { usePermission } from '../context/PermissionContext';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
-import { Button, IconButton } from '../components/Button';
+import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { DetailDrawer } from '../components/DetailDrawer';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -33,6 +32,15 @@ import { varietyInScope } from '../data/cooperationModel';
 import { demoBizPairs, visitRecords } from '../data/mockData';
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from '../hooks/useServingBizScope';
 import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
+import {
+  ExportReportDrawer,
+  ExportTaskStatus,
+} from './biz-detail-export/ExportReportDrawer';
+import type {
+  ExportFileState,
+  ExportFormat,
+  ExportRequest,
+} from './biz-detail-export/exportDrawerModel';
 import type { Role, Task } from '../types';
 import type { ToastMessage } from '../components/Toast';
 
@@ -46,6 +54,8 @@ interface Props {
 const PAGE_SIZE = 10;
 
 interface ExportReport {
+  /** 报告唯一标识（同一对账单可生成多份报告；组合条件报告可无对账单编号） */
+  reportId: string;
   no: string;
   name: string;
   dz: string;
@@ -59,6 +69,14 @@ interface ExportReport {
   status: '已归档' | '草稿';
   declaredAmount: number;
   voucherAmount: number;
+  /** 新建抽屉产生的报告：按格式文件状态（旧台账行无此字段，沿用旧展示） */
+  files?: Partial<Record<ExportFormat, ExportFileState>>;
+  /** 导出范围模式（bill=按对账单 / combo=按组合条件） */
+  mode?: 'bill' | 'combo';
+  /** 范围标签（组合条件展示筛选项） */
+  scopeTags?: string[];
+  /** 关联任务服务地区（药厂区域范围下的行可见性锚点） */
+  regions?: string[];
 }
 
 const SEED_PAIRS = [
@@ -71,8 +89,10 @@ const SEED_PAIRS = [
 
 const SEED_REPORTS: ExportReport[] = SEED_PAIRS.map((s, i) => {
   const biz = demoBizPairs[s.pair % demoBizPairs.length];
+  const no = `BG-2026${s.month}-${String(880 + i * 3).padStart(4, '0')}`;
   return {
-    no: `BG-2026${s.month}-${String(880 + i * 3).padStart(4, '0')}`,
+    reportId: `RPT-${no}`,
+    no,
     name: s.label,
     dz: s.dz,
     provider: biz.provider,
@@ -98,8 +118,10 @@ function buildReports(): ExportReport[] {
     const month = at.getMonth() + 1;
     const biz = demoBizPairs[i % demoBizPairs.length];
     const seq = 900 - i * 7;
+    const no = `BG-2026${pad(month)}-${pad(seq, 4)}`;
     rows.push({
-      no: `BG-2026${pad(month)}-${pad(seq, 4)}`,
+      reportId: `RPT-${no}`,
+      no,
       name: `2026年${pad(month)}月第${i - 4}批业务明细导出报告`,
       dz: `DZ-2026${pad(month)}-${pad(seq - 400, 4)}`,
       provider: biz.provider,
@@ -392,7 +414,7 @@ function timeStamp(): string {
 /* ─── 页面 ───────────────────────────────────────────────────────────────── */
 
 export function BizDetailExport({ addToast }: Props) {
-  const { principal } = usePermission();
+  const { principal, can } = usePermission();
   const { tasks } = useTaskData();
   // 统一会话口径（P0-E）：服务商 = 当前服务商 + 当前服务药厂 + 已授权品种；药厂 = 本厂数据；
   // 范围失效默认拒绝——列表/详情/草稿/统计/筛选/导出结果全部使用同一过滤结果
@@ -408,6 +430,15 @@ export function BizDetailExport({ addToast }: Props) {
   const [reports, setReports] = useState<ExportReport[]>(INITIAL_REPORTS);
   const [view, setView] = useState<'list' | 'flow'>('list');
   const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // 新建入口按创建权限控制；下载按导出权限控制（旧向导/存量入口沿用原逻辑）
+  const canCreate = can('biz-detail-export', 'create');
+  const canExport = can('biz-detail-export', 'export');
+  // 新版「新建报告」右侧抽屉（Figma Make 稿）：打开时原列表保留在背景
+  const [createOpen, setCreateOpen] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState('');
+  const createSeqRef = useRef(9000);
+  const fileTimers = useRef<number[]>([]);
 
   // 列表筛选
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -428,7 +459,8 @@ export function BizDetailExport({ addToast }: Props) {
         ? matchesPharmaRow(v)
         : true) && regionScope.matchesRow({ taskId: v.taskId, provider: v.provider, variety: v.variety });
 
-  // 会话范围内的报告台账（列表 / 详情 / 草稿同源）；台账行无区域字段，经 品种授权链 解析
+  // 会话范围内的报告台账（列表 / 详情 / 草稿同源）；台账行无区域字段，经 品种授权链 解析；
+  // 新建抽屉产生的行带 regions（关联任务服务地区）作为区域锚点
   const sessionReports = useMemo(
     () =>
       reports.filter(
@@ -437,7 +469,7 @@ export function BizDetailExport({ addToast }: Props) {
             ? matchesProviderRow({ provider: r.provider, holderPharma: r.holderPharma, variety: r.variety })
             : isPharmaSession
               ? matchesPharmaRow(r)
-              : true) && regionScope.matchesRow({ provider: r.provider, variety: r.variety }),
+              : true) && regionScope.matchesRow({ provider: r.provider, variety: r.variety, regions: r.regions }),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [reports, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope],
@@ -477,6 +509,19 @@ export function BizDetailExport({ addToast }: Props) {
         : true,
   ) ?? demoBizPairs[0];
 
+  // 新建抽屉的数据上下文与组合条件归属药厂（对账单模式行归属取所选单据）
+  const comboHolderPharma = isProviderSession
+    ? (scope?.pharmaName ?? fallbackPair.holderPharma)
+    : isPharmaSession
+      ? tenantNameOfPrincipal
+      : fallbackPair.holderPharma;
+  const drawerDataCtx = {
+    tasks,
+    visits: visitRecords,
+    taskInScope: taskInSessionScope,
+    visitInScope: visitInSessionScope,
+  };
+
   // 三步向导状态
   const [billForm, setBillForm] = useState<Record<string, string>>({
     provider: fallbackPair.provider,
@@ -502,7 +547,7 @@ export function BizDetailExport({ addToast }: Props) {
   // 弹层
   const [successOpen, setSuccessOpen] = useState(false);
   const [drawerCode, setDrawerCode] = useState<string | null>(null);
-  const [deleteDraft, setDeleteDraft] = useState<ExportReport | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ExportReport | null>(null);
 
   // 文案按当前身份域取值（不再用旧角色名称字符串）；服务商侧按当前服务药厂过滤口径提示
   const isProviderSide = principal.realm === 'TENANT' && principal.tenantKind === 'provider';
@@ -569,9 +614,12 @@ export function BizDetailExport({ addToast }: Props) {
       sessionReports.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     [sessionReports],
   );
-  // 筛选下拉随会话过滤结果刷新（切换药厂后选项同步变化）
+  // 筛选下拉随会话过滤结果刷新（切换药厂后选项同步变化）；「全部授权服务提供方」为组合条件占位值，不入选项
   const listProviderOptions = useMemo(
-    () => [...new Set(sessionReports.map((r) => r.provider))],
+    () =>
+      [...new Set(sessionReports.map((r) => r.provider))].filter(
+        (p) => p && p !== '全部授权服务提供方',
+      ),
     [sessionReports],
   );
   const listVarietyOptions = useMemo(
@@ -610,13 +658,16 @@ export function BizDetailExport({ addToast }: Props) {
   );
 
   const pageData = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const detailReport = drawerCode ? allRows.find((r) => r.dz === drawerCode) : undefined;
+  // 详情按报告 ID 定位（同一对账单可有多份报告；dz 兜底兼容旧成功弹窗路径）
+  const detailReport = drawerCode
+    ? (allRows.find((r) => r.reportId === drawerCode) ?? allRows.find((r) => r.dz === drawerCode))
+    : undefined;
 
-  const notifyExport = (fileName: string) => {
+  const notifyExport = (fileName: string, ext = '.pdf') => {
     addToast({
       type: 'info',
       title: '导出报告（演示）',
-      description: `原型未生成真实文件，导出后应下载《${fileName}.pdf》。`,
+      description: `原型未生成真实文件，导出后应下载《${fileName}${ext}》。`,
     });
   };
 
@@ -633,6 +684,76 @@ export function BizDetailExport({ addToast }: Props) {
     setView('flow');
     setStep(target);
   };
+
+  const openCreateDrawer = () => setCreateOpen(true);
+
+  /* ── 新建抽屉：一次提交只新增一条报告记录（双格式共享同一份范围与快照） ── */
+  const handleCreateSubmit = (req: ExportRequest) => {
+    const now = new Date();
+    const mm = pad(now.getMonth() + 1);
+    const seq = (createSeqRef.current += 1);
+    const reportId = `RPT-2026${mm}-${pad(seq, 4)}`;
+    const files = Object.fromEntries(req.formats.map((f) => [f, 'generating'])) as Partial<
+      Record<ExportFormat, ExportFileState>
+    >;
+    const newRow: ExportReport = {
+      reportId,
+      no: `BG-2026${mm}-${pad(seq, 4)}`,
+      name: req.name,
+      dz: req.billNo,
+      provider: req.provider,
+      holderPharma: req.holderPharma,
+      variety: req.variety,
+      records: req.records,
+      createdAt: timeStamp().slice(0, 16),
+      status: '已归档',
+      declaredAmount: req.declaredAmount,
+      voucherAmount: req.voucherAmount,
+      files,
+      mode: req.mode,
+      scopeTags: req.scopeTags,
+      regions: req.regions,
+    };
+    setReports((prev) => [newRow, ...prev]);
+    setPage(1);
+    addToast({
+      type: 'success',
+      title: '已提交生成任务',
+      description: `${newRow.name}（${req.formats.map((f) => (f === 'pdf' ? 'PDF' : 'Excel')).join('、')}）生成完成后可在列表下载。原型演示：不产出真实文件。`,
+    });
+    // 模拟文件生成：默认全部成功；演示开关「模拟一种格式生成失败」时仅最后一个所选格式失败
+    const failFormat = req.simulateFailure ? req.formats[req.formats.length - 1] : null;
+    req.formats.forEach((f) => {
+      const t = window.setTimeout(() => {
+        setReports((prev) =>
+          prev.map((r) =>
+            r.reportId === reportId && r.files?.[f] === 'generating'
+              ? { ...r, files: { ...r.files, [f]: f === failFormat ? 'failed' : 'generated' } }
+              : r,
+          ),
+        );
+      }, 2200);
+      fileTimers.current.push(t);
+    });
+  };
+
+  /** 下载明细包：受导出权限控制；原型以提示说明不产出真实文件 */
+  const downloadDetailPackage = (row: ExportReport) => {
+    setDownloadBusy(row.reportId);
+    const t = window.setTimeout(() => {
+      setDownloadBusy('');
+      notifyExport(row.name, '.zip');
+    }, 480);
+    fileTimers.current.push(t);
+  };
+
+  // 卸载时清理模拟生成/下载的定时器
+  useEffect(
+    () => () => {
+      fileTimers.current.forEach((t) => window.clearTimeout(t));
+    },
+    [],
+  );
 
   const backToList = () => {
     setView('list');
@@ -703,9 +824,11 @@ export function BizDetailExport({ addToast }: Props) {
 
   const saveDraft = () => {
     const dz = `DZ-202609-${pad(900 + reports.length, 4)}`;
+    const draftNo = `BG-202609-${pad(900 + reports.length, 4)}`;
     setReports((prev) => [
       {
-        no: `BG-202609-${pad(900 + prev.length, 4)}`,
+        reportId: `RPT-${draftNo}`,
+        no: draftNo,
         name: reportName,
         dz,
         provider: billForm.provider,
@@ -723,11 +846,19 @@ export function BizDetailExport({ addToast }: Props) {
     backToList();
   };
 
-  const confirmDeleteDraft = () => {
-    if (!deleteDraft) return;
-    setReports((prev) => prev.filter((r) => r.dz !== deleteDraft.dz));
-    addToast({ type: 'success', title: '草稿已删除', description: deleteDraft.dz });
-    setDeleteDraft(null);
+  const confirmDeleteReport = () => {
+    if (!deleteTarget) return;
+    const isDraftRow = deleteTarget.status === '草稿';
+    // 草稿按对账单编号清理；已归档报告按唯一 reportId 删除
+    setReports((prev) =>
+      isDraftRow ? prev.filter((r) => r.dz !== deleteTarget.dz) : prev.filter((r) => r.reportId !== deleteTarget.reportId),
+    );
+    addToast({
+      type: 'success',
+      title: isDraftRow ? '草稿已删除' : '报告已删除',
+      description: deleteTarget.no,
+    });
+    setDeleteTarget(null);
   };
 
   const exportReport = () => {
@@ -746,19 +877,11 @@ export function BizDetailExport({ addToast }: Props) {
           title="业务明细导出"
           description={roleIntro}
           actions={
-            <>
-              <Button
-                variant="outline"
-                size="md"
-                icon={<FileDown size={14} />}
-                onClick={() => notifyExport('业务明细导出报告清单')}
-              >
-                导出报告
-              </Button>
-              <Button variant="primary" size="md" icon={<Plus size={14} />} onClick={() => openFlow(1)}>
+            canCreate && (
+              <Button variant="primary" size="md" icon={<Plus size={14} />} onClick={openCreateDrawer}>
                 创建业务明细导出报告
               </Button>
-            </>
+            )
           }
         />
         <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
@@ -801,7 +924,7 @@ export function BizDetailExport({ addToast }: Props) {
           />
 
           <div style={{ ...CARD, overflow: 'auto', marginBottom: 8 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1040 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1160 }}>
               <thead>
                 <tr>
                   <th style={{ ...TH, textAlign: 'center', width: 56 }}>序号</th>
@@ -811,81 +934,132 @@ export function BizDetailExport({ addToast }: Props) {
                   <th style={TH}>品种</th>
                   <th style={{ ...TH, textAlign: 'right' }}>业务记录数</th>
                   <th style={TH}>创建时间</th>
+                  <th style={{ ...TH, textAlign: 'center', width: 132 }}>任务状态</th>
                   <th style={{ ...TH, textAlign: 'center', width: 210 }}>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {pageData.length === 0 ? (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <EmptyState
                         title="没有匹配的导出报告"
                         description="调整筛选条件，或直接创建一份新的业务明细导出报告。"
-                        action={{ label: '创建业务明细导出报告', onClick: () => openFlow(1) }}
+                        action={
+                          canCreate
+                            ? { label: '创建业务明细导出报告', onClick: openCreateDrawer }
+                            : undefined
+                        }
                       />
                     </td>
                   </tr>
                 ) : (
                   pageData.map((r, i) => {
                     const isDraft = r.status === '草稿';
+                    const isNewTask = Boolean(r.files);
+                    // 明细包就绪口径：历史行已归档可下载；新任务行全部文件生成完成才可下载
+                    const fileStates = isNewTask && r.files ? Object.values(r.files) : [];
+                    const canDownload = isNewTask
+                      ? fileStates.length > 0 && fileStates.every((s) => s === 'generated')
+                      : !isDraft;
+                    let downloadHint = '';
+                    if (!canExport) downloadHint = '当前角色无导出下载权限';
+                    else if (isDraft) downloadHint = '草稿暂无可下载的明细包';
+                    else if (fileStates.includes('generating')) downloadHint = '生成中，完成后可下载';
+                    else if (fileStates.includes('failed')) downloadHint = '生成失败，暂不可下载';
+                    const busy = downloadBusy === r.reportId;
                     return (
-                      <tr key={r.dz}>
+                      <tr key={r.reportId}>
                         <td style={{ ...TD, textAlign: 'center', color: '#9CA3AF', fontFamily: 'var(--font-mono)' }}>
                           {pad((page - 1) * PAGE_SIZE + i + 1)}
                         </td>
                         <td style={TD}>
-                          <button
-                            style={{ ...LINK_BTN, color: 'var(--color-text-1)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                            onClick={() => setDrawerCode(r.dz)}
-                          >
-                            {r.name}
-                          </button>
-                          {isDraft && (
-                            <span style={{ marginLeft: 6 }}>
-                              <Tag label="草稿" />
-                            </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <button
+                              style={{
+                                ...LINK_BTN,
+                                color: 'var(--color-text-1)',
+                                fontWeight: 500,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                maxWidth: 320,
+                              }}
+                              title={r.name}
+                              onClick={() => setDrawerCode(r.reportId)}
+                            >
+                              {r.name}
+                            </button>
+                            {isDraft && <Tag label="草稿" />}
+                            {isNewTask && r.mode === 'combo' && <Tag label="组合条件" />}
+                            {isNewTask && r.mode === 'bill' && <Tag label="按对账单" />}
+                            {isNewTask && r.scopeTags && r.scopeTags.length > 0 && (
+                              <span
+                                style={{
+                                  fontSize: 'var(--fs-11)',
+                                  color: '#9CA3AF',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  maxWidth: 200,
+                                }}
+                                title={r.scopeTags.join(' · ')}
+                              >
+                                {r.scopeTags.join(' · ')}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ ...TD, color: '#667085', fontFamily: 'var(--font-mono)' }}>
+                          {r.dz || '—'}
+                        </td>
+                        <td style={TD}>
+                          {r.provider === '全部授权服务提供方' ? (
+                            <span style={{ color: '#9CA3AF' }}>—（跨服务方）</span>
+                          ) : (
+                            r.provider
                           )}
                         </td>
-                        <td style={{ ...TD, color: '#667085', fontFamily: 'var(--font-mono)' }}>{r.dz}</td>
-                        <td style={TD}>{r.provider}</td>
                         <td style={TD}>
-                          <Tag label={r.variety} color="brand" />
+                          {r.variety ? <Tag label={r.variety} color="brand" /> : <span style={{ color: '#9CA3AF' }}>全部品种</span>}
                         </td>
                         <td style={{ ...TD, textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
                           {r.records} 笔
                         </td>
-                        <td style={{ ...TD, color: '#9CA3AF', fontFamily: 'var(--font-mono)' }}>{r.createdAt}</td>
-                        <td style={{ ...TD, textAlign: 'center' }}>
-                          {isDraft ? (
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                              <button style={LINK_BTN} onClick={() => openFlow(2)}>
-                                继续编辑
-                              </button>
-                              <span style={{ color: '#D1D5DB' }}>|</span>
-                              <button style={{ ...LINK_BTN, color: 'var(--color-danger-fg)' }} onClick={() => setDeleteDraft(r)}>
-                                删除
-                              </button>
-                            </div>
+                        <td style={{ ...TD, color: '#9CA3AF', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{r.createdAt}</td>
+                        <td style={{ ...TD, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          {isNewTask && r.files ? (
+                            <ExportTaskStatus files={r.files} />
                           ) : (
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                              <button style={LINK_BTN} onClick={() => setDrawerCode(r.dz)}>
-                                查看
-                              </button>
-                              <span style={{ color: '#D1D5DB' }}>|</span>
-                              <button style={{ ...LINK_BTN, color: '#2F6BCE' }} onClick={() => notifyExport(r.name)}>
-                                下载 PDF
-                              </button>
-                              <span style={{ color: '#D1D5DB' }}>|</span>
-                              <IconButton
-                                variant="ghost"
-                                size="sm"
-                                icon={<MoreVertical size={15} />}
-                                title="更多操作"
-                                aria-label="更多操作"
-                                onClick={() => copyText(r.no)}
-                              />
-                            </div>
+                            <Tag label={r.status} color={isDraft ? 'default' : 'success'} />
                           )}
+                        </td>
+                        <td style={{ ...TD, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <button style={LINK_BTN} onClick={() => setDrawerCode(r.reportId)}>
+                              查看
+                            </button>
+                            <span style={{ color: '#D1D5DB' }}>|</span>
+                            <button
+                              style={{
+                                ...LINK_BTN,
+                                color: canExport && canDownload ? '#2F6BCE' : '#C1C7CF',
+                                cursor: canExport && canDownload && !busy ? 'pointer' : 'not-allowed',
+                              }}
+                              disabled={!canExport || !canDownload || busy}
+                              title={downloadHint}
+                              onClick={() => downloadDetailPackage(r)}
+                            >
+                              {busy ? '下载中…' : '下载明细包'}
+                            </button>
+                            <span style={{ color: '#D1D5DB' }}>|</span>
+                            <button
+                              style={{ ...LINK_BTN, color: 'var(--color-danger-fg)' }}
+                              onClick={() => setDeleteTarget(r)}
+                            >
+                              删除
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1655,7 +1829,7 @@ export function BizDetailExport({ addToast }: Props) {
       <DetailDrawer
         open={Boolean(detailReport)}
         title="业务明细导出详情"
-        subtitle={`对账单编号：${detailReport?.dz ?? ''}`}
+        subtitle={`对账单编号：${detailReport?.dz || '—（组合条件导出，无对账单）'}`}
         width={640}
         onClose={() => setDrawerCode(null)}
         footer={
@@ -1798,13 +1972,35 @@ export function BizDetailExport({ addToast }: Props) {
       </DetailDrawer>
 
       <ConfirmDialog
-        open={Boolean(deleteDraft)}
-        title="删除该草稿报告？"
-        description={`「${deleteDraft?.name ?? ''}」尚未归档，删除后不可恢复。`}
-        impact="仅删除本地草稿记录，不影响已归档报告与结算数据。"
-        confirmLabel="删除草稿"
-        onConfirm={confirmDeleteDraft}
-        onCancel={() => setDeleteDraft(null)}
+        open={Boolean(deleteTarget)}
+        title={deleteTarget?.status === '草稿' ? '删除该草稿报告？' : '删除该报告？'}
+        description={
+          deleteTarget?.status === '草稿'
+            ? `「${deleteTarget?.name ?? ''}」尚未归档，删除后不可恢复。`
+            : `「${deleteTarget?.name ?? ''}」已归档，删除后不可恢复。`
+        }
+        impact={
+          deleteTarget?.status === '草稿'
+            ? '仅删除本地草稿记录，不影响已归档报告与结算数据。'
+            : '仅删除本地台账记录，不影响结算数据与已生成凭证。'
+        }
+        confirmLabel="删除"
+        onConfirm={confirmDeleteReport}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* 新版「新建报告」右侧抽屉：打开时列表保留在背景，筛选/分页/滚动位置不变 */}
+      <ExportReportDrawer
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={handleCreateSubmit}
+        addToast={addToast}
+        dataCtx={drawerDataCtx}
+        isProviderSession={isProviderSession}
+        isPharmaSession={isPharmaSession}
+        tenantName={tenantNameOfPrincipal}
+        currentPharmaName={principal.realm === 'TENANT' ? principal.currentPharmaName : undefined}
+        comboHolderPharma={comboHolderPharma}
       />
     </div>
   );

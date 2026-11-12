@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>任务执行列表 - 任务拆分</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #202c3c;
+      --muted: #75839a;
+      --line: #dce2e8;
+      --soft: #f7f8fa;
+      --green: #08745f;
+      --green-pale: #eaf5f2;
+      --orange: #c75a00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--ink);
+      background: #f3f5f7;
+      font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; cursor: pointer; }
+    .legacy-page { min-height: 100vh; padding: 18px 26px 30px; background: #fff; }
+    .filters { display: grid; grid-template-columns: minmax(500px, 1fr) minmax(500px, 1fr); column-gap: 7vw; row-gap: 9px; padding: 0 0 14px; border-bottom: 1px solid #ddd; }
+    .legacy-field { min-width: 0; display: grid; grid-template-columns: 85px minmax(0, 1fr); align-items: center; }
+    .legacy-field label { padding-right: 12px; color: #222; }
+    .legacy-field input, .legacy-field select { width: 100%; height: 27px; padding: 3px 8px; border: 1px solid #c9c9c9; border-radius: 3px; color: #666; background: linear-gradient(#fff, #f5f5f5); }
+    .date-range { display: flex; align-items: center; gap: 7px; }
+    .date-range input { min-width: 0; }
+    .legacy-filter-actions { grid-column: 2; display: flex; justify-content: flex-end; gap: 5px; }
+    .legacy-button { min-height: 34px; padding: 0 14px; border: 1px solid #8c7bbd; border-radius: 2px; color: #fff; background: #9583c2; }
+    .legacy-button:hover { background: #806db1; }
+    .hint { min-height: 33px; display: flex; align-items: center; gap: 5px; border-bottom: 1px dotted #ddd; color: #222; }
+    .hint-icon { width: 13px; height: 13px; display: inline-grid; place-items: center; border-radius: 50%; color: white; background: #ff7a18; font-size: 10px; }
+    .list-title { margin: 11px 0 0; padding: 9px 12px; color: #fff; background: #317fc6; font-weight: 650; }
+    .legacy-table-wrap { overflow: auto; border: 1px solid #d4d4d4; }
+    .legacy-table { width: 100%; min-width: 1480px; border-collapse: collapse; white-space: nowrap; text-align: center; font-size: 12px; }
+    .legacy-table th { height: 29px; padding: 4px 8px; border: 1px solid #ddd; color: #666; background: linear-gradient(#f5f5f5, #eaeaea); }
+    .legacy-table td { height: 34px; padding: 4px 8px; border: 1px solid #ddd; color: #333; }
+    .legacy-table tbody tr:nth-child(odd) { background: #fafafa; }
+    .legacy-table tbody tr:hover { background: #f1f7fc; }
+    .status-done { color: #168575; }
+    .status-running { color: #287ab6; }
+    .pending-dot { color: #ff6500; font-size: 13px; vertical-align: middle; }
+    .row-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 5px; }
+    .row-action { min-height: 27px; padding: 3px 9px; border: 1px solid #4994df; border-radius: 2px; color: #fff; background: #5aa5f4; }
+    .row-action:hover { background: #438fdf; }
+    .row-action.green { border-color: #4ea938; background: #5aba43; }
+    .row-action.decompose { border-color: #397bd4; background: #458ce8; font-weight: 650; }
+    .row-action.decompose::after { content: '  ›'; font-size: 16px; line-height: 10px; }
+    .toast { position: fixed; top: 18px; left: 50%; z-index: 10; transform: translate(-50%, -15px); padding: 9px 16px; border: 1px solid #b7dfd3; border-radius: 5px; color: #086e5a; background: #f0faf6; opacity: 0; pointer-events: none; transition: .2s; }
+    .toast.show { transform: translate(-50%, 0); opacity: 1; }
+    .primary {
+      border: 1px solid var(--green);
+      border-radius: 5px;
+      padding: 8px 16px;
+      color: white;
+      background: var(--green);
+    }
+    .primary:hover { background: #056653; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      display: none;
+      background: #16243535;
+    }
+    .modal-backdrop.is-open { display: block; }
+    .dialog {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-radius: 5px;
+      background: #fff;
+      box-shadow: 0 12px 40px #15223524;
+    }
+    .dialog-header {
+      height: 51px;
+      flex: 0 0 51px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    .dialog-title { margin: 0; font-size: 15px; font-weight: 650; }
+    .modal-context { margin-left: 10px; color: #91a0b6; font-size: 12px; font-weight: 400; }
+    .icon-button {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      color: #9aa5b4;
+      background: transparent;
+      font-size: 19px;
+      line-height: 1;
+    }
+    .icon-button:hover { color: var(--ink); }
+    .dialog-body { flex: 1; min-height: 0; overflow: auto; padding: 17px 19px 14px; }
+    .layout { min-height: 480px; display: grid; grid-template-columns: 272px minmax(650px, 1fr); gap: 14px; }
+    .groups, .allocation {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+    }
+    .groups { align-self: start; min-height: 480px; overflow: hidden; }
+    .group-heading { padding: 10px 12px 8px; font-weight: 650; }
+    .search { padding: 0 12px 7px; }
+    .search input {
+      width: 100%; height: 30px; padding: 0 10px;
+      border: 1px solid var(--line); border-radius: 6px; outline: 0;
+    }
+    .search input:focus, .number-input:focus, .top-total:focus { border-color: #86b7ad; box-shadow: 0 0 0 2px #08745f14; }
+    .select-tools { height: 31px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+    .tool-actions { display: flex; gap: 10px; }
+    .text-button { padding: 0; border: 0; background: none; color: var(--muted); }
+    .text-button:hover { color: var(--green); }
+    .group-item { min-height: 77px; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #edf0f3; }
+    .group-item:last-child { border-bottom: 0; }
+    .group-item.current { background: #f2f7fc; }
+    .group-item.disabled { background: #edf7f4; color: #9aa6b3; }
+    .group-copy { flex: 1; min-width: 0; }
+    .group-name { margin-bottom: 1px; font-size: 14px; color: #d5483f; }
+    .group-name.orange { color: #d58a13; }
+    .group-note { color: #91a0b6; line-height: 1.55; }
+    .tag { white-space: nowrap; padding: 2px 7px; border-radius: 3px; color: #df5149; background: #fff0ef; }
+    .tag.waiting { color: #c88515; background: #fff7e9; }
+    .tag.assigned { color: #08745f; background: #eaf5f2; }
+    .tag.unassigned { color: #df5149; background: #fff0ef; }
+    .group-check { display: none; }
+    .group-item { cursor: pointer; }
+    .group-item:has(.group-check:checked) { background: #f2f7fc; }
+    .section-select { max-width: 140px; height: 28px; padding: 0 6px; border: 1px solid #9ec9f0; border-radius: 5px; background: #fff; color: var(--ink); outline: 0; font-weight: 550; }
+    .ms-wrap { position: relative; display: inline-block; vertical-align: 1px; }
+    .ms-toggle { min-width: 190px; max-width: 250px; height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 8px; border: 1px solid #9ec9f0; border-radius: 5px; background: #fff; color: var(--ink); font-weight: 550; }
+    .ms-toggle:hover { border-color: #86b7ad; }
+    .ms-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .ms-value.empty { color: #91a0b6; font-weight: 400; }
+    .ms-arrow { flex: 0 0 auto; color: #91a0b6; font-size: 10px; }
+    .ms-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 100%; max-height: 220px; overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; box-shadow: 0 10px 28px #1522351a; }
+    .ms-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; white-space: nowrap; cursor: pointer; font-weight: 400; }
+    .ms-option:hover { background: #f2f7fc; }
+    .ms-option input { accent-color: #1677ec; }
+    .combo-total { width: 205px; height: 27px; margin-left: 10px; padding: 0 8px; border: 1px solid #bfe0d7; border-radius: 5px; outline: 0; color: var(--ink); font-size: 12px; vertical-align: 1px; }
+    .section-select:focus { border-color: #86b7ad; box-shadow: 0 0 0 2px #08745f14; }
+    .combo-total { width: 205px; height: 27px; margin-left: 10px; padding: 0 8px; border: 1px solid #bfe0d7; border-radius: 5px; outline: 0; color: var(--ink); font-size: 12px; vertical-align: 1px; }
+    .combo-total:focus { border-color: #86b7ad; box-shadow: 0 0 0 2px #08745f14; }
+    .combo-total::placeholder { color: #a8b4c2; }
+    .combo-total:disabled { background: #f5f6f8; color: #b3bdca; }
+    .combo-copy { margin-left: 10px; padding: 3px 9px; border: 1px solid #91bce8; border-radius: 3px; background: #fff; color: #2b7cc9; font-size: 12px; vertical-align: 1px; }
+    .combo-copy:hover { background: #eef6ff; }
+    .combo-remove { margin-left: 6px; padding: 3px 9px; border: 1px solid #eba7a2; border-radius: 3px; background: #fff; color: #d5483f; font-size: 12px; vertical-align: 1px; }
+    .combo-remove:hover { background: #fff0ef; }
+    .combo-head td { background: #f2f7fc; color: #287ab6; font-weight: 650; }
+    .combo-head .combo-sum { color: var(--green); }
+    .empty-tip { padding: 30px 0 34px; text-align: center; color: #91a0b6; }
+    input[type="checkbox"] { width: 13px; height: 13px; margin: 0; accent-color: #1677ec; }
+    .allocation { padding: 13px 14px 14px; }
+    .alloc-head { display: flex; align-items: center; gap: 12px; min-height: 26px; }
+    .alloc-head strong { font-size: 14px; }
+    .sub-total { color: var(--muted); white-space: nowrap; }
+    .money { color: var(--green); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .4px; }
+    .top-total { width: 216px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; outline: 0; }
+    .remove { margin-left: auto; border: 0; background: none; }
+    .remove:hover { color: #d5483f; }
+    .range-note { margin: 11px 0 8px; color: #91a0b6; }
+    .product-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .filter label { display: block; margin-bottom: 5px; color: #8794a6; }
+    .pill { display: inline-block; padding: 3px 11px; border: 1px solid var(--green); border-radius: 18px; color: #086e5a; background: var(--green-pale); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 640px; border-collapse: collapse; white-space: nowrap; }
+    th { height: 40px; padding: 0 10px; color: #929eaf; background: #f6f7f8; text-align: left; font-weight: 550; }
+    th[data-tip] { position: relative; z-index: 1; cursor: help; text-decoration: underline dotted #b6c0cc; text-underline-offset: 4px; }
+    th[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      left: 50%;
+      top: calc(100% + 7px);
+      transform: translateX(-50%);
+      z-index: 20;
+      padding: 6px 11px;
+      border-radius: 5px;
+      color: #fff;
+      background: #202c3c;
+      font-size: 12px;
+      font-weight: 400;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .15s;
+    }
+    th[data-tip]:hover::after { opacity: 1; }
+    td { height: 39px; padding: 4px 10px; border-top: 1px solid #edf0f2; }
+    td.numeric, th.numeric { text-align: right; }
+    .muted { color: #687792; }
+    .count { font-variant-numeric: tabular-nums; }
+    .danger { color: #d40000; }
+    .number-input { width: 78px; height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; outline: 0; text-align: center; color: var(--ink); }
+    .row-amount { font-weight: 650; }
+    .table-total td { height: 37px; background: #f7f8f9; }
+    .calc-head { min-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: #f8f9fa; }
+    .calc-head strong { font-weight: 650; }
+    .calc-meta { color: #51627c; }
+    .warning { min-height: 42px; display: flex; align-items: center; padding: 0 12px; color: var(--orange); background: #fff6e7; font-size: 14px; font-weight: 700; }
+    .calc-table th, .calc-table td { height: 38px; }
+    .calc-table td .service { color: #91a0b6; margin-left: 5px; }
+    .dialog-footer {
+      min-height: 52px;
+      flex: 0 0 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 17px 0 19px;
+      border-top: 1px solid var(--line);
+      background: #fff;
+      box-shadow: 0 -3px 10px #1e2d3d08;
+    }
+    .summary { display: flex; flex-wrap: wrap; gap: 20px; color: #687792; }
+    .summary b { margin-left: 4px; font-size: 14px; font-variant-numeric: tabular-nums; }
+    .summary .balance { color: var(--green); }
+    .footer-actions { display: flex; gap: 8px; }
+    .secondary { min-width: 56px; height: 33px; padding: 0 13px; border: 1px solid #d1d9e1; border-radius: 5px; background: white; }
+    .secondary:hover { background: #f6f8fa; }
+    .footer-actions .primary { min-width: 56px; height: 33px; padding: 0 14px; }
+    @media (max-width: 1100px) {
+      .filters { grid-template-columns: 1fr; row-gap: 8px; }
+      .legacy-filter-actions { grid-column: 1; }
+    }
+    @media (max-width: 850px) {
+      .legacy-page { padding: 12px; }
+      .legacy-field { grid-template-columns: 90px minmax(0, 1fr); }
+      .dialog-body { padding: 12px; }
+      .layout { grid-template-columns: minmax(215px, 26vw) minmax(650px, 1fr); }
+      .alloc-head { flex-wrap: wrap; }
+      .top-total { width: min(216px, 50vw); }
+    }
+    @media (max-width: 620px) {
+      .legacy-page { padding: 10px; }
+      .legacy-field { grid-template-columns: 74px minmax(0, 1fr); }
+      .dialog-header { padding: 0 14px; }
+      .dialog-body { padding: 10px; }
+      .layout { display: block; }
+      .groups { min-height: 0; margin-bottom: 12px; }
+      .group-item { min-height: 62px; }
+      .allocation { padding: 11px; }
+      .alloc-head { gap: 8px; }
+      .sub-total { font-size: 12px; }
+      .range-note { margin-top: 9px; }
+      .summary { gap: 5px 12px; font-size: 11px; }
+      .summary b { font-size: 12px; }
+      .dialog-footer { min-height: 60px; flex-basis: 60px; padding: 5px 10px; }
+      .footer-actions { margin-left: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="legacy-page">
+    <section class="filters" aria-label="任务筛选">
+      <div class="legacy-field"><label for="productFilter">品种:</label><select id="productFilter"><option value="">请选择品种</option><option>阿司匹林_1.0</option><option>奥美拉唑肠溶胶囊 (20mg)</option></select></div>
+      <div class="legacy-field"><label for="providerFilter">服务提供商:</label><select id="providerFilter"><option value="">服务提供商</option><option>演示服务商A</option><option>演示服务商B</option></select></div>
+      <div class="legacy-field"><label for="taskStatusFilter">任务状态:</label><select id="taskStatusFilter"><option value="">请选择任务状态</option><option>执行中</option><option>已结束</option></select></div>
+      <div class="legacy-field"><label for="reconcileFilter">对账状态:</label><select id="reconcileFilter"><option value="">请选择对账状态</option><option>对账中</option><option>已对账</option></select></div>
+      <div class="legacy-field"><label>任务时段:</label><div class="date-range"><input id="startDate" type="date" aria-label="任务开始日期"><span>—</span><input id="endDate" type="date" aria-label="任务结束日期"></div></div>
+      <div class="legacy-filter-actions"><button class="legacy-button" id="searchTasks">搜索 ⌕</button><button class="legacy-button" id="resetFilters">重置 ⟳</button></div>
+    </section>
+    <div class="hint"><span class="hint-icon">!</span><span>图标表示当前任务有待上传报告</span></div>
+    <h1 class="list-title">任务执行列表</h1>
+    <div class="legacy-table-wrap">
+      <table class="legacy-table" aria-label="任务执行列表">
+        <thead><tr><th><input type="checkbox" aria-label="全选任务"></th><th>客户名称</th><th>所属品种</th><th>推广时段</th><th>剩余可结算金额 (￥)</th><th>计划总金额 (￥)</th><th>任务状态</th><th>对账状态</th><th>任务创建人</th><th>操作</th></tr></thead>
+        <tbody id="taskRows">
+          <tr data-product="阿司匹林_1.0" data-provider="演示服务商A" data-start="2026-08-01" data-end="2026-08-31" data-task-status="已结束" data-reconcile="已对账"><td><input type="checkbox" aria-label="选择任务一"></td><td>演示药厂3</td><td>阿司匹林_1.0</td><td>2026-08-01—2026-08-31</td><td>108000</td><td>180000</td><td class="status-done">已结束</td><td class="status-done">已对账</td><td>csyc3</td><td><div class="row-actions"><button class="row-action">查看任务详情</button><button class="row-action">查看结算历史记录</button></div></td></tr>
+          <tr data-product="阿司匹林_1.0" data-provider="演示服务商A" data-start="2026-01-01" data-end="2026-08-31" data-task-status="执行中" data-reconcile="对账中"><td><input type="checkbox" aria-label="选择任务二"></td><td>演示药厂3</td><td>阿司匹林_1.0</td><td>2026-01-01—2026-08-31</td><td>117920</td><td>229920</td><td class="status-running">执行中 <span class="pending-dot" title="待上传报告">●</span></td><td style="color:#ed8900">对账中</td><td>csyc3</td><td><div class="row-actions"><button class="row-action">查看结算单</button><button class="row-action">查看任务详情</button><button class="row-action">查看结算历史记录</button></div></td></tr>
+          <tr data-product="阿司匹林_1.0" data-provider="演示服务商A" data-start="2026-07-01" data-end="2026-07-31" data-task-status="执行中" data-reconcile=""><td><input type="checkbox" aria-label="选择任务三"></td><td>演示药厂3</td><td>阿司匹林_1.0</td><td>2026-07-01—2026-07-31</td><td>10000</td><td>10000</td><td class="status-running">执行中 <span class="pending-dot" title="待上传报告">●</span></td><td>—</td><td>csyc3</td><td><div class="row-actions"><button class="row-action decompose start-split" data-task="演示药厂3 · 阿司匹林_1.0 · 2026-07-01—2026-07-31" data-product="阿司匹林_1.0">拆解市场推广</button><button class="row-action">上传分析报告</button><button class="row-action green">发起结算</button></div></td></tr>
+          <tr data-product="奥美拉唑肠溶胶囊 (20mg)" data-provider="演示服务商A" data-start="2026-07-01" data-end="2026-08-31" data-task-status="执行中" data-reconcile=""><td><input type="checkbox" aria-label="选择任务四"></td><td>演示药厂3</td><td>奥美拉唑肠溶胶囊 (20mg)</td><td>2026-07-01—2026-08-31</td><td>45000</td><td>104000</td><td class="status-running">执行中</td><td>—</td><td>csyc3</td><td><div class="row-actions"><button class="row-action decompose start-split" data-task="演示药厂3 · 奥美拉唑肠溶胶囊 (20mg) · 2026-07-01—2026-08-31" data-product="奥美拉唑肠溶胶囊 (20mg)">拆解市场推广</button><button class="row-action">查看任务详情</button><button class="row-action green">发起结算</button></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="modal-backdrop" id="backdrop" aria-hidden="true">
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <header class="dialog-header">
+        <h1 class="dialog-title" id="dialogTitle">拆分任务包到工作组 <span class="modal-context" id="activeTask"></span></h1>
+        <button class="icon-button" id="closeIcon" aria-label="关闭">×</button>
+      </header>
+      <div class="dialog-body">
+        <div class="layout">
+          <aside class="groups">
+            <div class="group-heading">选择工作组（可多选）</div>
+            <div class="search"><input id="groupSearch" type="search" placeholder="搜索工作组" aria-label="搜索工作组"></div>
+            <div class="select-tools"><span>已选 <b id="selectedCount">0</b> / 3</span><span class="tool-actions"><button class="text-button" id="selectAll">全选</button><button class="text-button" id="clearAll">清空</button></span></div>
+            <label class="group-item" data-group="工作组1">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">工作组1</span><span class="group-note" style="display:block">6 位专员 · ￥42,000</span></span>
+              <span class="tag assigned">已分配</span>
+            </label>
+            <label class="group-item" data-group="工作组2">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">工作组2</span><span class="group-note" style="display:block">5 位专员 · ￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+            <label class="group-item" data-group="工作组3">
+              <input class="group-check" type="checkbox">
+              <span class="group-copy"><span class="group-name">工作组3</span><span class="group-note" style="display:block">4 位专员 · ￥0</span></span>
+              <span class="tag unassigned">未分配</span>
+            </label>
+          </aside>
+
+          <section class="allocation" aria-label="工作组分配明细">
+            <div class="alloc-head">
+              <strong>工作组1</strong>
+              <span class="sub-total">分项金额合计 <b class="money group-sum">￥32,400</b></span>
+            </div>
+            <div class="range-note">品种可多选、省份单选，服务项目固定为价目中的 5 项，不随品种数量增加；点击最后一个分组的「复制行」复制整组业务。输入分组总金额自动折算次数，次数不超过剩余可拆数量（所选品种剩余之和）</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>服务项目</th><th class="numeric">单价</th><th class="numeric" data-tip="该服务项目此前拆分操作中已分配的次数">已分配次数</th><th class="numeric">次数</th><th class="numeric">分项金额</th></tr></thead>
+                <tbody id="allocationRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+      <footer class="dialog-footer">
+        <div class="summary"><span>总拆分金额<b id="splitTotal">￥163,000</b></span><span>计划总金额<b id="planTotal">￥312,000</b></span><span>剩余可拆金额<b class="balance" id="balance">￥149,000</b></span></div>
+        <div class="footer-actions"><button class="secondary" id="cancel">取消</button><button class="primary" id="save">保存</button></div>
+      </footer>
+    </section>
+  </div>
+  <script>
+    (() => {
+      const backdrop = document.getElementById('backdrop');
+      const checks = [...document.querySelectorAll('.group-check')];
+      const SERVICES = [
+        { name: '医院拜访', unit: '次', price: 200 },
+        { name: '科室会议', unit: '场', price: 2000 },
+        { name: '临床应用研究报告', unit: '份', price: 15000 },
+        { name: '问卷样本量', unit: '份', price: 20 },
+        { name: '分析总结', unit: '份', price: 3000 }
+      ];
+      const PRODUCT_OPTIONS = ['阿司匹林_1.0', '奥美拉唑肠溶胶囊 (20mg)', '二甲双胍缓释片 0.5g'];
+      const REGION_OPTIONS = ['广东', '陕西', '北京', '上海', '四川'];
+      const BASE_PLANNED = [140, 10, 2, 1000, 2];
+      const COMBOS = [];
+      PRODUCT_OPTIONS.forEach((product, p) => {
+        REGION_OPTIONS.forEach((region, r) => {
+          const factor = 0.6 + 0.2 * ((p + r) % 4);
+          const planned = BASE_PLANNED.map(base => Math.max(1, Math.round(base * factor)));
+          const history = planned.map((count, i) => Math.min(count - 1, Math.round(count * (0.1 + 0.1 * ((p * 2 + r + i) % 4)))));
+          COMBOS.push({ id: `c-${p}-${r}`, product, region, planned, history });
+        });
+      });
+      const comboFor = (product, region) => product && region ? COMBOS.find(combo => combo.product === product && combo.region === region) : null;
+      const pairExists = (section, product, region) => groupSections[activeGroup].some(other => other !== section && other.region === region && other.products.includes(product));
+      const sectionAvail = (section, index) => section.products.reduce((sum, product) => {
+        const combo = comboFor(product, section.region);
+        return combo ? sum + combo.planned[index] - combo.history[index] : sum;
+      }, 0);
+      const GROUP_MEMBERS = { '工作组1': 6, '工作组2': 5, '工作组3': 4 };
+      let sectionSeq = 0;
+      const newSection = (region = '', products = [], quantities = SERVICES.map(() => ''), total = null) => ({ id: `s-${++sectionSeq}`, region, products, quantities, total });
+      const cloneSection = section => ({ id: `s-${++sectionSeq}`, region: section.region, products: [...section.products], quantities: [...section.quantities], total: section.total });
+      const groupSections = {
+        '工作组1': [newSection('广东', ['阿司匹林_1.0'], ['76', '5', '', '360', ''], 32400)],
+        '工作组2': [],
+        '工作组3': []
+      };
+      let openPanelSection = null;
+      let activeGroup = '工作组1';
+      let lastTrigger = null;
+      let toastTimer = null;
+      const money = value => '￥' + Math.max(0, value).toLocaleString('en-US');
+      const showToast = message => {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
+      };
+      const open = trigger => {
+        lastTrigger = trigger;
+        document.getElementById('activeTask').textContent = trigger.dataset.task || '';
+        backdrop.classList.add('is-open');
+        backdrop.setAttribute('aria-hidden', 'false');
+        document.getElementById('closeIcon').focus();
+      };
+      const close = () => {
+        backdrop.classList.remove('is-open');
+        backdrop.setAttribute('aria-hidden', 'true');
+        if (lastTrigger) lastTrigger.focus();
+      };
+      document.querySelectorAll('.start-split').forEach(button => button.addEventListener('click', () => open(button)));
+      document.getElementById('closeIcon').addEventListener('click', close);
+      document.getElementById('cancel').addEventListener('click', close);
+      document.getElementById('save').addEventListener('click', () => { close(); showToast('拆分配置已保存（演示）'); });
+      backdrop.addEventListener('click', event => { if (event.target === backdrop) close(); });
+      document.addEventListener('keydown', event => { if (event.key === 'Escape' && backdrop.classList.contains('is-open')) close(); });
+
+      const filterTasks = () => {
+        const product = document.getElementById('productFilter').value;
+        const provider = document.getElementById('providerFilter').value;
+        const taskStatus = document.getElementById('taskStatusFilter').value;
+        const reconcile = document.getElementById('reconcileFilter').value;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        document.querySelectorAll('#taskRows tr').forEach(row => {
+          const matches = (!product || row.dataset.product === product)
+            && (!provider || row.dataset.provider === provider)
+            && (!taskStatus || row.dataset.taskStatus === taskStatus)
+            && (!reconcile || row.dataset.reconcile === reconcile)
+            && (!startDate || row.dataset.end >= startDate)
+            && (!endDate || row.dataset.start <= endDate);
+          row.hidden = !matches;
+        });
+      };
+      document.getElementById('searchTasks').addEventListener('click', filterTasks);
+      document.getElementById('resetFilters').addEventListener('click', () => {
+        ['productFilter', 'providerFilter', 'taskStatusFilter', 'reconcileFilter', 'startDate', 'endDate'].forEach(id => { document.getElementById(id).value = ''; });
+        document.querySelectorAll('#taskRows tr').forEach(row => { row.hidden = false; });
+      });
+      document.querySelectorAll('.legacy-table tbody .row-action:not(.start-split)').forEach(button => button.addEventListener('click', () => showToast(`${button.textContent.trim()}：演示页面`)));
+      document.querySelector('.legacy-table thead input[type="checkbox"]').addEventListener('change', event => {
+        document.querySelectorAll('#taskRows tr:not([hidden]) input[type="checkbox"]').forEach(box => { box.checked = event.target.checked; });
+      });
+
+      const historyTotal = COMBOS.reduce((sum, combo) => sum + combo.history.reduce((s, n, i) => s + n * SERVICES[i].price, 0), 0);
+      const planTotal = COMBOS.reduce((sum, combo) => sum + combo.planned.reduce((s, n, i) => s + n * SERVICES[i].price, 0), 0);
+      const sectionAmount = section => section.quantities.reduce((sum, value, index) => sum + (Number(value) || 0) * SERVICES[index].price, 0);
+      const groupAmount = name => groupSections[name].reduce((sum, section) => sum + sectionAmount(section), 0);
+      const escapeHtml = value => value.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+      const renderTable = () => {
+        const sections = groupSections[activeGroup];
+        const rows = [];
+        if (!sections.length) {
+          rows.push(`<tr><td class="empty-tip" colspan="5">暂无拆分分组</td></tr>`);
+        }
+        sections.forEach((section, index) => {
+          const isLast = index === sections.length - 1;
+          const copyButton = isLast ? `<button type="button" class="combo-copy" data-section="${section.id}">复制行</button>` : '';
+          const chosen = section.products;
+          const summary = chosen.length === 0 ? '请选择品种（可多选）' : chosen.length <= 2 ? chosen.join('、') : `${chosen[0]} 等${chosen.length}项`;
+          const panelOpen = openPanelSection === section.id;
+          rows.push(`<tr class="combo-head"><td colspan="3"><span class="ms-wrap"><button type="button" class="ms-toggle" data-section="${section.id}" aria-expanded="${panelOpen}"><span class="ms-value${chosen.length ? '' : ' empty'}">${escapeHtml(summary)}</span><span class="ms-arrow">▾</span></button><div class="ms-panel"${panelOpen ? '' : ' hidden'}>${PRODUCT_OPTIONS.map(value => `<label class="ms-option"><input type="checkbox" data-section="${section.id}" value="${escapeHtml(value)}"${chosen.includes(value) ? ' checked' : ''}>${escapeHtml(value)}</label>`).join('')}</div></span><select class="section-select" data-section="${section.id}" data-field="region" aria-label="省份"><option value="">请选择省份</option>${REGION_OPTIONS.map(value => `<option value="${escapeHtml(value)}"${section.region === value ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select><input class="combo-total" data-section="${section.id}" inputmode="numeric" placeholder="输入该分组总金额，自动折算次数" aria-label="分组总金额" value="${section.total ?? ''}"${chosen.length && section.region ? '' : ' disabled'}><button type="button" class="combo-remove" data-section="${section.id}">移除</button>${copyButton}</td><td class="numeric muted">小计</td><td class="numeric combo-sum">${money(sectionAmount(section))}</td></tr>`);
+          if (!chosen.length || !section.region) {
+            rows.push(`<tr><td colspan="5" style="text-align:center;color:#b3bdca;">请先选择品种与省份</td></tr>`);
+            return;
+          }
+          SERVICES.forEach((service, i) => {
+            const historySum = chosen.reduce((sum, product) => {
+              const combo = comboFor(product, section.region);
+              return combo ? sum + combo.history[i] : sum;
+            }, 0);
+            rows.push(`<tr><td>${service.name}</td><td class="numeric muted">${money(service.price)}</td><td class="numeric muted">${historySum} ${service.unit}</td><td class="numeric"><input class="number-input quantity" data-section="${section.id}" data-index="${i}" value="${section.quantities[i] ?? ''}" inputmode="numeric" aria-label="${service.name}次数"></td><td class="numeric row-amount">${money((Number(section.quantities[i]) || 0) * service.price)}</td></tr>`);
+          });
+        });
+        rows.push(`<tr class="table-total"><td colspan="3"></td><td class="numeric muted">${escapeHtml(activeGroup)} 小计</td><td class="numeric money group-sum">${money(groupAmount(activeGroup))}</td></tr>`);
+        document.getElementById('allocationRows').innerHTML = rows.join('');
+      };
+      const updateSummary = () => {
+        document.querySelectorAll('.group-sum').forEach(node => node.textContent = money(groupAmount(activeGroup)));
+        let allGroupsTotal = 0;
+        document.querySelectorAll('.group-item').forEach(item => {
+          const name = item.dataset.group;
+          const amount = groupAmount(name);
+          allGroupsTotal += amount;
+          item.querySelector('.group-note').textContent = `${GROUP_MEMBERS[name]} 位专员 · ${money(amount)}`;
+          const status = item.querySelector('.tag');
+          status.textContent = amount > 0 ? '已分配' : '未分配';
+          status.classList.toggle('assigned', amount > 0);
+          status.classList.toggle('unassigned', amount === 0);
+        });
+        document.getElementById('splitTotal').textContent = money(historyTotal + allGroupsTotal);
+        document.getElementById('planTotal').textContent = money(planTotal);
+        document.getElementById('balance').textContent = money(planTotal - historyTotal - allGroupsTotal);
+        document.getElementById('selectedCount').textContent = checks.filter(check => check.checked).length;
+      };
+      const renderGroup = name => {
+        activeGroup = name;
+        document.querySelectorAll('.group-item').forEach(item => item.classList.toggle('current', item.dataset.group === name));
+        document.querySelector('.alloc-head strong').textContent = name;
+        if (!groupSections[name].length) groupSections[name].push(newSection());
+        renderTable();
+        updateSummary();
+      };
+      document.getElementById('allocationRows').addEventListener('change', event => {
+        const optionInput = event.target.closest('.ms-option input');
+        if (optionInput) {
+          const section = groupSections[activeGroup].find(candidate => candidate.id === optionInput.dataset.section);
+          if (!section) return;
+          const value = optionInput.value;
+          if (optionInput.checked) {
+            if (section.region && pairExists(section, value, section.region)) {
+              showToast(`${value} · ${section.region} 已在其他分组中，请勿重复选择`);
+              optionInput.checked = false;
+              return;
+            }
+            if (!section.products.includes(value)) section.products.push(value);
+          } else {
+            section.products = section.products.filter(product => product !== value);
+          }
+          section.quantities = section.quantities.map((q, i) => Math.min(Number(q) || 0, sectionAvail(section, i)) || '');
+          openPanelSection = section.id;
+          renderTable();
+          updateSummary();
+          return;
+        }
+        const regionSelect = event.target.closest('select[data-field="region"]');
+        if (regionSelect) {
+          const section = groupSections[activeGroup].find(candidate => candidate.id === regionSelect.dataset.section);
+          if (!section) return;
+          const value = regionSelect.value;
+          if (value) {
+            const conflictProduct = section.products.find(product => pairExists(section, product, value));
+            if (conflictProduct) {
+              showToast(`${conflictProduct} · ${value} 已在其他分组中，请勿重复选择`);
+              regionSelect.value = section.region;
+              return;
+            }
+          }
+          section.region = value;
+          section.quantities = section.quantities.map((q, i) => Math.min(Number(q) || 0, sectionAvail(section, i)) || '');
+          renderTable();
+          updateSummary();
+          return;
+        }
+        const totalInput = event.target.closest('.combo-total');
+        if (totalInput) applySectionTotal(totalInput, false);
+      });
+      document.getElementById('allocationRows').addEventListener('input', event => {
+        const input = event.target.closest('.quantity');
+        if (input) {
+          const section = groupSections[activeGroup].find(candidate => candidate.id === input.dataset.section);
+          if (!section) return;
+          const index = Number(input.dataset.index);
+          const available = sectionAvail(section, index);
+          let value = input.value.replace(/[^\d]/g, '');
+          if (value !== '' && Number(value) > available) {
+            value = String(available);
+            input.value = value;
+            showToast(`超出可拆数量，已按剩余上限调整为 ${available}`);
+          }
+          section.quantities[index] = value;
+          const rowEl = input.closest('tr');
+          rowEl.querySelector('.row-amount').textContent = money((Number(value) || 0) * SERVICES[index].price);
+          const head = rowEl.previousElementSibling;
+          while (head && !head.classList.contains('combo-head')) head = head.previousElementSibling;
+          if (head) head.querySelector('.combo-sum').textContent = money(sectionAmount(section));
+          updateSummary();
+          return;
+        }
+        const totalInput = event.target.closest('.combo-total');
+        if (totalInput) {
+          clearTimeout(sectionTotalTimer);
+          sectionTotalTimer = setTimeout(() => applySectionTotal(totalInput, true), 700);
+        }
+      });
+      document.getElementById('allocationRows').addEventListener('keydown', event => {
+        const input = event.target.closest('.combo-total');
+        if (input && event.key === 'Enter') applySectionTotal(input, false);
+      });
+      let sectionTotalTimer = null;
+      const applySectionTotal = (input, silent) => {
+        const section = groupSections[activeGroup].find(candidate => candidate.id === input.dataset.section);
+        if (!section) return;
+        if (!section.products.length || !section.region) {
+          if (!silent) showToast('请先选择品种与省份');
+          return;
+        }
+        const rawTarget = Number(String(input.value).replace(/[^\d.]/g, ''));
+        if (!rawTarget) return;
+        let remaining = rawTarget;
+        section.quantities = SERVICES.map((service, index) => {
+          const available = sectionAvail(section, index);
+          const quantity = Math.min(available, Math.floor(remaining / service.price));
+          remaining -= quantity * service.price;
+          return quantity || '';
+        });
+        section.total = rawTarget;
+        renderTable();
+        updateSummary();
+        if (!silent && remaining > 0) showToast(`按单价折算后，该分组尚有 ${money(remaining)} 未分配`);
+      };
+      document.getElementById('allocationRows').addEventListener('click', event => {
+        const toggle = event.target.closest('.ms-toggle');
+        if (toggle) {
+          const panel = toggle.parentElement.querySelector('.ms-panel');
+          const willOpen = panel.hidden;
+          document.querySelectorAll('#allocationRows .ms-panel').forEach(p => { p.hidden = true; });
+          panel.hidden = !willOpen;
+          openPanelSection = willOpen ? toggle.dataset.section : null;
+          return;
+        }
+        const copyButton = event.target.closest('.combo-copy');
+        if (copyButton) {
+          const index = groupSections[activeGroup].findIndex(candidate => candidate.id === copyButton.dataset.section);
+          if (index >= 0) {
+            groupSections[activeGroup].splice(index + 1, 0, cloneSection(groupSections[activeGroup][index]));
+            renderTable();
+            updateSummary();
+            showToast('已复制分组，请重新选择品种与省份');
+          }
+          return;
+        }
+        const removeButton = event.target.closest('.combo-remove');
+        if (removeButton) {
+          groupSections[activeGroup] = groupSections[activeGroup].filter(candidate => candidate.id !== removeButton.dataset.section);
+          if (!groupSections[activeGroup].length) groupSections[activeGroup].push(newSection());
+          renderTable();
+          updateSummary();
+        }
+      });
+      document.addEventListener('click', event => {
+        if (!event.target.closest('.ms-wrap')) {
+          document.querySelectorAll('#allocationRows .ms-panel').forEach(panel => { panel.hidden = true; });
+          openPanelSection = null;
+        }
+      });
+      checks.forEach(check => check.addEventListener('change', () => {
+        const name = check.closest('.group-item').dataset.group;
+        if (check.checked) renderGroup(name);
+        else {
+          const nextSelected = checks.find(candidate => candidate.checked);
+          if (activeGroup === name && nextSelected) renderGroup(nextSelected.closest('.group-item').dataset.group);
+          else updateSummary();
+        }
+      }));
+      document.getElementById('selectAll').addEventListener('click', () => {
+        checks.forEach(check => { if (!check.disabled) check.checked = true; });
+        renderGroup(activeGroup);
+      });
+      document.getElementById('clearAll').addEventListener('click', () => {
+        checks.forEach(check => { if (!check.disabled) check.checked = false; });
+        updateSummary();
+      });
+      document.getElementById('groupSearch').addEventListener('input', event => {
+        const query = event.target.value.trim().toLocaleLowerCase();
+        document.querySelectorAll('.group-item').forEach(item => { item.hidden = !item.dataset.group.toLocaleLowerCase().includes(query); });
+      });
+      renderGroup(activeGroup);
+    })();
+  </script>
+</body>
+</html>

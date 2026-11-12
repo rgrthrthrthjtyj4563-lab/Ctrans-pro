@@ -8,7 +8,7 @@
  *
  * 2026-09-15 整改拍板：无申请/审核/驳回/补正；一个租户一个主企业码（无别名
  * 码、无重发激活提醒）；状态机四态（待激活/正常/已暂停/已终止）；状态操作
- * 收敛到详情头部；管理员与成员用表格展示。
+ * 收敛到详情头部；详情不设选项卡，套餐/主体/管理员三卡平铺。
  *
  * 数据全部来自运行时注册表（mock，localStorage 演示），生产环境由服务端与
  * 数据库完成（见 tenantRegistry.ts 头注）。页面可见性由角色页面权限收敛：
@@ -60,7 +60,6 @@ import {
   changeInitialAdmin,
   changeTenantPackage,
   tenantExpired,
-  tenantUserCount,
   isUsccTaken,
   resetTenantRegistry,
   ACCOUNT_PATTERN,
@@ -490,8 +489,6 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
                               style={expired ? { color: "#C73A3A", fontWeight: 600 } : undefined}
                             >
                               {t.expireAt ? (expired ? `已过期 ${t.expireAt}` : `至 ${t.expireAt}`) : "永久"}
-                              {" · "}
-                              {t.userQuota != null && t.userQuota >= 0 ? `≤${t.userQuota} 人` : "不限"}
                             </div>
                           </>
                         );
@@ -553,6 +550,45 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
 
 const PHARMA_CATEGORIES = ["化学药品制剂", "中药与天然药", "生物制品", "原料药", "药械组合"];
 
+// ─── 工商信息自动带出（演示模拟） ────────────────────────────────────────────
+// 生产环境应在服务端对接企查查/天眼查等工商数据 API，按企业名称/简称查询工商
+// 登记信息（统一社会信用代码 + 注册地址）；演示原型用本地模拟：优先命中已建
+// 租户的登记数据，否则按名称哈希生成一组稳定的演示数据，让「输入企业名称 →
+// 自动带出信用代码与注册地址」可走通。
+
+const LOOKUP_REGIONS = [
+  "江苏省南京市江宁区", "浙江省杭州市滨江区", "上海市浦东新区张江高科技园区",
+  "北京市北京经济技术开发区", "广东省广州市黄埔区科学城", "四川省成都市高新区",
+];
+const LOOKUP_ROADS = ["科学园乾德路", "生物医药园创新大道", "生命科学园康泰路", "产业新城聚合路", "医药产业园研新路"];
+/** 模拟信用代码字符集（统一社会信用代码字符表，不含 I/O/S/V/Z） */
+const SIM_USCC_CHARS = "0123456789ABCDEFGHJKLMNPQRTUWXY";
+
+interface EnterpriseRegistryRecord { uscc: string; address: string }
+
+/** 模拟工商库按名称查询登记信息；名称过短视为查询不到 */
+function lookupEnterpriseRecord(key: string): EnterpriseRegistryRecord | null {
+  const k = key.trim();
+  if (k.length < 4) return null;
+  const hit = getTenantRegistrySnapshot().tenants.find(
+    (t) => t.legalName === k || t.shortName === k || t.legalName.includes(k) || k.includes(t.shortName),
+  );
+  if (hit) return { uscc: hit.uscc, address: hit.profile.address };
+  let h = 0;
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0;
+  const address = `${LOOKUP_REGIONS[h % LOOKUP_REGIONS.length]}${LOOKUP_ROADS[(h >>> 3) % LOOKUP_ROADS.length]}${(h % 188) + 1} 号`;
+  // 91 开头的 18 位模拟信用代码；若与已建租户撞号则顺移种子重生成
+  let seed = h;
+  let uscc = "";
+  do {
+    uscc = `91${Array.from({ length: 16 }, () => {
+      seed = (seed * 1103515245 + 12345) >>> 0;
+      return SIM_USCC_CHARS[seed % SIM_USCC_CHARS.length];
+    }).join("")}`;
+  } while (isUsccTaken(uscc));
+  return { uscc, address };
+}
+
 interface WizardForm {
   type: TenantType
   legalName: string
@@ -565,8 +601,6 @@ interface WizardForm {
   remark: string
   pharmaCategory: string
   mahHolderFlag: boolean
-  licenseNo: string
-  licenseValidTo: string
   bizOwner: string
   complianceOwner: string
   qualificationNo: string
@@ -574,11 +608,9 @@ interface WizardForm {
   adminName: string
   adminAccount: string
   adminPhone: string
-  adminDepartment: string
   /** 套餐与开通限制（2026-09-18 套餐模型） */
   packageId: string
   expireAt: string
-  userQuota: string
 }
 
 /** 向导缺省套餐：默认套餐，缺则第一个启用套餐 */
@@ -591,10 +623,10 @@ const emptyForm = (type: TenantType): WizardForm => ({
   type,
   legalName: "", shortName: "", uscc: "", address: "", contactName: "", contactPhone: "",
   licenseAttachment: "", remark: "",
-  pharmaCategory: "", mahHolderFlag: true, licenseNo: "", licenseValidTo: "",
+  pharmaCategory: "", mahHolderFlag: true,
   bizOwner: "", complianceOwner: "", qualificationNo: "", qualificationValidTo: "",
-  adminName: "", adminAccount: "", adminPhone: "", adminDepartment: "",
-  packageId: defaultPackageChoice(), expireAt: "", userQuota: "",
+  adminName: "", adminAccount: "", adminPhone: "",
+  packageId: defaultPackageChoice(), expireAt: "",
 });
 
 function TenantWizard({
@@ -620,6 +652,31 @@ function TenantWizard({
     setDirty(true);
   };
 
+  // 工商登记信息自动带出（演示模拟企查查）：法定名称/简称失焦即查，也可点「查询」；带出信用代码 + 注册地址
+  const [addrLookup, setAddrLookup] = useState<{ status: "idle" | "searching" | "found" | "notfound"; key: string }>({ status: "idle", key: "" });
+  const addrTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (addrTimer.current !== null) window.clearTimeout(addrTimer.current) }, []);
+  const runAddressLookup = (rawKey: string) => {
+    const key = rawKey.trim();
+    if (addrTimer.current !== null) window.clearTimeout(addrTimer.current);
+    if (!key) { setAddrLookup({ status: "idle", key: "" }); return; }
+    setAddrLookup({ status: "searching", key });
+    addrTimer.current = window.setTimeout(() => {
+      const rec = lookupEnterpriseRecord(key);
+      setAddrLookup({ status: rec ? "found" : "notfound", key });
+      if (rec) {
+        set({ uscc: rec.uscc, address: rec.address });
+        setErrors((e) => {
+          if (!e.address && !e.uscc) return e;
+          const rest = { ...e };
+          delete rest.address;
+          delete rest.uscc;
+          return rest;
+        });
+      }
+    }, 650);
+  };
+
   const steps = ["选择企业类型", "填写企业资料", "套餐与开通限制", "指定首位管理员"];
 
   const validateStep = (s: number): boolean => {
@@ -639,9 +696,6 @@ function TenantWizard({
     }
     if (s === 2) {
       if (!form.packageId) errs.packageId = "请选择租户套餐";
-      if (form.userQuota.trim() !== "" && !/^\d+$/.test(form.userQuota.trim())) {
-        errs.userQuota = "用户数量限额须为不小于 0 的整数，留空表示不限制";
-      }
     }
     if (s === 3) {
       if (!form.adminName.trim()) errs.adminName = "请输入管理员姓名";
@@ -651,7 +705,6 @@ function TenantWizard({
         errs.adminAccount = "账号须为 3-20 位小写字母/数字，可含 - 与 _";
       }
       if (!/^1\d{10}$/.test(form.adminPhone.trim())) errs.adminPhone = "请输入正确的 11 位手机号";
-      if (!form.adminDepartment.trim()) errs.adminDepartment = "请输入所属部门";
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -670,8 +723,6 @@ function TenantWizard({
         ? {
             pharmaCategory: form.pharmaCategory || undefined,
             mahHolderFlag: form.mahHolderFlag,
-            licenseNo: form.licenseNo.trim(),
-            licenseValidTo: form.licenseValidTo,
           }
       : {
           bizOwner: form.bizOwner.trim(),
@@ -685,7 +736,6 @@ function TenantWizard({
     name: form.adminName.trim(),
     phone: form.adminPhone.trim(),
     account: form.adminAccount.trim() || defaultRuntimeAccount(form.adminPhone.trim()),
-    department: form.adminDepartment.trim(),
     roleLabel: form.type === "pharma" ? "企业管理员" : "服务商管理员",
   });
 
@@ -700,7 +750,6 @@ function TenantWizard({
         actor,
         packageId: form.packageId || undefined,
         expireAt: form.expireAt || undefined,
-        userQuota: form.userQuota.trim() === "" ? undefined : Number(form.userQuota.trim()),
       });
       if (!result.ok || !result.tenant) {
         addToast({ type: "error", title: "创建失败", description: result.error ?? "暂时无法创建租户，请稍后重试" });
@@ -752,12 +801,8 @@ function TenantWizard({
                 return pkg ? `${pkg.name}（${pkg.menuIds.length} 项功能）` : "—";
               })()}
             </dd>
-            <dt>有效期 / 用户限额</dt>
-            <dd className="font-mono-nums">
-              {created.tenant.expireAt || "永久有效"}
-              {" · "}
-              {created.tenant.userQuota != null && created.tenant.userQuota >= 0 ? `${created.tenant.userQuota} 人` : "不限制"}
-            </dd>
+            <dt>开通有效期</dt>
+            <dd className="font-mono-nums">{created.tenant.expireAt || "永久有效"}</dd>
             <dt>首位管理员</dt><dd>{created.tenant.initialAdmin.name} · <span className="font-mono-nums">{maskPhone(created.tenant.initialAdmin.phone)}</span></dd>
             <dt>当前状态</dt><dd><StatusPill status={created.tenant.status} /></dd>
           </dl>
@@ -816,17 +861,80 @@ function TenantWizard({
 
       {step === 1 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 16 }}>
-          <Field id="wf-legalName" label="企业法定名称" required error={errors.legalName}>
-            <input {...inputProps("wf-legalName", errors.legalName)} value={form.legalName} onChange={(e) => set({ legalName: e.target.value })} placeholder="与营业执照一致" />
+          <Field id="wf-legalName" label="企业法定名称" required error={errors.legalName} hint="失焦或点「查询」自动带出信用代码与注册地址">
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                {...inputProps("wf-legalName", errors.legalName)}
+                value={form.legalName}
+                onChange={(e) => set({ legalName: e.target.value })}
+                onBlur={(e) => runAddressLookup(e.currentTarget.value || form.shortName)}
+                placeholder="与营业执照一致"
+              />
+              <button
+                type="button"
+                className="tm-ghost-btn"
+                style={{ height: 40, flexShrink: 0 }}
+                disabled={addrLookup.status === "searching"}
+                onClick={() => runAddressLookup(form.legalName || form.shortName)}
+                title="按企业名称查询工商登记信息（演示模拟企查查）"
+              >
+                {addrLookup.status === "searching"
+                  ? <LoaderCircle size={14} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden />
+                  : <Search size={14} aria-hidden />}
+                查询
+              </button>
+            </div>
           </Field>
           <Field id="wf-shortName" label="企业简称" required error={errors.shortName} hint="仅用于界面展示，不参与企业码生成">
-            <input {...inputProps("wf-shortName", errors.shortName)} value={form.shortName} onChange={(e) => set({ shortName: e.target.value })} placeholder="如：朗盛生物" />
+            <input
+              {...inputProps("wf-shortName", errors.shortName)}
+              value={form.shortName}
+              onChange={(e) => set({ shortName: e.target.value })}
+              onBlur={(e) => { if (!form.legalName.trim()) runAddressLookup(e.currentTarget.value) }}
+              placeholder="如：朗盛生物"
+            />
           </Field>
-          <Field id="wf-uscc" label="统一社会信用代码" required error={errors.uscc} hint="18 位，全局查重">
-            <input {...inputProps("wf-uscc", errors.uscc)} className="tm-field font-mono-nums" value={form.uscc} onChange={(e) => set({ uscc: e.target.value.toUpperCase() })} placeholder="91320191MA4WQ7LR8C" maxLength={18} style={{ ...fieldInput, letterSpacing: "0.04em", ...(errors.uscc ? { borderColor: "#DC2626" } : {}) }} />
+          <Field
+            id="wf-uscc"
+            label="统一社会信用代码"
+            required
+            error={errors.uscc}
+            hint={addrLookup.status === "found" ? "已按企业名称自动带出（工商登记 · 演示模拟），可核对修改" : "18 位，全局查重"}
+          >
+            <input
+              {...inputProps("wf-uscc", errors.uscc)}
+              className="tm-field font-mono-nums"
+              value={form.uscc}
+              onChange={(e) => {
+                set({ uscc: e.target.value.toUpperCase() });
+                if (addrLookup.status !== "idle") setAddrLookup({ status: "idle", key: "" });
+              }}
+              placeholder="91320191MA4WQ7LR8C"
+              maxLength={18}
+              style={{ ...fieldInput, letterSpacing: "0.04em", ...(errors.uscc ? { borderColor: "#DC2626" } : {}) }}
+            />
           </Field>
-          <Field id="wf-address" label="企业注册地址" required error={errors.address}>
-            <input {...inputProps("wf-address", errors.address)} value={form.address} onChange={(e) => set({ address: e.target.value })} placeholder="省市 + 详细地址" />
+          <Field
+            id="wf-address"
+            label="企业注册地址"
+            required
+            error={errors.address}
+            hint={
+              addrLookup.status === "searching" ? `正在按「${addrLookup.key}」查询工商登记信息…`
+                : addrLookup.status === "found" ? "已按企业名称自动带出（工商登记 · 演示模拟），可核对修改"
+                : addrLookup.status === "notfound" ? `未查询到「${addrLookup.key}」的工商登记信息，请手动填写`
+                : "填写企业名称后自动带出，也可手动填写"
+            }
+          >
+            <input
+              {...inputProps("wf-address", errors.address)}
+              value={form.address}
+              onChange={(e) => {
+                set({ address: e.target.value });
+                if (addrLookup.status !== "idle") setAddrLookup({ status: "idle", key: "" });
+              }}
+              placeholder="省市 + 详细地址"
+            />
           </Field>
           <Field id="wf-contactName" label="企业联系人姓名" required error={errors.contactName}>
             <input {...inputProps("wf-contactName", errors.contactName)} value={form.contactName} onChange={(e) => set({ contactName: e.target.value })} />
@@ -869,12 +977,6 @@ function TenantWizard({
                   <option value="no">否 · 受托生产企业</option>
                 </select>
               </Field>
-              <Field id="wf-licenseNo" label="相关许可证编号" hint="选填">
-                <input {...inputProps("wf-licenseNo")} value={form.licenseNo} onChange={(e) => set({ licenseNo: e.target.value })} placeholder="如：苏药监械生产许 20260115" />
-              </Field>
-              <Field id="wf-licenseValidTo" label="许可证有效期至" hint="按原型需要模拟">
-                <input id="wf-licenseValidTo" className="tm-field font-mono-nums" style={fieldInput} type="date" value={form.licenseValidTo} onChange={(e) => set({ licenseValidTo: e.target.value })} />
-              </Field>
             </>
           ) : (
             <>
@@ -896,56 +998,37 @@ function TenantWizard({
       )}
 
       {step === 2 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 16 }}>
-            <Field
-              id="wf-package"
-              label="租户套餐"
-              required
-              error={errors.packageId}
-              hint="决定该租户可见的功能菜单；创建后可在详情页更换"
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 16 }}>
+          <Field
+            id="wf-package"
+            label="租户套餐"
+            required
+            error={errors.packageId}
+            hint="决定该租户可见的功能菜单；创建后可在详情页更换"
+          >
+            <select
+              {...inputProps("wf-package", errors.packageId)}
+              value={form.packageId}
+              onChange={(e) => set({ packageId: e.target.value })}
             >
-              <select
-                {...inputProps("wf-package", errors.packageId)}
-                value={form.packageId}
-                onChange={(e) => set({ packageId: e.target.value })}
-              >
-                <option value="">请选择租户套餐</option>
-                {listTenantPackages().filter((p) => p.status === "enabled").map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}{p.isDefault ? "（默认）" : ""} · {p.menuIds.length} 项功能
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field id="wf-expireAt" label="开通有效期至" hint="留空 = 永久有效；到期后该租户登录被拒绝">
-              <input
-                id="wf-expireAt"
-                className="tm-field font-mono-nums"
-                style={fieldInput}
-                type="date"
-                value={form.expireAt}
-                onChange={(e) => set({ expireAt: e.target.value })}
-              />
-            </Field>
-            <Field id="wf-userQuota" label="用户数量限额" error={errors.userQuota} hint="留空 = 不限制；达到限额后不可再新建用户">
-              <input
-                {...inputProps("wf-userQuota", errors.userQuota)}
-                className="tm-field font-mono-nums"
-                inputMode="numeric"
-                value={form.userQuota}
-                onChange={(e) => set({ userQuota: e.target.value.replace(/\D/g, "") })}
-                placeholder="如 50"
-              />
-            </Field>
-          </div>
-          <div className="tm-note tm-note--brand" role="note">
-            <ShieldCheck size={14} aria-hidden />
-            <span>
-              套餐 = 一组功能菜单的集合：该租户用户的可见菜单 = 角色权限 ∩ 套餐菜单，换绑即时生效；
-              有效期与限额是软件服务方对租户的开通约束（演示原型同样生效：到期拒登、超限禁建号）。
-            </span>
-          </div>
+              <option value="">请选择租户套餐</option>
+              {listTenantPackages().filter((p) => p.status === "enabled").map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.isDefault ? "（默认）" : ""} · {p.menuIds.length} 项功能
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field id="wf-expireAt" label="开通有效期至" hint="留空 = 永久有效；到期后该租户登录被拒绝">
+            <input
+              id="wf-expireAt"
+              className="tm-field font-mono-nums"
+              style={fieldInput}
+              type="date"
+              value={form.expireAt}
+              onChange={(e) => set({ expireAt: e.target.value })}
+            />
+          </Field>
         </div>
       )}
 
@@ -989,9 +1072,6 @@ function TenantWizard({
                 style={{ ...fieldInput, ...(errors.adminPhone ? { borderColor: "#DC2626" } : {}) }}
               />
             </Field>
-            <Field id="wf-adminDept" label="所属部门" required error={errors.adminDepartment}>
-              <input {...inputProps("wf-adminDept", errors.adminDepartment)} value={form.adminDepartment} onChange={(e) => set({ adminDepartment: e.target.value })} placeholder="如：总经理办公室" />
-            </Field>
             <Field id="wf-adminRole" label="管理员角色" hint="由租户类型自动确定，不可修改">
               <input id="wf-adminRole" className="tm-field" style={{ ...fieldInput, background: "#F9FAFB" }} value={form.type === "pharma" ? "企业管理员" : "服务商管理员"} readOnly />
             </Field>
@@ -1008,11 +1088,9 @@ function TenantWizard({
                 return pkg ? `${pkg.name} · ${pkg.menuIds.length} 项功能` : "—";
               })()}
             </dd>
-            <dt>有效期 / 用户限额</dt>
-            <dd className="font-mono-nums">
-              {form.expireAt || "永久有效"} · {form.userQuota.trim() !== "" ? `${form.userQuota} 人` : "不限制"}
-            </dd>
-            <dt>首位管理员</dt><dd>{form.adminName || "—"} · <span className="font-mono-nums">{form.adminAccount || (form.adminPhone ? defaultRuntimeAccount(form.adminPhone) : "—")}</span> · <span className="font-mono-nums">{form.adminPhone || "—"}</span> · {form.adminDepartment || "—"}</dd>
+            <dt>开通有效期</dt>
+            <dd className="font-mono-nums">{form.expireAt || "永久有效"}</dd>
+            <dt>首位管理员</dt><dd>{form.adminName || "—"} · <span className="font-mono-nums">{form.adminAccount || (form.adminPhone ? defaultRuntimeAccount(form.adminPhone) : "—")}</span> · <span className="font-mono-nums">{form.adminPhone || "—"}</span></dd>
           </dl>
           <div className="tm-note tm-note--brand" role="note">
             <ShieldCheck size={14} aria-hidden />
@@ -1105,7 +1183,6 @@ function TenantDetailDrawer({
   // 套餐池/绑定变更联动（packageOfTenant 读双 store）
   useSyncExternalStore(subscribeTenantPackages, getTenantPackagesSnapshot);
   const tenant = registry.tenants.find((t) => t.id === tenantId);
-  const [tab, setTab] = useState<"basic" | "members" | "log">("basic");
   const [busy, setBusy] = useState<string | null>(null);
 
   // 状态操作弹窗（暂停/恢复/终止均要求原因码 + 说明）
@@ -1115,7 +1192,7 @@ function TenantDetailDrawer({
   const [reasonErr, setReasonErr] = useState<string | null>(null);
 
   const [adminChangeOpen, setAdminChangeOpen] = useState(false);
-  const [adminForm, setAdminForm] = useState({ name: "", account: "", phone: "", department: "", reason: "" });
+  const [adminForm, setAdminForm] = useState({ name: "", account: "", phone: "", reason: "" });
   const [adminErr, setAdminErr] = useState<Record<string, string>>({});
 
   // 更换套餐弹窗
@@ -1125,7 +1202,8 @@ function TenantDetailDrawer({
 
   if (!tenant) return null;
   const p = tenant.profile;
-  const tenantLog = registry.activityLog.filter((l) => l.targetTenant === tenant.shortName);
+  const pkg = packageOfTenant(tenant.id);
+  const expired = tenantExpired(tenant);
 
   const copyCode = async (code: string) => {
     const ok = await copyTextWithFallback(code);
@@ -1146,7 +1224,12 @@ function TenantDetailDrawer({
 
   const openStatusAction = (action: "suspend" | "resume" | "terminate") => {
     const first =
-      action === "suspend" ? SUSPEND_REASON_OPTIONS[0].code : action === "resume" ? RESUME_REASON_OPTIONS[0].code : TERMINATE_REASON_OPTIONS[0].code
+      action === "suspend" ? SUSPEND_REASON_OPTIONS[0].code
+        : action === "resume" ? RESUME_REASON_OPTIONS[0].code
+          // 待激活终止默认「开户作废」；已暂停终止默认「合作协议终止」
+          : tenant.status === "pending_activation"
+            ? TERMINATE_REASON_OPTIONS.find((o) => o.code === "OPENING_VOIDED")?.code ?? TERMINATE_REASON_OPTIONS[0].code
+            : TERMINATE_REASON_OPTIONS.find((o) => o.code === "CONTRACT_ENDED")?.code ?? TERMINATE_REASON_OPTIONS[0].code
     setReasonCode(first as string);
     setReasonNote("");
     setReasonErr(null);
@@ -1182,21 +1265,36 @@ function TenantDetailDrawer({
   return (
     <>
       <Modal open title={`租户详情 · ${tenant.shortName}`} width={720} onClose={onClose}>
-        {/* 页头：企业名 + 状态 + 主企业码 + 状态操作（方案 §3.3/§3.4） */}
+        {/* 页头卡：企业身份 + 主企业码 + 状态元信息在左，生命周期动作在右 */}
         <div className="tm-detail-head">
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: "var(--fs-16)", fontWeight: 600, color: "var(--color-text-1)" }} title={tenant.legalName}>{tenant.legalName}</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
+          <div style={{ minWidth: 0, flex: "1 1 280px" }}>
+            <div style={{ fontSize: "var(--fs-16)", fontWeight: 600, color: "var(--color-text-1)", lineHeight: 1.4 }} title={tenant.legalName}>{tenant.legalName}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
               <span className="tm-chip">{TENANT_TYPE_LABEL[tenant.type]}</span>
               <StatusPill status={tenant.status} />
               <CodeText code={tenant.primaryCode} />
               <button type="button" className="tm-icon-btn" aria-label="复制主企业码" title="复制主企业码" onClick={() => void copyCode(tenant.primaryCode)}>
                 <Copy size={13} aria-hidden />
               </button>
+              {tenant.status === "terminated" && <span className="tm-chip tm-chip--muted">已退役 · 永久停用</span>}
+            </div>
+            {tenant.statusReasonCode && (
+              <div style={{ marginTop: 8, fontSize: "var(--fs-12)", color: "#6B7280", lineHeight: 1.7 }}>
+                最近原因：{statusReasonLabel(tenant.statusReasonCode)}{tenant.statusNote ? `（${tenant.statusNote}）` : ""}
+              </div>
+            )}
+            <div style={{ marginTop: 2, fontSize: "var(--fs-12)", color: "#9CA3AF", lineHeight: 1.7 }}>
+              主企业码全局唯一、系统生成，仅可查看和复制；租户终止后永久保留且不得分配给其他企业。
             </div>
           </div>
-          {/* 按状态显示主操作（变更首位管理员仅保留在「首位管理员」信息区） */}
+          {/* 生命周期主操作（变更首位管理员在「首位管理员」卡片） */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {tenant.status === "pending_activation" && (
+              <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("terminate")}>
+                <Ban size={14} aria-hidden />
+                终止租户
+              </button>
+            )}
             {tenant.status === "active" && (
               <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("suspend")}>
                 <PauseCircle size={14} aria-hidden />
@@ -1218,105 +1316,57 @@ function TenantDetailDrawer({
           </div>
         </div>
 
-        <div className="tm-tabs" role="tablist" aria-label="租户详情分区">
-          {([
-            ["basic", "基本信息"], ["members", "管理员与成员"], ["log", "操作日志"],
-          ] as const).map(([key, label]) => (
-            <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "tm-tab tm-tab--active" : "tm-tab"} onClick={() => setTab(key)}>
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {tab === "basic" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* 状态信息（状态操作在头部按钮） */}
-            <section>
-              <h4 className="tm-sec-title">租户状态</h4>
-              <dl className="tm-confirm-grid">
-                <dt>当前状态</dt><dd><StatusPill status={tenant.status} /></dd>
-                <dt>状态变更时间</dt><dd className="font-mono-nums">{tenant.statusChangedAt}</dd>
-                {tenant.statusReasonCode && (
-                  <>
-                    <dt>最近状态原因</dt>
-                    <dd>{statusReasonLabel(tenant.statusReasonCode)}{tenant.statusNote ? ` · ${tenant.statusNote}` : ""}</dd>
-                  </>
+        <div>
+            {/* 卡 1：套餐与开通（动作在卡头右侧） */}
+            <section className="tm-sec">
+              <div className="tm-sec-head">
+                <h4 className="tm-sec-title">套餐与开通</h4>
+                {tenant.status !== "terminated" && (
+                  <button
+                    type="button"
+                    className="tm-ghost-btn tm-btn-sm"
+                    disabled={busy !== null}
+                    onClick={() => {
+                      const current = packageOfTenant(tenant.id);
+                      setPkgChoice(current?.id ?? "");
+                      setPkgErr(null);
+                      setPkgChangeOpen(true);
+                    }}
+                  >
+                    <RefreshCw size={13} aria-hidden />
+                    更换套餐
+                  </button>
                 )}
-                <dt>主企业码</dt>
+              </div>
+              <dl className="tm-confirm-grid">
+                <dt>绑定套餐</dt>
                 <dd>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <CodeText code={tenant.primaryCode} />
-                    <span className="tm-sub font-mono-nums">生成于 {registry.codes.find((c) => c.code === tenant.primaryCode)?.createdAt ?? tenant.createdAt}</span>
-                    {tenant.status === "terminated" && <span className="tm-chip tm-chip--muted">已退役 · 永久停用</span>}
-                  </div>
+                  {pkg ? `${pkg.name} · ${pkg.menuIds.length} 项功能` : "—"}
+                  {!tenant.packageId && <span className="tm-sub">（未显式绑定，按默认套餐回落开通）</span>}
+                </dd>
+                <dt>开通有效期</dt>
+                <dd className="font-mono-nums" style={expired ? { color: "#C73A3A" } : undefined}>
+                  {tenant.expireAt ? (expired ? `已过期（${tenant.expireAt} 起）` : `至 ${tenant.expireAt}`) : "永久有效"}
                 </dd>
               </dl>
-              <p style={{ margin: "8px 0 0", fontSize: "var(--fs-12)", color: "#6B7280", lineHeight: 1.7 }}>
-                主企业码全局唯一、系统生成，仅可查看和复制，不可编辑、不可重新生成；租户终止后永久保留且不得分配给其他企业。
-              </p>
             </section>
-            <section>
-              <h4 className="tm-sec-title">套餐与开通限制</h4>
-              {(() => {
-                const pkg = packageOfTenant(tenant.id);
-                const expired = tenantExpired(tenant);
-                const used = tenantUserCount(tenant.enterpriseOrgId);
-                return (
-                  <>
-                    <dl className="tm-confirm-grid">
-                      <dt>绑定套餐</dt>
-                      <dd>
-                        {pkg ? `${pkg.name} · ${pkg.menuIds.length} 项功能` : "—"}
-                        {!tenant.packageId && <span className="tm-sub">（未显式绑定，按默认套餐回落开通）</span>}
-                      </dd>
-                      <dt>开通有效期</dt>
-                      <dd className="font-mono-nums" style={expired ? { color: "#C73A3A", fontWeight: 600 } : undefined}>
-                        {tenant.expireAt ? (expired ? `已过期（${tenant.expireAt} 起）` : `至 ${tenant.expireAt}`) : "永久有效"}
-                      </dd>
-                      <dt>用户数量限额</dt>
-                      <dd className="font-mono-nums">
-                        {tenant.userQuota != null && tenant.userQuota >= 0 ? `${tenant.userQuota} 人（当前 ${used} 人）` : `不限制（当前 ${used} 人）`}
-                      </dd>
-                    </dl>
-                    <p style={{ margin: "8px 0 0", fontSize: "var(--fs-12)", color: "#6B7280", lineHeight: 1.7 }}>
-                      该租户用户的可见菜单 = 角色权限 ∩ 套餐菜单；换绑即时生效。有效期到期后该租户登录被拒绝；达到限额后不可再新建用户。
-                    </p>
-                    {tenant.status !== "terminated" && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          className="tm-ghost-btn"
-                          disabled={busy !== null}
-                          onClick={() => {
-                            const current = packageOfTenant(tenant.id);
-                            setPkgChoice(current?.id ?? "");
-                            setPkgErr(null);
-                            setPkgChangeOpen(true);
-                          }}
-                        >
-                          <RefreshCw size={14} aria-hidden />
-                          更换套餐
-                        </button>
-                        <span style={{ fontSize: "var(--fs-12)", color: "#667085" }}>套餐菜单集可在「租户套餐管理」维护，对已绑定租户即时生效。</span>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </section>
-            <section>
-              <h4 className="tm-sec-title">主体资料</h4>
+
+            {/* 卡 2：主体资料（工商登记信息，只读） */}
+            <section className="tm-sec">
+              <div className="tm-sec-head">
+                <h4 className="tm-sec-title">主体资料</h4>
+                <span className="tm-sub" style={{ marginTop: 0 }}>创建后只读</span>
+              </div>
               <dl className="tm-confirm-grid">
                 <dt>企业法定名称</dt><dd>{tenant.legalName}</dd>
                 <dt>企业简称</dt><dd>{tenant.shortName}</dd>
                 <dt>统一社会信用代码</dt><dd className="font-mono-nums">{tenant.uscc}</dd>
                 <dt>注册地址</dt><dd>{p.address}</dd>
-                <dt>企业联系人</dt><dd>{p.contactName} · <span className="font-mono-nums">{p.contactPhone}</span></dd>
+                <dt>企业联系人</dt><dd>{p.contactName} · <span className="font-mono-nums" style={{ fontWeight: 400 }}>{p.contactPhone}</span></dd>
                 <dt>创建时间 / 创建人</dt><dd className="font-mono-nums">{tenant.createdAt} · {tenant.createdBy}</dd>
                 {tenant.type === "pharma" ? (
                   <>
                     <dt>主体分类</dt><dd>{p.pharmaCategory || "—"}（{p.mahHolderFlag ? "MAH 持有人" : "受托生产"}）</dd>
-                    <dt>许可证</dt><dd>{p.licenseNo || "—"}{p.licenseValidTo ? ` · 至 ${p.licenseValidTo}` : ""}</dd>
                   </>
                 ) : (
                   <>
@@ -1329,89 +1379,40 @@ function TenantDetailDrawer({
                 {p.remark && (<><dt>备注</dt><dd>{p.remark}</dd></>)}
               </dl>
             </section>
-            <section>
-              <h4 className="tm-sec-title">首位管理员</h4>
+
+            {/* 卡 3：首位管理员（动作在卡头右侧） */}
+            <section className="tm-sec">
+              <div className="tm-sec-head">
+                <h4 className="tm-sec-title">首位管理员</h4>
+                {tenant.status === "pending_activation" && (
+                  <button type="button" className="tm-ghost-btn tm-btn-sm" disabled={busy !== null} onClick={() => { setAdminForm({ name: "", account: "", phone: "", reason: "" }); setAdminErr({}); setAdminChangeOpen(true) }}>
+                    <UserCog size={13} aria-hidden />
+                    变更
+                  </button>
+                )}
+              </div>
               <dl className="tm-confirm-grid">
-                <dt>姓名 / 手机号</dt><dd>{tenant.initialAdmin.name} · <span className="font-mono-nums">{maskPhone(tenant.initialAdmin.phone)}</span></dd>
-                <dt>所属部门</dt><dd>{tenant.initialAdmin.department}</dd>
+                <dt>姓名</dt><dd>{tenant.initialAdmin.name}</dd>
+                <dt>手机号</dt><dd className="font-mono-nums">{maskPhone(tenant.initialAdmin.phone)}</dd>
                 <dt>管理员角色</dt><dd>{tenant.initialAdmin.roleLabel}</dd>
                 <dt>成员状态</dt><dd>{tenant.initialAdmin.memberStatus === "pending_activation" ? "待激活（首次登录自动激活）" : `已激活 · ${tenant.initialAdmin.activatedAt ?? "—"}`}</dd>
               </dl>
               {tenant.status === "pending_activation" && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                  <button type="button" className="tm-ghost-btn" disabled={busy !== null} onClick={() => { setAdminForm({ name: "", account: "", phone: "", department: "", reason: "" }); setAdminErr({}); setAdminChangeOpen(true) }}>
-                    <UserCog size={14} aria-hidden />
-                    变更首位管理员
-                  </button>
-                  <span style={{ fontSize: "var(--fs-12)", color: "#667085" }}>仅待激活阶段可变更；租户激活后由该企业管理员自行维护企业成员，软件服务方不代配企业内部权限。</span>
+                <div className="tm-sec-foot">
+                  <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF", lineHeight: 1.7 }}>
+                    仅待激活阶段可变更；租户激活后由该企业管理员自行维护企业成员，软件服务方不代配企业内部权限。
+                  </span>
                 </div>
               )}
             </section>
+
             {tenant.status === "terminated" && (
-              <div className="tm-note tm-note--warn" role="note">
+              <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 12 }}>
                 <Ban size={14} aria-hidden />
                 <span>该租户已终止：只读查看，不能恢复；主企业码 {tenant.primaryCode} 永久保留且不得分配给其他企业。</span>
               </div>
             )}
           </div>
-        )}
-
-        {tab === "members" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ overflowX: "auto" }}>
-              <table className="tm-table" style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
-                <thead>
-                  <tr>{["姓名", "部门", "角色", "手机号", "成员状态", "激活时间", "操作"].map((h) => (<th key={h}>{h}</th>))}</tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>{tenant.initialAdmin.name}</td>
-                    <td>{tenant.initialAdmin.department}</td>
-                    <td>{tenant.initialAdmin.roleLabel}</td>
-                    <td className="font-mono-nums">{maskPhone(tenant.initialAdmin.phone)}</td>
-                    <td>
-                      <span className={`tm-chip ${tenant.initialAdmin.memberStatus === "active" ? "tm-chip--ok" : "tm-chip--warn"}`}>
-                        {tenant.initialAdmin.memberStatus === "pending_activation" ? "待激活" : "已激活"}
-                      </span>
-                    </td>
-                    <td className="font-mono-nums">{tenant.initialAdmin.activatedAt ?? "—"}</td>
-                    <td>
-                      {tenant.status === "pending_activation" ? (
-                        <button type="button" className="tm-row-btn" onClick={() => { setAdminForm({ name: "", account: "", phone: "", department: "", reason: "" }); setAdminErr({}); setAdminChangeOpen(true) }}>
-                          变更
-                        </button>
-                      ) : (
-                        <span style={{ color: "#D1D5DB", fontSize: "var(--fs-12)" }}>—</span>
-                      )}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div className="tm-empty-inline">
-              正式租户首期仅预置首位管理员；后续成员由该管理员在本企业「用户与组织」中创建与授权，软件服务方不代配企业内部权限。
-            </div>
-          </div>
-        )}
-
-        {tab === "log" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {tenantLog.length === 0 ? (
-              <div className="tm-empty-inline">暂无本租户的操作流水。全局审计请在「操作日志」页按模块「租户管理」筛选。</div>
-            ) : (
-              tenantLog.slice(0, 30).map((l) => (
-                <div key={l.id} className="tm-history-item">
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span className="tm-chip font-mono-nums">{l.at}</span>
-                    <span className="tm-chip tm-chip--primary">{l.reasonCode}</span>
-                    <span style={{ fontSize: "var(--fs-12)", color: "#6B7280" }}>{AUDIT_ACTION_LABEL[l.reasonCode] ?? "租户操作"} · {l.actor}{l.code ? ` · ${l.code}` : ""}</span>
-                  </div>
-                  {l.detail && <div className="tm-sub" style={{ marginTop: 2 }}>{l.detail}</div>}
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </Modal>
 
       {/* 更换套餐（即时生效，写审计） */}
@@ -1510,7 +1511,10 @@ function TenantDetailDrawer({
             {statusAction === "terminate" && (
               <div className="tm-note tm-note--warn" role="note">
                 <AlertTriangle size={14} aria-hidden />
-                <span>终止后<b>不可恢复</b>，主企业码 {tenant.primaryCode} 永久停用（retired），历史记录保留。</span>
+                <span>
+                  终止后<b>不可恢复</b>，主企业码 {tenant.primaryCode} 永久停用（retired），历史记录保留。
+                  {tenant.status === "pending_activation" && "该租户尚未激活，终止即开户作废，首位管理员的待激活邀请一并失效。"}
+                </span>
               </div>
             )}
             {statusAction === "suspend" && (
@@ -1610,9 +1614,6 @@ function TenantDetailDrawer({
                 style={{ ...fieldInput, ...(adminErr.phone ? { borderColor: "#DC2626" } : {}) }}
               />
             </Field>
-            <Field id="ca-dept" label="所属部门" required error={adminErr.department}>
-              <input {...inputProps("ca-dept", adminErr.department)} value={adminForm.department} onChange={(e) => setAdminForm((f) => ({ ...f, department: e.target.value }))} />
-            </Field>
             <Field id="ca-reason" label="变更原因" required error={adminErr.reason}>
               <input {...inputProps("ca-reason", adminErr.reason)} value={adminForm.reason} onChange={(e) => setAdminForm((f) => ({ ...f, reason: e.target.value }))} placeholder="必填；随审计记录保留" />
             </Field>
@@ -1624,12 +1625,11 @@ function TenantDetailDrawer({
                 if (!ACCOUNT_PATTERN.test(adminForm.account.trim())) errs.account = "账号须为 3-20 位小写字母/数字，可含 - 与 _";
                 else if (isAccountTakenInWorkspace(adminForm.account.trim(), tenant.enterpriseOrgId)) errs.account = "该账号在本企业已存在，请更换";
                 if (!/^1\d{10}$/.test(adminForm.phone)) errs.phone = "请输入正确的 11 位手机号";
-                if (!adminForm.department.trim()) errs.department = "请输入所属部门";
                 if (!adminForm.reason.trim()) errs.reason = "请输入变更原因";
                 setAdminErr(errs);
                 if (Object.keys(errs).length > 0) return;
                 void run("change-admin", () => {
-                  const r = changeInitialAdmin(tenant.id, { name: adminForm.name.trim(), phone: adminForm.phone, account: adminForm.account.trim(), department: adminForm.department.trim(), roleLabel: tenant.initialAdmin.roleLabel }, adminForm.reason.trim(), actor);
+                  const r = changeInitialAdmin(tenant.id, { name: adminForm.name.trim(), phone: adminForm.phone, account: adminForm.account.trim(), roleLabel: tenant.initialAdmin.roleLabel }, adminForm.reason.trim(), actor);
                   setAdminChangeOpen(false);
                   if (r.ok) { flushAudits(r.audits); addToast({ type: "success", title: "首位管理员已变更", description: "旧邀请已失效，新管理员待激活。" }); }
                 });

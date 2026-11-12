@@ -734,6 +734,38 @@ export const seedVarieties: Variety[] = [
     validUntil: "2028-07-31",
     activePriceBookId: "",
   },
+  // ── 2026-11-10 问卷计价桥接：希刻劳/泰诺林 = 价目 store 百益品种的 任务侧映像 ──
+  // 问卷×品种计价（价目表问卷方案）经这两个品种进入发包；双黄连/格华止属东方恒业，不进百益发包
+  {
+    id: "V-021",
+    genericName: "希刻劳",
+    tradeName: "希刻劳",
+    approvalNo: "国药准字H20051409",
+    applicableDept: "呼吸内科",
+    dosageForm: "片剂",
+    spec: "250mg",
+    package: "6片/盒",
+    unit: "盒",
+    holder: DEMO_HOLDER,
+    manufacturer: "百益制药",
+    validUntil: "2028-10-31",
+    activePriceBookId: "PB-STD-2026",
+  },
+  {
+    id: "V-022",
+    genericName: "泰诺林",
+    tradeName: "泰诺林",
+    approvalNo: "国药准字H20051410",
+    applicableDept: "呼吸内科",
+    dosageForm: "片剂",
+    spec: "500mg",
+    package: "10片/盒",
+    unit: "盒",
+    holder: DEMO_HOLDER,
+    manufacturer: "百益制药",
+    validUntil: "2028-11-30",
+    activePriceBookId: "PB-STD-2026",
+  },
 ]
 
 export function varietyDisplayName(v: Variety): string {
@@ -3412,7 +3444,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         subtitle: "目标 140 次",
         icon: "clipboard",
         actionLabel: "查看拜访",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
       {
         id: "pm-2",
@@ -3425,7 +3457,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         iconColor: "#248A5A",
         iconBg: "#E6F5ED",
         actionLabel: "查看质量",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
       {
         id: "pm-3",
@@ -3465,7 +3497,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         iconBg: "#FEECEC",
         urgency: "danger",
         actionLabel: "催办填报",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
     ],
     insights: [
@@ -3507,7 +3539,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         confidence: "中",
         suggestion: "先查看存疑标签明细，再决定是否要求专项整改。",
         actionLabel: "查看拜访",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
         confirmationNote: "AI 不自动判定违规，需人工复核后再处理。",
         severity: "info",
       },
@@ -3534,7 +3566,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         assignee: "各服务商",
         lastAction: "1 小时前 · 系统提醒",
         actionLabel: "查看名单",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
       {
         id: "pm-q-3",
@@ -3556,7 +3588,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         assignee: "陈静",
         lastAction: "今天 · 生成对比",
         actionLabel: "查看明细",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
     ],
     messages: [
@@ -3597,7 +3629,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         summary: "需确认是否升级处置。",
         time: "1 小时前",
         actionLabel: "查看转办",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
     ],
     quickActions: [
@@ -3615,9 +3647,9 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       },
       {
         id: "pm-a-3",
-        label: "医院拜访",
+        label: "医院拜访管理",
         description: "检查证据链问题",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
     ],
     recentOperations: [
@@ -3851,7 +3883,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           state: "待处理",
           occurredAt: "08-25 规则触发",
           actionLabel: "查看拜访",
-          target: "hospital-visits",
+          target: "visit-audit-hospital",
         },
         {
           id: "swb-ev-3",
@@ -4098,7 +4130,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
           "① 查看退回分类与关联任务（责任角色：药厂销售运营）；② 与东方恒业确认整改计划并跟踪 08-31 验收（责任角色：服务商）。",
         actions: [
           { label: "查看任务明细", target: "task-dispatch" },
-          { label: "查看拜访记录", target: "hospital-visits" },
+          { label: "查看拜访记录", target: "visit-audit-hospital" },
         ],
         generatedAt: "2026-08-27 09:35",
       },
@@ -4117,9 +4149,9 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         },
         {
           id: "swb-a-3",
-          label: "医院拜访",
+          label: "医院拜访管理",
           description: "执行记录与审核",
-          target: "hospital-visits",
+          target: "visit-audit-hospital",
         },
       ],
     } satisfies SalesWorkbenchData,
@@ -4169,7 +4201,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         iconBg: "#FEF3E2",
         urgency: "warning",
         actionLabel: "去审核",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
         source: "拜访管理",
       },
       {
@@ -4183,7 +4215,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         iconBg: "#FEECEC",
         urgency: "warning",
         actionLabel: "查看记录",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
         source: "拜访管理",
       },
     ],
@@ -4213,7 +4245,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         suggestion:
           "优先复核跟踪巡访类驳回记录，并核对相关专员的拜访执行流程是否需要整改。",
         actionLabel: "查看拜访记录",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
         confirmationNote: "审核通过或驳回需人工裁定。",
         severity: "risk",
       },
@@ -4252,7 +4284,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         assignee: "合规管理员",
         lastAction: "今天 · 待审核",
         actionLabel: "去审核",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
         note: "蓝色风控建议",
       },
       {
@@ -4264,7 +4296,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         assignee: "合规管理员",
         lastAction: "今天 · 驳回意见已通知专员",
         actionLabel: "查看记录",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
         note: "蓝色风控建议",
       },
     ],
@@ -4273,7 +4305,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         id: "pc-a-1",
         label: "医院拜访管理",
         description: "审核与查看拜访记录",
-        target: "hospital-visits",
+        target: "visit-audit-hospital",
       },
       {
         id: "pc-a-2",
@@ -4449,7 +4481,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         deltaLabel: "较上周",
         icon: "user-check",
         actionLabel: "查看专员",
-        target: "settlement",
+        target: "performance-specialist",
       },
       {
         id: "sp-4",
@@ -4461,7 +4493,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         iconColor: "#248A5A",
         iconBg: "#E6F5ED",
         actionLabel: "查看结算",
-        target: "settlement",
+        target: "task-dispatch",
       },
       {
         id: "sp-5",
@@ -4530,7 +4562,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         confidence: "高",
         suggestion: "今天优先催办超期专员，并安排工作组长跟踪。",
         actionLabel: "查看结算池",
-        target: "settlement",
+        target: "task-dispatch",
         confirmationNote: "预测金额仅供参考，最终结算以人工审核结果为准。",
         severity: "risk",
       },
@@ -4578,7 +4610,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         assignee: "财务专员",
         lastAction: "今天 · 待初审完成",
         actionLabel: "查看结算",
-        target: "settlement",
+        target: "task-dispatch",
       },
     ],
     messages: [
@@ -4639,7 +4671,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         id: "sp-a-3",
         label: "查看本月结算",
         description: "跟踪结算兑现",
-        target: "settlement",
+        target: "task-dispatch",
       },
     ],
     recentOperations: [

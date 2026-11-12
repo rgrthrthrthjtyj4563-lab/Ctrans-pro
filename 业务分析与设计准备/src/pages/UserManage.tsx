@@ -3,7 +3,7 @@
  * 只管理账号本身：建档、启停、调岗与已分配角色只读查看；角色授予/回收与
  * 数据范围（含可处理药厂/品种）统一在「角色与数据范围」页的「已授权成员」
  * 页签完成，本页不得修改任何权限范围。列表与建档范围锁定当前租户组织子树。
- * 服务专员建档保留备案档案生成（备案=业务资格，不是登录权限）。
+ * 备案是业务资格不是账号属性：建档只建账号，备案留底档案在「服务人员备案」板块处理。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Lock, UserMinus, UserPlus, Upload, Users } from 'lucide-react';
@@ -36,18 +36,6 @@ import { loginGuardOf, unlockLoginGuard } from '../auth/mockGateway';
 import { Field, InfoBanner, inputStyle, tdStyle, thStyle } from './permUi';
 import { canonicalRegions, hasPharmaAdminAssignment, REGION_SCOPE_ALL, regionScopeLabel } from '../data/pharmaRegionScope';
 import { PROVINCES, REGION_NATIONWIDE } from '../constants';
-import { useRepFiling } from '../context/RepFilingContext';
-import { nowText } from './complianceUi';
-import {
-  CURRENT_PLEDGE_TEMPLATE,
-  EDU_OPTIONS,
-  MED_MAJORS,
-  MAH_ID,
-  MAH_NAME,
-  allocRepId,
-  deriveEmployment,
-} from '../data/complianceData';
-import type { Representative } from '../types';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
@@ -72,29 +60,24 @@ type ImportRow = {
 export function UserManage({ addToast, navFocus }: Props) {
   const store = usePermission();
   const { orgs, users, assignments, roles, can, previewReadOnly, principal } = store;
-  const repFiling = useRepFiling();
   // P0：名单与部门展示基于 TenantMembership（建档/调岗实时刷新）
   const [membershipVersion, bump] = useState(0);
   useEffect(() => subscribeTenantMemberships(() => bump(x => x + 1)), []);
   const tenantRootId = principal.realm === 'TENANT' ? principal.tenantId : 'org-platform';
   const tenantRoot = orgs.find(o => o.id === tenantRootId);
-  // 药厂侧（2026-10-27 D1/D2）：成员可见区域 = 所属部门管理区域，调岗即改变可见范围；范围档位不再展示
+  // 药厂侧（2026-10-27 方向修订）：负责区域配置在成员上，调岗不改变；本页成员详情是唯一编辑入口
   const isPharmaTenant = store.tenantKind === 'pharma';
 
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [includeChildren, setIncludeChildren] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  // D8：组织架构成员行「查看授权」跳入时直接打开该成员详情（角色授权 + 数据可见区域）
+  // 组织架构成员详情「管理账号」跳入时直接打开该成员详情
   useEffect(() => {
     if (navFocus?.userDetailUserId) setSelectedUserId(navFocus.userDetailUserId);
   }, [navFocus?.userDetailUserId]);
   const [createUserOpen, setCreateUserOpen] = useState<{
     name: string; account: string; phone: string; email: string; orgId: string; error: string;
-    createRep: boolean;
-    gender: '男' | '女'; photoFile: string; idNo: string;
-    education: string; major: string; school: string; eduProof: string;
-    pledgeDate: string; pledgeFile: string; employStart: string; employEnd: string;
   } | null>(null);
   const [moveUser, setMoveUser] = useState<{ userId: string; targetId: string; error: string } | null>(null);
   // 编辑负责区域（2026-10-27 方向修订：按成员配置；「全国」与具体省份互斥；未配置 = 区域受控数据不可见）
@@ -110,6 +93,15 @@ export function UserManage({ addToast, navFocus }: Props) {
   const canCreate = can('user-manage', 'create') && !previewReadOnly;
   const canEdit = can('user-manage', 'edit') && !previewReadOnly;
 
+  // 组织架构「新建用户」独立入口跳入：直接打开新建弹窗，并把当前部门带入为默认归属
+  useEffect(() => {
+    const orgId = navFocus?.createUserDefaultOrgId;
+    if (!orgId || !canCreate) return;
+    if (!orgs.some(o => o.id === orgId)) return;
+    setCreateUserOpen({ name: '', account: '', phone: '', email: '', orgId, error: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navFocus?.createUserDefaultOrgId]);
+
   const memberships = useMemo(() => membershipsOfTenant(tenantRootId), [tenantRootId, membershipVersion]);
   const tenantUserIds = useMemo(
     () => memberships.map(m => users.find(u => u.id === m.userId)).filter((u): u is (typeof users)[number] => Boolean(u)),
@@ -117,9 +109,16 @@ export function UserManage({ addToast, navFocus }: Props) {
   );
   const memberOrgName = (userId: string) => {
     const m = membershipOfUserInTenant(userId, tenantRootId);
-    return orgs.find(o => o.id === m?.orgUnitId)?.name ?? m?.tenantName ?? '—';
+    if (!m) return '—';
+    // 与组织架构口径一致：所属节点已不存在 → 「未分配」（而不是回退到企业名）
+    return orgs.find(o => o.id === m.orgUnitId)?.name ?? '未分配';
   };
   const memberOrgId = (userId: string) => membershipOfUserInTenant(userId, tenantRootId)?.orgUnitId ?? '';
+  /** 成员身份 orgUnit 在组织树中已不存在（原节点裁撤）——名单上仍应可见，便于重新归属 */
+  const memberOrgDangling = (userId: string) => {
+    const id = memberOrgId(userId);
+    return Boolean(id) && !orgs.some(o => o.id === id);
+  };
   /** 成员身份（含 removed）：行展示与操作分支的依据 */
   const membershipOf = (userId: string) => membershipOfUserInTenant(userId, tenantRootId);
   const isRemovedMember = (userId: string) => membershipOf(userId)?.status === 'removed';
@@ -135,7 +134,8 @@ export function UserManage({ addToast, navFocus }: Props) {
     const scopeIds = includeChildren ? new Set(orgDescendantIds(orgs, tenantRootId)) : new Set([tenantRootId]);
     const kw = keyword.trim().toLowerCase();
     return tenantUserIds.filter(u => {
-      if (!scopeIds.has(memberOrgId(u.id))) return false;
+      // 待归属成员（所属节点已不存在）始终进入名单，便于在用户管理核对与重新归属
+      if (!memberOrgDangling(u.id) && !scopeIds.has(memberOrgId(u.id))) return false;
       if (kw && !(u.name.toLowerCase().includes(kw) || u.account.toLowerCase().includes(kw))) return false;
       if (statusFilter === 'removed') {
         if (!isRemovedMember(u.id)) return false;
@@ -168,21 +168,6 @@ export function UserManage({ addToast, navFocus }: Props) {
     if (regions.length > 2) return <span title={regions.join('、')}>{regions.slice(0, 2).join('、')} 等 {regions.length} 个</span>;
     return <span>{regions.join('、')}</span>;
   };
-
-  function missingRepFields(): string[] {
-    if (!createUserOpen?.createRep) return [];
-    const f = createUserOpen;
-    const miss: string[] = [];
-    if (!f.photoFile) miss.push('照片');
-    if (!f.idNo) miss.push('身份证号');
-    if (!EDU_OPTIONS.includes(f.education)) miss.push('学历须大专及以上');
-    if (!f.major) miss.push('专业');
-    if (!f.school) miss.push('毕业院校');
-    if (!f.eduProof) miss.push('学历证明');
-    if (!f.employStart || !f.employEnd) miss.push('合同起止日期');
-    if (!f.pledgeDate || !f.pledgeFile) miss.push('合规承诺');
-    return miss;
-  }
 
   function submitCreateUser() {
     if (!createUserOpen) return;
@@ -219,48 +204,13 @@ export function UserManage({ addToast, navFocus }: Props) {
     const targetOrg = orgs.find(o => o.id === createUserOpen.orgId);
     if (!targetOrg) return fail('请选择所属部门');
     if (enterpriseRootOf(orgs, targetOrg.id)?.id !== tenantRootId) return fail('只能挂在本企业组织下（租户边界）');
-    if (createUserOpen.createRep) {
-      const miss = missingRepFields();
-      if (miss.length) return fail(`服务专员备案档案仍缺必填项：${miss.join('、')}`);
-      if (repFiling.reps.some(r => r.idNo === createUserOpen.idNo.trim())) return fail('身份证号已存在于代表备案留底档案，须唯一');
-    }
     const result = store.createUser({ name, account, phone, email, orgId: createUserOpen.orgId });
     if (!result.ok) return fail(result.error || '新建用户失败');
-    if (createUserOpen.createRep && result.user) {
-      const emp = deriveEmployment(orgs, createUserOpen.orgId);
-      const rep: Representative = {
-        id: allocRepId(repFiling.reps),
-        name,
-        gender: createUserOpen.gender,
-        photoFile: createUserOpen.photoFile.trim(),
-        idNo: createUserOpen.idNo.trim(),
-        mobile: phone,
-        email,
-        employmentType: emp.employmentType,
-        mah: MAH_NAME,
-        mahId: MAH_ID,
-        provider: emp.providerName,
-        providerId: emp.providerId,
-        userId: result.user.id,
-        employStart: createUserOpen.employStart,
-        employEnd: createUserOpen.employEnd,
-        education: createUserOpen.education,
-        major: createUserOpen.major,
-        school: createUserOpen.school.trim(),
-        eduProof: createUserOpen.eduProof.trim(),
-        pledgeVersion: CURRENT_PLEDGE_TEMPLATE,
-        pledgeDate: createUserOpen.pledgeDate,
-        pledgeFile: createUserOpen.pledgeFile.trim(),
-        filingNo: '',
-        filingValidUntil: '',
-        status: '未备案',
-        operations: [{ at: nowText(), by: principal.name, action: '创建留底档案', note: '创建服务专员账号时生成备案留底档案' }],
-      };
-      repFiling.addRep(rep);
-      addToast({ type: 'success', title: '已新建服务专员', description: `${name} · ${account} · 备案留底档案已生成（未备案）；药厂在国家平台完成备案后，可在「服务人员备案」同步状态（REP：${rep.id}）` });
-    } else {
-      addToast({ type: 'success', title: '已新建用户', description: `${name} · ${account} · 未分配角色，可在「角色与数据范围」对应角色的「已授权成员」页签授予` });
-    }
+    addToast({
+      type: 'success',
+      title: '已新建用户',
+      description: `${name} · ${account} · 未分配角色，可在「角色与数据范围」对应角色的「已授权成员」页签授予`,
+    });
     setCreateUserOpen(null);
   }
 
@@ -269,8 +219,10 @@ export function UserManage({ addToast, navFocus }: Props) {
     if (!moveUser) return [];
     const user = users.find(u => u.id === moveUser.userId);
     if (!user) return [];
+    // 以成员身份的当前归属为准排除（不读 User.orgId 主档）
+    const currentOrgId = memberOrgId(moveUser.userId);
     return orgs.filter(o => {
-      if (o.id === user.orgId) return false;
+      if (o.id === currentOrgId) return false;
       if (!isDeptParentType(o.type) && o.type !== 'provider' && o.type !== 'group' && o.type !== 'platform') return false;
       return enterpriseRootOf(orgs, o.id)?.id === tenantRootId;
     });
@@ -486,8 +438,6 @@ export function UserManage({ addToast, navFocus }: Props) {
             </Button>
             <Button variant="primary" size="md" icon={<UserPlus size={14} />} onClick={() => setCreateUserOpen({
               name: '', account: '', phone: '', email: '', orgId: defaultOrgOptions()[0]?.id ?? tenantRootId, error: '',
-              createRep: false, gender: '男', photoFile: '', idNo: '', education: '本科', major: '', school: '', eduProof: '',
-              pledgeDate: '', pledgeFile: '', employStart: '', employEnd: '',
             })}>
               新建用户
             </Button>
@@ -631,7 +581,7 @@ export function UserManage({ addToast, navFocus }: Props) {
             <Field label="手机号">{selectedUser.phone}</Field>
             <Field label="邮箱">{selectedUser.email || '—'}</Field>
             <Field label="所属企业">{tenantRoot?.name ?? '—'}</Field>
-            <Field label="本企业所属部门">{orgPathLabel(orgs, memberOrgId(selectedUser.id))}</Field>
+            <Field label="本企业所属部门">{memberOrgDangling(selectedUser.id) ? '未分配（原节点已不存在，请调整所属部门）' : orgPathLabel(orgs, memberOrgId(selectedUser.id))}</Field>
             <Field label="创建时间">{selectedUser.createdAt ?? '—'}</Field>
             <Field label="最近登录">{selectedUser.lastLoginAt ?? '—'}</Field>
             {detailLocked && (
@@ -795,13 +745,13 @@ export function UserManage({ addToast, navFocus }: Props) {
         );
       })()}
 
-      {/* 新建用户 */}
+      {/* 新建用户（只建账号；备案留底档案在「服务人员备案」板块按业务需要另行处理） */}
       {createUserOpen && (
         <Modal open title="新建用户" onClose={() => setCreateUserOpen(null)} width={660}
           footer={
             <>
               <Button variant="outline" onClick={() => setCreateUserOpen(null)}>取消</Button>
-              <Button variant="primary" onClick={submitCreateUser}>{createUserOpen.createRep ? '创建账号并生成备案档案' : '创建账号'}</Button>
+              <Button variant="primary" onClick={submitCreateUser}>创建账号</Button>
             </>
           }
         >
@@ -836,38 +786,6 @@ export function UserManage({ addToast, navFocus }: Props) {
                 {defaultOrgOptions().map(o => <option key={o.id} value={o.id}>{orgPathLabel(orgs, o.id)}</option>)}
               </select>
             </Field>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', cursor: 'pointer' }}>
-              <input type="checkbox" checked={createUserOpen.createRep} onChange={e => setCreateUserOpen({ ...createUserOpen, createRep: e.target.checked })} style={{ accentColor: 'var(--color-brand)', width: 15, height: 15 }} />
-              同时生成服务专员备案留底档案（该成员将从事学术拜访业务；备案由药厂在国家平台操作，系统留底并同步状态）
-            </label>
-            {createUserOpen.createRep && (
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, display: 'grid', gap: 12 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <Field label="性别" required>
-                    <select value={createUserOpen.gender} onChange={e => setCreateUserOpen({ ...createUserOpen, gender: e.target.value as '男' | '女' })} style={inputStyle}><option>男</option><option>女</option></select>
-                  </Field>
-                  <Field label="照片" required><input value={createUserOpen.photoFile} onChange={e => setCreateUserOpen({ ...createUserOpen, photoFile: e.target.value })} style={inputStyle} placeholder="照片文件名" /></Field>
-                  <Field label="身份证号" required><input value={createUserOpen.idNo} onChange={e => setCreateUserOpen({ ...createUserOpen, idNo: e.target.value })} style={inputStyle} /></Field>
-                  <Field label="所属服务商" hint="按所属组织自动推导">
-                    <input value={deriveEmployment(orgs, createUserOpen.orgId).providerName} disabled style={{ ...inputStyle, color: '#667085', background: '#F9FAFB' }} />
-                  </Field>
-                  <Field label="学历" required>
-                    <select value={createUserOpen.education} onChange={e => setCreateUserOpen({ ...createUserOpen, education: e.target.value })} style={inputStyle}>{EDU_OPTIONS.map(x => <option key={x}>{x}</option>)}</select>
-                  </Field>
-                  <Field label="专业" required>
-                    <select value={createUserOpen.major} onChange={e => setCreateUserOpen({ ...createUserOpen, major: e.target.value })} style={inputStyle}>
-                      <option value="">请选择</option>{MED_MAJORS.map(m => <option key={m}>{m}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="毕业院校" required><input value={createUserOpen.school} onChange={e => setCreateUserOpen({ ...createUserOpen, school: e.target.value })} style={inputStyle} /></Field>
-                  <Field label="学历证明" required><input value={createUserOpen.eduProof} onChange={e => setCreateUserOpen({ ...createUserOpen, eduProof: e.target.value })} style={inputStyle} placeholder="附件文件名" /></Field>
-                  <Field label="合同开始" required><input type="date" value={createUserOpen.employStart} onChange={e => setCreateUserOpen({ ...createUserOpen, employStart: e.target.value })} style={inputStyle} /></Field>
-                  <Field label="合同结束" required><input type="date" value={createUserOpen.employEnd} onChange={e => setCreateUserOpen({ ...createUserOpen, employEnd: e.target.value })} style={inputStyle} /></Field>
-                  <Field label="承诺签署日期" required><input type="date" value={createUserOpen.pledgeDate} onChange={e => setCreateUserOpen({ ...createUserOpen, pledgeDate: e.target.value })} style={inputStyle} /></Field>
-                  <Field label="承诺附件" required><input value={createUserOpen.pledgeFile} onChange={e => setCreateUserOpen({ ...createUserOpen, pledgeFile: e.target.value })} style={inputStyle} placeholder="附件文件名" /></Field>
-                </div>
-              </div>
-            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
               <Users size={13} /> 同一个手机号可在多家企业分别建档成员身份；此处仅创建当前企业的成员。初始密码统一 demo123（演示）
             </div>
@@ -892,7 +810,7 @@ export function UserManage({ addToast, navFocus }: Props) {
               <InfoBanner>仅变更人员归属节点；<b>归属变化不自动调整角色与数据范围</b>（如需调整请前往「角色与数据范围」）。跨企业调入会被拒绝。</InfoBanner>
             )}
             {moveUser.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{moveUser.error}</div>}
-            <Field label="当前所属">{users.find(u => u.id === moveUser.userId)?.orgName ?? '—'}</Field>
+            <Field label="当前所属">{memberOrgName(moveUser.userId)}</Field>
             <Field label="调整到" required>
               <select value={moveUser.targetId} onChange={e => setMoveUser({ ...moveUser, targetId: e.target.value, error: '' })} style={inputStyle}>
                 <option value="">选择目标部门/团队</option>

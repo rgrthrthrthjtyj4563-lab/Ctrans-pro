@@ -8,12 +8,14 @@ import {
   PRESET_ROLES,
   SEED_GROUP_LEADER_CHANGES,
   SEED_GROUP_LEADERS,
+  deptDeleteBlockers,
   emptyCustomScope,
   enterpriseRootOf,
   isHighRiskRole,
   mergeRolePerms,
   nextId,
   nowStamp,
+  orgPathLabel,
   pageHasAction,
   perspectiveRoleOf,
   resolveGrantAnchor,
@@ -28,6 +30,7 @@ import {
   tenantKindOfRoot,
   validateDeptParent,
   type AccessRealm,
+  type DeptDeleteBlocker,
   type FieldPolicyKind,
   type GrantStatus,
   type GroupLeaderChange,
@@ -50,6 +53,7 @@ import {
   grantablePharmasForProvider,
   membershipActive,
   membershipOfUserInTenant,
+  membershipsOfTenant,
   rejoinMembership,
   removeMembership,
   setMembershipRegions,
@@ -61,6 +65,7 @@ import {
   getTenantRegistrySnapshot,
   isAccountTakenInWorkspace,
   isPhoneTakenInWorkspace,
+  removeRuntimeOrg,
   subscribeTenantRegistry,
   tenantQuotaInfo,
   upsertRuntimeOrg,
@@ -141,6 +146,14 @@ interface PermissionStore {
   rejoinTenantMember: (input: { userId: string; orgId: string }) => { ok: boolean; error?: string };
   addDepartment: (input: { name: string; parentId: string }) => { ok: boolean; error?: string; org?: PermOrg };
   updateDepartment: (input: { orgId: string; name?: string; parentId?: string; reason?: string }) => { ok: boolean; error?: string };
+  /**
+   * 删除部门（2026-10-28 组织架构改造）：企业根不可删；本部门及下级有成员、有直接下级、
+   * 或被业务配置按名引用（businessRefDeptNames 由页面从验收链等配置收集）时阻止并返回
+   * blockers；通过后删除节点、记墓碑并审计，返回原上级供页面回选。
+   */
+  deleteDepartment: (input: { orgId: string; businessRefDeptNames?: string[] }) => {
+    ok: boolean; error?: string; blockers?: DeptDeleteBlocker[]; parent?: PermOrg;
+  };
   /** 成员负责区域（按人配置、调岗不变）：省级短名 / 「全国」；空数组 = 未配置（默认拒绝，角色不受影响） */
   setMemberRegions: (input: { userId: string; regions: string[]; reason?: string }) => { ok: boolean; error?: string; regions?: string[] };
   /** 服务商内部业务团队（工作组）管理：只表达团队归属，不承载权限域概念 */
@@ -584,8 +597,8 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       reason: input.reason?.trim() || '常规授权',
       afterSummary: [
         pendingReview ? '待复核' : '生效',
-        // 药厂侧范围档位已退役：可见区域随所属部门，审计只留挂靠组织（服务商侧照旧记档位）
-        principalTenantKind === 'pharma' ? `${scopeOrgName} · 数据区域随所属部门` : `${scopeOrgName} · ${scopeLabel(scope)}`,
+        // 药厂侧范围档位已退役：负责区域按成员配置（调岗不变），审计只留挂靠组织（服务商侧照旧记档位）
+        principalTenantKind === 'pharma' ? `${scopeOrgName} · 负责区域按成员配置` : `${scopeOrgName} · ${scopeLabel(scope)}`,
         input.pharmaTenantIds && input.pharmaTenantIds.length > 0
           ? `可处理药厂 ${input.pharmaTenantIds.length} 家`
           : null,
@@ -675,7 +688,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
       resource: 'role-assignments.revoke',
       reason,
       beforeSummary: principalTenantKind === 'pharma'
-        ? `${current.scopeOrgName} · 数据区域随所属部门`
+        ? `${current.scopeOrgName} · 负责区域按成员配置`
         : `${current.scopeOrgName} · ${scopeLabel(current.scope)}`,
       afterSummary: '已回收 · 历史保留可查',
     });
@@ -958,6 +971,37 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     return { ok: true };
   }, [logAudit, orgs, preview]);
 
+  const deleteDepartment = useCallback((input: { orgId: string; businessRefDeptNames?: string[] }) => {
+    if (preview) return { ok: false, error: '预览模式禁止写操作' };
+    const current = orgs.find(o => o.id === input.orgId);
+    if (!current) return { ok: false, error: '部门不存在或已被删除，请刷新后重试' };
+    if (realm === 'TENANT' && enterpriseRootOf(orgs, current.id)?.id !== principalTenantId) {
+      return { ok: false, error: '只能删除本企业组织树内的部门（租户边界）' };
+    }
+    const tenantIdForMembers = realm === 'TENANT' ? principalTenantId : 'org-platform';
+    const blockers = deptDeleteBlockers({
+      orgs,
+      memberships: membershipsOfTenant(tenantIdForMembers ?? ''),
+      orgId: input.orgId,
+      businessRefDeptNames: input.businessRefDeptNames ?? [],
+    });
+    if (blockers.length > 0) {
+      return { ok: false, error: blockers[0].message, blockers };
+    }
+    const parent = current.parentId ? orgs.find(o => o.id === current.parentId) : undefined;
+    setOrgs(prev => prev.filter(o => o.id !== current.id));
+    removeRuntimeOrg(current.id);
+    logAudit({
+      module: MOD_ORG,
+      action: '删除部门',
+      target: current.name,
+      resource: 'orgs.delete',
+      beforeSummary: orgPathLabel(orgs, current.id),
+      afterSummary: '已删除 · 无成员、无下级、无业务引用',
+    });
+    return { ok: true, parent };
+  }, [logAudit, orgs, preview, principalTenantId, realm]);
+
   /**
    * 配置成员负责区域（2026-10-27 方向修订）：只改 membership.responsibleRegions，
    * 不动部门归属与角色授权（调岗也不改区域）。输入经 canonicalRegions 归一
@@ -1201,6 +1245,7 @@ export function PermissionProvider({ principal, children }: { principal: AuthPri
     rejoinTenantMember,
     addDepartment,
     updateDepartment,
+    deleteDepartment,
     setMemberRegions,
     addWorkGroup,
     renameWorkGroup,

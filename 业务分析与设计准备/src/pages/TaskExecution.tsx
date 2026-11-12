@@ -39,6 +39,7 @@ import { membershipsOfTenant } from "../data/cooperationModel"
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from "../hooks/useServingBizScope"
 import { NO_REGION_SCOPE_DESCRIPTION, NO_REGION_SCOPE_TITLE, usePharmaRegionScope } from "../hooks/usePharmaRegionScope"
 import {
+  CNY_SYMBOL,
   formatCNYUpper,
   RECON_STATUS_OPTIONS,
   TASK_STATUS_OPTIONS,
@@ -334,13 +335,16 @@ export function TaskExecution({
       }
       if (isSales) {
         return (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRevokeTarget(t)}
-          >
-            撤销任务
-          </Button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRevokeTarget(t)}
+            >
+              撤销任务
+            </Button>
+            {detailBtn}
+          </div>
         )
       }
     }
@@ -731,6 +735,7 @@ export function TaskExecution({
         isProvider={isProvider}
         onReview={() => detail && setReviewTask(detail)}
         onConfirmBill={() => detail && setConfirmBillTask(detail)}
+        onStartSettle={() => detail && setSettleTask(detail)}
         onUploadReport={
           isProvider
             ? () => {
@@ -835,6 +840,7 @@ export function TaskExecution({
 
       <ConfirmBillModal
         task={live(confirmBillTask)}
+        addToast={addToast}
         onClose={() => setConfirmBillTask(null)}
         onSave={(billId, lines, declaration) => {
           if (!confirmBillTask) return
@@ -1346,6 +1352,7 @@ export function TaskDetailModal({
   isProvider,
   onReview,
   onConfirmBill,
+  onStartSettle,
   onConfirmTask,
   onUploadReport,
   onReuploadReport,
@@ -1362,6 +1369,7 @@ export function TaskDetailModal({
   isProvider: boolean
   onReview: () => void
   onConfirmBill: () => void
+  onStartSettle?: () => void
   onConfirmTask?: () => void
   onUploadReport?: () => void
   onReuploadReport?: (report: ReportFile) => void
@@ -1381,6 +1389,7 @@ export function TaskDetailModal({
       isProvider={isProvider}
       onReview={onReview}
       onConfirmBill={onConfirmBill}
+      onStartSettle={onStartSettle}
       onConfirmTask={onConfirmTask}
       onUploadReport={onUploadReport}
       onReuploadReport={onReuploadReport}
@@ -1916,6 +1925,7 @@ function TaskDetailV5({
   isProvider,
   onReview,
   onConfirmBill,
+  onStartSettle,
   onConfirmTask,
   onUploadReport,
   onReuploadReport,
@@ -1932,6 +1942,7 @@ function TaskDetailV5({
   isProvider: boolean
   onReview: () => void
   onConfirmBill: () => void
+  onStartSettle?: () => void
   onConfirmTask?: () => void
   onUploadReport?: () => void
   onReuploadReport?: (report: ReportFile) => void
@@ -1943,8 +1954,8 @@ function TaskDetailV5({
   const [allocationWorkGroup, setAllocationWorkGroup] = useState<string | null>(
     null,
   )
-  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null)
-  const [selectedBill, setSelectedBill] = useState<string | null>(null)
+  // 结算单直接弹窗：只记单据 id，弹窗内容每次渲染从 displayBills 派生（确认/驳回后自动刷新）
+  const [receiptBillId, setReceiptBillId] = useState<string | null>(null)
   const remain = remainingOfTask(task)
   const pendingUploadReports = task.reports.filter(
     (r) => r.status === "待上传",
@@ -2134,8 +2145,18 @@ function TaskDetailV5({
       varieties: [...new Set(g.splits.map((s) => s.variety))],
       regions: [...new Set(g.splits.map((s) => s.region))],
     }))
-  const displayBills = periods.flatMap((period, index) => {
-    const real = task.settlements
+  type SettleBillRow = {
+    id: string
+    no: string
+    period: string
+    amount: number
+    status: string
+    createdAt: string
+    lines: SettlementLine[]
+  }
+  // 结算单行：仅真实结算单（演示假单机制已移除，空周期在页签内以「未发起」呈现）
+  const displayBills: SettleBillRow[] = periods.flatMap((period) =>
+    task.settlements
       .filter((bill) => bill.settlementPeriodId === period.id)
       .map((bill) => ({
         id: bill.id,
@@ -2145,57 +2166,13 @@ function TaskDetailV5({
         status: bill.voided ? "已驳回" : bill.confirmed ? "已确认" : "对账中",
         createdAt: bill.madeAt,
         lines: bill.lines,
-      }))
-    if (real.length) return real
-    const states = ["待对账", "对账中", "已确认", "已完成", "已驳回"]
-    const status = states[index % states.length]
-    const amount = Math.round(task.planAmount / periods.length)
-    return [
-      {
-        id: `${period.id}-demo-bill`,
-        no: `JS-2026-${String(index + 1).padStart(3, "0")}`,
-        period: period.name,
-        amount,
-        status,
-        createdAt: `2026-08-${String(8 + index * 3).padStart(2, "0")} 14:20`,
-        lines: [
-          {
-            id: `${period.id}-line-1`,
-            variety: task.varieties[0] ?? "阿托伐他汀钙片（20mg）",
-            region: task.regions[0] ?? "陕西省",
-            serviceType: "市场推广服务",
-            serviceItem: "医院拜访",
-            serviceAmount: Math.round(amount * 0.45),
-            actualAmount: Math.round(amount * 0.45),
-            remark: "已完成审核",
-          },
-          {
-            id: `${period.id}-line-2`,
-            variety: task.varieties[0] ?? "阿托伐他汀钙片（20mg）",
-            region: task.regions[0] ?? "陕西省",
-            serviceType: "市场推广服务",
-            serviceItem: "商业拜访",
-            serviceAmount: Math.round(amount * 0.2),
-            actualAmount: Math.round(amount * 0.2),
-            remark: "—",
-          },
-          {
-            id: `${period.id}-line-3`,
-            variety:
-              task.varieties[1] ??
-              task.varieties[0] ??
-              "阿托伐他汀钙片（20mg）",
-            region: task.regions[1] ?? task.regions[0] ?? "陕西省",
-            serviceType: "分析报告服务",
-            serviceItem: "区域市场分析报告",
-            serviceAmount: amount - Math.round(amount * 0.65),
-            actualAmount: amount - Math.round(amount * 0.65),
-            remark: "含附件",
-          },
-        ],
-      },
-    ]
-  })
+      })),
+  )
+  // 结算单弹窗内容按 id 实时派生：确认 / 驳回后状态与金额自动刷新
+  const receiptBill =
+    receiptBillId === null
+      ? null
+      : displayBills.find((bill) => bill.id === receiptBillId) ?? null
   const businessAreas = ([
     { key: "promo", title: "市场推广服务", category: "市场推广服务" },
     {
@@ -2271,6 +2248,7 @@ function TaskDetailV5({
   })
 
   return (
+    <>
     <Modal
       open
       title={allocationSplit ? "个人分配任务明细" : `任务详情 · ${task.taskNo}`}
@@ -2469,6 +2447,112 @@ function TaskDetailV5({
                   />
                 </div>
               </Section>
+              {(task.questionnaireSnapshots?.length ?? 0) > 0 && (
+                <>
+                  <div style={{ height: 12 }} />
+                  <Section
+                    title="问卷计价快照"
+                    subtitle="创建任务时锁定 · 之后修改问卷归属或价目不影响本任务"
+                  >
+                    <table
+                      style={{
+                        width: "100%",
+                        borderCollapse: "collapse",
+                        tableLayout: "fixed",
+                      }}
+                    >
+                      <thead>
+                        <tr>
+                          {[
+                            "问卷",
+                            "品种",
+                            "计价方案",
+                            "题目版本",
+                            "对公单价",
+                            "对私单价",
+                          ].map((heading) => (
+                            <th
+                              key={heading}
+                              style={
+                                heading.includes("单价")
+                                  ? { ...th, textAlign: "right" }
+                                  : th
+                              }
+                            >
+                              {heading}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {task.questionnaireSnapshots!.map((s) => (
+                          <tr key={`${s.code}-${s.variety}`}>
+                            <td style={td}>
+                              <strong>{s.name}</strong>
+                              <span
+                                style={{
+                                  display: "block",
+                                  fontSize: "var(--fs-11)",
+                                  color: "#98A2B3",
+                                }}
+                              >
+                                {s.code} · 填写对象 {s.audience} ·{" "}
+                                {s.questions.length} 道题
+                              </span>
+                            </td>
+                            <td style={td}>{s.variety}</td>
+                            <td style={td}>
+                              {s.schemeName}
+                              <span
+                                style={{
+                                  display: "block",
+                                  fontSize: "var(--fs-11)",
+                                  color: "#98A2B3",
+                                }}
+                              >
+                                按「{s.audience}」档位取价
+                              </span>
+                            </td>
+                            <td style={td}>
+                              V{s.version}
+                              <span
+                                style={{
+                                  display: "block",
+                                  fontSize: "var(--fs-11)",
+                                  color: "#98A2B3",
+                                }}
+                              >
+                                {s.versionCreatedAt}
+                              </span>
+                            </td>
+                            <td
+                              style={{
+                                ...td,
+                                textAlign: "right",
+                                fontFamily: "'JetBrains Mono', monospace",
+                              }}
+                            >
+                              {formatCNY(s.prices.pub)}/份
+                            </td>
+                            <td
+                              style={{
+                                ...td,
+                                textAlign: "right",
+                                fontFamily: "'JetBrains Mono', monospace",
+                                color: "#667085",
+                              }}
+                            >
+                              {s.prices.priv === null
+                                ? "—"
+                                : `${formatCNY(s.prices.priv)}/份`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Section>
+                </>
+              )}
               <div style={{ height: 12 }} />
               {businessAreas.map((area) => (
                 <div key={area.key} style={{ marginTop: 12 }}>
@@ -2758,242 +2842,154 @@ function TaskDetailV5({
           {tab === "settle" && (
             <Section
               title="结算周期与结算单"
-              subtitle="点击结算周期，在当前页面查看该周期对应结算单"
+              subtitle="结算单按周期平铺，点击「查看结算单」直接打开单据"
             >
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {[
-                      "结算周期",
-                      "周期状态",
-                      "应结算金额",
-                      "已结算金额",
-                      "待结算金额",
-                      "对账状态",
-                      "结算单数量",
-                      "操作",
-                    ].map((heading) => (
-                      <th
-                        key={heading}
-                        style={
-                          heading.includes("金额")
-                            ? { ...th, textAlign: "right" }
-                            : th
-                        }
+              {periods.map((period) => {
+                const bills = displayBills.filter(
+                  (bill) => bill.period === period.name,
+                )
+                const due = Math.round(task.planAmount / periods.length)
+                const settled = bills
+                  .filter((bill) => ["已确认", "已完成"].includes(bill.status))
+                  .reduce((sum, bill) => sum + bill.amount, 0)
+                return (
+                  <div
+                    key={period.id}
+                    style={{
+                      border: "1px solid var(--color-border)",
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      background: "#fff",
+                      marginBottom: 16,
+                    }}
+                  >
+                    {/* 周期分组头：时间段为主标识，月份降为小字；小计随真实结算单汇总 */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "10px 16px",
+                        background: "#F8FAFC",
+                        borderBottom: bills.length
+                          ? "1px solid var(--color-border)"
+                          : undefined,
+                      }}
+                    >
+                      <strong style={{ fontSize: "var(--fs-13)" }}>
+                        {period.startDate} ~ {period.endDate}
+                      </strong>
+                      <span style={{ fontSize: "var(--fs-11)", color: "#98A2B3" }}>
+                        {period.name}
+                      </span>
+                      <span
+                        style={{
+                          marginLeft: "auto",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 14,
+                          fontSize: "var(--fs-12)",
+                          color: "#667085",
+                        }}
                       >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {periods.map((period, index) => {
-                    const bills = displayBills.filter(
-                      (bill) => bill.period === period.name,
-                    )
-                    const due = Math.round(task.planAmount / periods.length)
-                    const settled = bills
-                      .filter((bill) => ["已确认", "已完成"].includes(bill.status))
-                      .reduce((sum, bill) => sum + bill.amount, 0)
-                    const active = selectedPeriod === period.id
-                    const chosen = bills.find(
-                      (bill) => bill.id === selectedBill,
-                    )
-                    return (
-                      <Fragment key={period.id}>
-                        <tr>
-                          <td style={td}>
-                            {period.name}
-                            <div
-                              style={{
-                                fontSize: "var(--fs-11)",
-                                color: "#98A2B3",
-                                marginTop: 2,
-                              }}
-                            >
-                              {period.startDate} ~ {period.endDate}
-                            </div>
-                          </td>
-                          <td style={td}>
-                            <DetailStatus
-                              label={
-                                settled >= due
-                                  ? "已完成"
-                                  : index === 0
-                                    ? "对账中"
-                                    : "待对账"
-                              }
-                            />
-                          </td>
-                          <td
-                            style={{
-                              ...td,
-                              textAlign: "right",
-                              fontFamily: "'JetBrains Mono', monospace",
-                            }}
+                        <span>
+                          应结算
+                          <span
+                            className="font-mono-nums"
+                            style={{ marginLeft: 4, color: "#1F2937", fontWeight: 600 }}
                           >
                             {formatCNY(due)}
-                          </td>
-                          <td
-                            style={{
-                              ...td,
-                              textAlign: "right",
-                              fontFamily: "'JetBrains Mono', monospace",
-                            }}
+                          </span>
+                        </span>
+                        <span>
+                          已结算
+                          <span
+                            className="font-mono-nums"
+                            style={{ marginLeft: 4, color: "#1F2937", fontWeight: 600 }}
                           >
                             {formatCNY(Math.min(due, settled))}
-                          </td>
-                          <td
-                            style={{
-                              ...td,
-                              textAlign: "right",
-                              fontFamily: "'JetBrains Mono', monospace",
-                            }}
+                          </span>
+                        </span>
+                        <span>
+                          待结算
+                          <span
+                            className="font-mono-nums"
+                            style={{ marginLeft: 4, color: due - settled > 0 ? "#C77A16" : "#1F2937", fontWeight: 600 }}
                           >
                             {formatCNY(Math.max(0, due - settled))}
-                          </td>
-                          <td style={td}>
-                            <DetailStatus
-                              label={
-                                index === 0
-                                  ? "对账中"
-                                  : settled
-                                    ? "已对账"
-                                    : "待对账"
-                              }
-                            />
-                          </td>
-                          <td style={td}>{bills.length}</td>
-                          <td style={td}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedPeriod(active ? null : period.id)
-                                if (active) setSelectedBill(null)
-                              }}
-                            >
-                              {active ? "收起结算单" : "查看结算单"}
-                            </Button>
-                          </td>
-                        </tr>
-                        {active && (
+                          </span>
+                        </span>
+                      </span>
+                    </div>
+                    {bills.length ? (
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
                           <tr>
-                            <td colSpan={8} style={{ padding: 0 }}>
-                              <div
-                                style={{
-                                  padding: "12px 16px 16px",
-                                  background: "#F8FAFC",
-                                  borderTop: "1px solid var(--color-border)",
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    fontSize: "var(--fs-12)",
-                                    color: "#667085",
-                                    marginBottom: 8,
-                                  }}
+                            {["结算单编号", "结算金额", "对账状态", "创建时间", "操作"].map(
+                              (heading) => (
+                                <th
+                                  key={heading}
+                                  style={
+                                    heading.includes("金额")
+                                      ? { ...th, textAlign: "right" }
+                                      : th
+                                  }
                                 >
-                                  当前查看：{period.name} 下的结算单
-                                </div>
-                                <table
-                                  style={{
-                                    width: "100%",
-                                    borderCollapse: "collapse",
-                                    background: "#fff",
-                                  }}
-                                >
-                                    <thead>
-                                      <tr>
-                                        {[
-                                          "结算单编号",
-                                          "服务提供方",
-                                          "结算金额",
-                                          "对账状态",
-                                          "创建时间",
-                                          "操作",
-                                        ].map((heading) => (
-                                        <th
-                                          key={heading}
-                                          style={
-                                            heading.includes("金额")
-                                              ? { ...th, textAlign: "right" }
-                                              : th
-                                          }
-                                        >
-                                          {heading}
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {bills.map((bill) => (
-                                      <tr
-                                        key={bill.id}
-                                        style={{
-                                          background:
-                                            selectedBill === bill.id
-                                              ? "#F0F9F7"
-                                              : undefined,
-                                        }}
-                                      >
-                                        <td style={td}>
-                                          <strong>{bill.no}</strong>
-                                        </td>
-                                        <td style={td}>{task.provider}</td>
-                                        <td
-                                          style={{
-                                            ...td,
-                                            textAlign: "right",
-                                            fontFamily:
-                                              "'JetBrains Mono', monospace",
-                                            fontWeight: 650,
-                                          }}
-                                        >
-                                          {formatCNY(bill.amount)}
-                                        </td>
-                                        <td style={td}>
-                                          <DetailStatus label={bill.status} />
-                                        </td>
-                                        <td style={td}>{bill.createdAt}</td>
-                                        <td style={td}>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() =>
-                                              setSelectedBill(
-                                                selectedBill === bill.id
-                                                  ? null
-                                                  : bill.id,
-                                              )
-                                            }
-                                          >
-                                            {selectedBill === bill.id
-                                              ? "收起单据"
-                                              : "查看单据"}
-                                          </Button>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                                {chosen && (
-                                  <SettlementReceipt
-                                    task={task}
-                                    bill={chosen}
-                                    isSales={isSales}
-                                    onConfirm={onConfirmBill}
-                                  />
-                                )}
-                              </div>
-                            </td>
+                                  {heading}
+                                </th>
+                              ),
+                            )}
                           </tr>
+                        </thead>
+                        <tbody>
+                          {bills.map((bill) => (
+                            <tr key={bill.id}>
+                              <td style={{ ...td, fontWeight: 600 }}>{bill.no}</td>
+                              <td
+                                className="font-mono-nums"
+                                style={{ ...td, textAlign: "right", fontWeight: 650 }}
+                              >
+                                {formatCNY(bill.amount)}
+                              </td>
+                              <td style={td}>
+                                <DetailStatus label={bill.status} />
+                              </td>
+                              <td style={td}>{bill.createdAt}</td>
+                              <td style={td}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setReceiptBillId(bill.id)}
+                                >
+                                  查看结算单
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "12px 16px",
+                          fontSize: "var(--fs-13)",
+                          color: "#98A2B3",
+                        }}
+                      >
+                        未发起结算
+                        {isProvider && task.taskStatus === "执行中" && onStartSettle && (
+                          <Button variant="outline" size="sm" onClick={onStartSettle}>
+                            去发起结算
+                          </Button>
                         )}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </Section>
           )}
 
@@ -3043,6 +3039,23 @@ function TaskDetailV5({
         </>
       )}
     </Modal>
+      {/* 结算单弹窗：平铺行点「查看结算单」直接打开，不再下钻展开；内容随任务数据实时派生 */}
+      {receiptBill && (
+        <Modal
+          open
+          title={`结算单 · ${receiptBill.no}`}
+          onClose={() => setReceiptBillId(null)}
+          width={960}
+        >
+          <SettlementReceipt
+            task={task}
+            bill={receiptBill}
+            isSales={isSales}
+            onConfirm={onConfirmBill}
+          />
+        </Modal>
+      )}
+    </>
   )
 }
 
@@ -3701,16 +3714,6 @@ function SettlementReceipt({
   isSales: boolean
   onConfirm: () => void
 }) {
-  const groupedLines = [
-    ...bill.lines
-      .reduce((groups, line) => {
-        const current = groups.get(line.serviceType) ?? []
-        current.push(line)
-        groups.set(line.serviceType, current)
-        return groups
-      }, new Map<string, SettlementLine[]>())
-      .entries(),
-  ]
   const actual = bill.lines.reduce((sum, line) => sum + line.actualAmount, 0)
   return (
     <div
@@ -3775,21 +3778,20 @@ function SettlementReceipt({
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {[
-                "序号",
-                "服务类型",
-                "服务项目",
-                "服务金额",
-                "实际结算金额",
-                "备注",
-              ].map((heading) => (
+              {SETTLE_LINE_HEADINGS.map((heading, idx) => (
                 <th
                   key={heading}
-                  style={
-                    heading.includes("金额")
-                      ? { ...th, textAlign: "right" }
-                      : th
-                  }
+                  style={{
+                    ...th,
+                    textAlign:
+                      idx === 0
+                        ? "center"
+                        : idx === 4 || idx === 5
+                          ? "right"
+                          : idx === 6
+                            ? "center"
+                            : "left",
+                  }}
                 >
                   {heading}
                 </th>
@@ -3797,50 +3799,46 @@ function SettlementReceipt({
             </tr>
           </thead>
           <tbody>
-            {groupedLines.flatMap(([type, lines]) =>
-              lines.map((line, index) => (
-                <tr key={line.id}>
-                  <td style={td}>
-                    {index === 0
-                      ? bill.lines.indexOf(line) + 1
-                      : bill.lines.indexOf(line) + 1}
-                  </td>
-                  <td style={td}>{index === 0 ? type : ""}</td>
-                  <td style={td}>
-                    {line.serviceItem}
-                    <div
-                      style={{
-                        color: "#98A2B3",
-                        fontSize: "var(--fs-11)",
-                        marginTop: 2,
-                      }}
-                    >
-                      {line.variety} · {line.region}
-                    </div>
-                  </td>
-                  <td
-                    style={{
-                      ...td,
-                      textAlign: "right",
-                      fontFamily: "'JetBrains Mono', monospace",
-                    }}
-                  >
-                    {formatCNY(line.serviceAmount)}
-                  </td>
-                  <td
-                    style={{
-                      ...td,
-                      textAlign: "right",
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontWeight: 650,
-                    }}
-                  >
-                    {formatCNY(line.actualAmount)}
-                  </td>
-                  <td style={td}>{line.remark || "—"}</td>
-                </tr>
-              )),
-            )}
+            {bill.lines.map((line, index) => (
+              <tr key={line.id}>
+                <td
+                  className="font-mono-nums"
+                  style={{ ...td, textAlign: "center", color: "#9CA3AF" }}
+                >
+                  {index + 1}
+                </td>
+                <td style={{ ...td, fontWeight: 600 }}>{line.variety}</td>
+                <td style={{ ...td, color: "#64748B" }}>{line.serviceType}</td>
+                <td style={{ ...td, fontWeight: 600 }}>{line.serviceItem}</td>
+                <td
+                  className="font-mono-nums"
+                  style={{
+                    ...td,
+                    textAlign: "right",
+                    color: "#334155",
+                  }}
+                >
+                  {formatCNY(line.serviceAmount)}
+                </td>
+                <td
+                  className="font-mono-nums"
+                  style={{
+                    ...td,
+                    textAlign: "right",
+                    fontWeight: 650,
+                  }}
+                >
+                  {formatCNY(line.actualAmount)}
+                </td>
+                <td style={{ ...td, textAlign: "center" }}>
+                  <SettleDeltaBadge
+                    applied={line.serviceAmount}
+                    actual={line.actualAmount}
+                  />
+                </td>
+                <td style={td}>{line.remark || "—"}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
         <div
@@ -4938,6 +4936,19 @@ function SplitModal({
                               </td>
                               <td style={{ ...td, padding: "8px 10px" }}>
                                 {item.name}
+                                {item.questionnaire && (
+                                  <span
+                                    style={{
+                                      display: "block",
+                                      marginTop: 2,
+                                      fontSize: "var(--fs-11)",
+                                      color: "#98A2B3",
+                                    }}
+                                  >
+                                    问卷 {item.questionnaire.code} · 题目 V
+                                    {item.questionnaire.version} · 创建时锁定
+                                  </span>
+                                )}
                               </td>
                               <td
                                 style={{
@@ -5992,12 +6003,78 @@ function SettleModal({
   )
 }
 
+/**
+ * 结算明细行「调价浮动」徽标：差额 + 百分比，调增红 / 调减绿 / 持平灰。
+ * 颜色不是唯一信息载体：文字始终带 +/−/持平。
+ */
+function SettleDeltaBadge({
+  applied,
+  actual,
+}: {
+  applied: number
+  actual: number
+}) {
+  const diff = actual - applied
+  const style: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "1px 6px",
+    borderRadius: 4,
+    fontSize: "var(--fs-12)",
+    fontFamily: "var(--font-mono)",
+    whiteSpace: "nowrap",
+  }
+  if (diff === 0 || applied <= 0)
+    return (
+      <span style={{ ...style, background: "#F1F5F9", color: "#64748B" }}>
+        持平
+      </span>
+    )
+  const pct = Math.round((Math.abs(diff) / applied) * 100)
+  const up = diff > 0
+  return (
+    <span
+      style={{
+        ...style,
+        background: up ? "var(--color-danger-bg)" : "var(--color-success-bg)",
+        color: up ? "var(--color-danger-fg)" : "var(--color-success-fg)",
+      }}
+    >
+      {up ? "+" : "−"}
+      {Math.abs(diff).toLocaleString("zh-CN")}（{up ? "+" : "−"}
+      {pct}%）
+    </span>
+  )
+}
+
+/** 结算明细统一列头：确认弹窗与结算回执共用，保证「预览 → 确认 → 回执」一张脸 */
+const SETTLE_LINE_HEADINGS = [
+  "#",
+  "推广品种",
+  "服务类别",
+  "服务项目",
+  "申请金额",
+  "实际结算金额",
+  "调价浮动",
+  "调整原因及说明",
+] as const
+
+/** 单行金额区间（该行申请金额的 50%—150%，四舍五入取整） */
+function settleLineRange(serviceAmount: number): { min: number; max: number } {
+  return {
+    min: Math.round(serviceAmount * 0.5),
+    max: Math.round(serviceAmount * 1.5),
+  }
+}
+
 function ConfirmBillModal({
   task,
+  addToast,
   onClose,
   onSave,
 }: {
   task: Task | null
+  addToast: (msg: Omit<ToastMessage, "id">) => void
   onClose: () => void
   onSave: (
     billId: string,
@@ -6028,145 +6105,481 @@ function ConfirmBillModal({
       </Modal>
     )
   }
-  const period = task.settlementPeriods.find(
-    (p) => p.id === bill.settlementPeriodId,
-  )
   const finalAmount = lines.reduce((s, l) => s + Number(l.actualAmount || 0), 0)
   const applied = lines.reduce((s, l) => s + Number(l.serviceAmount || 0), 0)
+  const remain = remainingOfTask(task)
+  const exceedRemain = finalAmount > remain
+  const anyOutOfRange = lines.some((l) => {
+    const { min, max } = settleLineRange(l.serviceAmount)
+    return l.actualAmount < min || l.actualAmount > max
+  })
+  const anyMissingRemark = lines.some(
+    (l) => l.actualAmount !== l.serviceAmount && !l.remark.trim(),
+  )
+  const submittable =
+    declared && !anyOutOfRange && !anyMissingRemark && !exceedRemain
+
+  const metaStyle: React.CSSProperties = {
+    background: "#F9FAFB",
+    border: "1px solid var(--color-border)",
+    borderRadius: 10,
+    padding: "13px 18px",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    rowGap: 10,
+    columnGap: 24,
+    fontSize: "var(--fs-13)",
+    color: "#4B5563",
+  }
+  const cellTh: React.CSSProperties = {
+    ...th,
+    padding: "9px 12px",
+    borderTop: "1px solid var(--color-border)",
+  }
+  const cellTd: React.CSSProperties = {
+    ...td,
+    padding: "10px 12px",
+    verticalAlign: "middle",
+  }
+  const amountInput = (
+    l: SettlementLine,
+    out: boolean,
+  ): React.CSSProperties => ({
+    width: 128,
+    height: 32,
+    padding: "0 8px 0 22px",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--fs-13)",
+    fontWeight: 600,
+    textAlign: "right",
+    color: out
+      ? "var(--color-danger-fg)"
+      : l.actualAmount !== l.serviceAmount
+        ? "#854D0E"
+        : "var(--color-text-1)",
+    background: out
+      ? "var(--color-danger-bg)"
+      : l.actualAmount !== l.serviceAmount
+        ? "#FEFCE8"
+        : "#fff",
+    border: `1px solid ${out ? "var(--color-danger-fg)" : "#CBD5E1"}`,
+    borderRadius: 6,
+    outline: "none",
+  })
+
   return (
     <Modal
       open={!!task}
       title="确认结算单"
+      titleNote="当前状态：对账中（待药厂确认）"
       onClose={onClose}
-      width={980}
+      width={1040}
       footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            取消
-          </Button>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+          }}
+        >
           <Button
-            variant="primary"
-            onClick={() =>
-              onSave(bill.id, lines, {
-                declarationAccepted: declared,
-                declarationVersion: SETTLEMENT_DECLARATION_VERSION,
-              })
-            }
-          >
-            确认并立即生效
-          </Button>
-        </>
-      }
-    >
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
-          gap: 8,
-          fontSize: "var(--fs-13)",
-          marginBottom: 12,
-        }}
-      >
-        <Info label="合同编号" value={bill.contractNo} />
-        <Info
-          label="结算周期"
-          value={
-            period
-              ? `${period.name}（${period.startDate} ~ ${period.endDate}）`
-              : bill.serviceMonth
-          }
-        />
-        <Info label="服务时间" value={bill.servicePeriod} />
-        <Info label="执行归属月份" value={bill.serviceMonth} />
-        <Info label="制单日" value={bill.madeAt} />
-        <Info label="服务提供方" value={bill.provider} />
-      </div>
-      <Banner color="warning">
-        可逐服务项目调整实际结算金额；调整原因必填；每一项目必须在计划金额的
-        50%—150% 内。确认即生效。
-      </Banner>
-      {lines.map((l, i) => {
-        const min = Math.round(l.serviceAmount * 0.5)
-        const max = Math.round(l.serviceAmount * 1.5)
-        const out = l.actualAmount < min || l.actualAmount > max
-        return (
-          <div
-            key={l.id}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "32px 1.1fr 70px 110px 1fr 90px 90px 1.4fr",
-              gap: 8,
-              marginTop: 8,
-              alignItems: "center",
+            variant="ghost"
+            size="sm"
+            icon={<RefreshCw size={14} aria-hidden />}
+            onClick={() => {
+              setLines(bill.lines.map((l) => ({ ...l, remark: "" })))
+              addToast({ type: "info", title: "已重置为申请金额" })
             }}
           >
-            <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF" }}>
-              {i + 1}
-            </span>
-            <input
-              value={l.variety}
-              readOnly
-              style={{ ...inputStyle, background: "#F9FAFB" }}
-            />
-            <input
-              value={l.region}
-              readOnly
-              style={{ ...inputStyle, background: "#F9FAFB" }}
-            />
-            <input
-              value={l.serviceType}
-              readOnly
-              style={{ ...inputStyle, background: "#F9FAFB" }}
-            />
-            <input
-              value={l.serviceItem}
-              readOnly
-              style={{ ...inputStyle, background: "#F9FAFB" }}
-            />
-            <input
-              type="number"
-              value={l.serviceAmount}
-              readOnly
-              style={{ ...inputStyle, background: "#F9FAFB" }}
-            />
-            <input
-              type="number"
-              value={l.actualAmount}
-              onChange={(e) =>
-                setLines(
-                  patch(lines, i, {
-                    actualAmount: Number(e.target.value) || 0,
-                  }),
-                )
+            一键重置为申请金额
+          </Button>
+          <div style={{ display: "flex", gap: 10 }}>
+            <Button variant="outline" onClick={onClose}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!submittable}
+              onClick={() =>
+                onSave(bill.id, lines, {
+                  declarationAccepted: declared,
+                  declarationVersion: SETTLEMENT_DECLARATION_VERSION,
+                })
               }
-              style={{
-                ...inputStyle,
-                borderColor: out ? "#C73A3A" : "var(--color-border)",
-              }}
-            />
-            <input
-              value={l.remark}
-              onChange={(e) =>
-                setLines(patch(lines, i, { remark: e.target.value }))
-              }
-              style={inputStyle}
-              placeholder="调整时必填"
-            />
+            >
+              确认并立即生效
+            </Button>
           </div>
-        )
-      })}
-      <div style={{ marginTop: 14, fontSize: "var(--fs-14)", fontWeight: 600 }}>
-        申请 {formatCNY(applied)} · 调整 {formatCNY(finalAmount - applied)} ·
-        最终 {formatCNYUpper(finalAmount)}（{formatCNY(finalAmount)}）
+        </div>
+      }
+    >
+      {/* ① 单据元信息（内联「标签：值」，不设灰色小标题） */}
+      <div style={metaStyle}>
+        <div>
+          任务发起方：
+          <strong style={{ color: "var(--color-text-1)" }}>
+            {task.holderPharma ?? "—"}
+          </strong>
+        </div>
+        <div>
+          服务提供方：
+          <strong style={{ color: "var(--color-text-1)" }}>{bill.provider}</strong>
+        </div>
+        <div>
+          任务推广时段：
+          <strong
+            className="font-mono-nums"
+            style={{ color: "var(--color-text-1)", fontWeight: 600 }}
+          >
+            {task.startDate} ~ {task.endDate}
+          </strong>
+        </div>
+        <div>
+          服务区域：
+          <strong style={{ color: "var(--color-text-1)" }}>
+            {task.regions.join("、") || "—"}
+          </strong>
+        </div>
+        <div>
+          对账单编号：
+          <strong
+            className="font-mono-nums"
+            style={{ color: "var(--color-text-1)", fontWeight: 600 }}
+          >
+            {bill.billNo}
+          </strong>
+        </div>
       </div>
+
+      {/* ② 调价合规规则 */}
+      <Banner color="warning">
+        可逐服务项目调整实际结算金额，金额为整数元；每行须在该行
+        <strong>申请金额</strong>的 50%—150% 内（行内标注区间）；有调整时调整原因必填。确认后立即生效并计入已结算，不可直接修改，仅可通过受控回退处理。
+      </Banner>
+
+      {/* ③ 结算明细：与结算回执同列结构 */}
+      <div
+        style={{
+          border: "1px solid var(--color-border)",
+          borderRadius: 10,
+          overflow: "hidden",
+        }}
+      >
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              {SETTLE_LINE_HEADINGS.map((h, idx) => (
+                <th
+                  key={h}
+                  style={{
+                    ...cellTh,
+                    textAlign:
+                      idx === 0
+                        ? "center"
+                        : idx === 4 || idx === 5
+                          ? "right"
+                          : idx === 6
+                            ? "center"
+                            : "left",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => {
+              const { min, max } = settleLineRange(l.serviceAmount)
+              const out = l.actualAmount < min || l.actualAmount > max
+              const remarkMissing =
+                l.actualAmount !== l.serviceAmount && !l.remark.trim()
+              return (
+                <tr key={l.id}>
+                  <td
+                    style={{
+                      ...cellTd,
+                      textAlign: "center",
+                      color: "#9CA3AF",
+                      width: 36,
+                    }}
+                    className="font-mono-nums"
+                  >
+                    {i + 1}
+                  </td>
+                  <td style={{ ...cellTd, fontWeight: 600, width: 160 }}>
+                    {l.variety}
+                  </td>
+                  <td style={{ ...cellTd, width: 120, color: "#64748B" }}>
+                    {l.serviceType}
+                  </td>
+                  <td style={{ ...cellTd, fontWeight: 600, width: 120 }}>
+                    {l.serviceItem}
+                  </td>
+                  <td style={{ ...cellTd, textAlign: "right", width: 128 }}>
+                    <div
+                      className="font-mono-nums"
+                      style={{ fontWeight: 600, color: "#334155" }}
+                    >
+                      {formatCNY(l.serviceAmount)}
+                    </div>
+                    <div
+                      className="font-mono-nums"
+                      style={{
+                        fontSize: "var(--fs-12)",
+                        color: "#94A3B8",
+                        marginTop: 2,
+                      }}
+                    >
+                      区间 {formatCNY(min)}~{formatCNY(max)}
+                    </div>
+                  </td>
+                  <td style={{ ...cellTd, textAlign: "right", width: 150 }}>
+                    <div
+                      style={{
+                        position: "relative",
+                        display: "inline-block",
+                      }}
+                    >
+                      <span
+                        className="font-mono-nums"
+                        style={{
+                          position: "absolute",
+                          left: 8,
+                          top: 7,
+                          fontSize: "var(--fs-12)",
+                          color: "#94A3B8",
+                          pointerEvents: "none",
+                        }}
+                      >
+                        {CNY_SYMBOL}
+                      </span>
+                      <input
+                        type="number"
+                        step={1}
+                        aria-label={`${l.serviceItem} 实际结算金额`}
+                        value={l.actualAmount}
+                        onChange={(e) =>
+                          setLines(
+                            patch(lines, i, {
+                              actualAmount:
+                                Math.round(Number(e.target.value) || 0),
+                            }),
+                          )
+                        }
+                        style={amountInput(l, out)}
+                      />
+                    </div>
+                    {out && (
+                      <div
+                        style={{
+                          fontSize: "var(--fs-12)",
+                          color: "var(--color-danger-fg)",
+                          marginTop: 3,
+                        }}
+                      >
+                        超出区间，需在 {formatCNY(min)}~{formatCNY(max)} 内
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ ...cellTd, textAlign: "center", width: 118 }}>
+                    <SettleDeltaBadge
+                      applied={l.serviceAmount}
+                      actual={l.actualAmount}
+                    />
+                  </td>
+                  <td style={cellTd}>
+                    <input
+                      value={l.remark}
+                      aria-label={`${l.serviceItem} 调整原因及说明`}
+                      onChange={(e) =>
+                        setLines(patch(lines, i, { remark: e.target.value }))
+                      }
+                      placeholder={
+                        l.actualAmount !== l.serviceAmount
+                          ? "调价时必填，说明调整依据"
+                          : "未调整无需填写"
+                      }
+                      style={{
+                        ...inputStyle,
+                        height: 32,
+                        fontSize: "var(--fs-12)",
+                        borderColor: remarkMissing
+                          ? "var(--color-danger-fg)"
+                          : "var(--color-border)",
+                        background: remarkMissing
+                          ? "var(--color-danger-bg)"
+                          : "#fff",
+                      }}
+                    />
+                    {remarkMissing && (
+                      <div
+                        style={{
+                          fontSize: "var(--fs-12)",
+                          color: "var(--color-danger-fg)",
+                          marginTop: 3,
+                        }}
+                      >
+                        已调整，原因必填
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ④ 汇总：四锚点 + 大写金额 */}
+      <div
+        style={{
+          background: "#F8FAFC",
+          border: "1px solid var(--color-border)",
+          borderRadius: 10,
+          padding: "14px 18px",
+          marginTop: 12,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 20,
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: "var(--fs-12)", color: "#64748B" }}>
+            最终结算大写金额
+          </div>
+          <div
+            style={{
+              display: "inline-block",
+              fontSize: "var(--fs-14)",
+              fontWeight: 600,
+              background: "#fff",
+              border: "1px solid #E2E8F0",
+              borderRadius: 5,
+              padding: "3px 10px",
+              marginTop: 4,
+            }}
+          >
+            {formatCNYUpper(finalAmount)}
+          </div>
+          <div
+            style={{
+              fontSize: "var(--fs-12)",
+              color: "#98A2B3",
+              marginTop: 6,
+            }}
+          >
+            共 {lines.length} 项结算明细 · 逐行实时校验
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 24,
+            flexWrap: "wrap",
+          }}
+        >
+          {[
+            {
+              label: "申请总额",
+              value: formatCNY(applied),
+              color: "#334155",
+              big: false,
+            },
+            {
+              label: "调整差额",
+              value:
+                (finalAmount - applied > 0 ? "+" : "") +
+                formatCNY(finalAmount - applied),
+              color:
+                finalAmount - applied > 0
+                  ? "var(--color-danger-fg)"
+                  : finalAmount - applied < 0
+                    ? "var(--color-success-fg)"
+                    : "#334155",
+              big: false,
+            },
+            {
+              label: "剩余可结算",
+              value: formatCNY(remain),
+              color: "#334155",
+              big: false,
+            },
+          ].map((s) => (
+            <div
+              key={s.label}
+              style={{ display: "flex", flexDirection: "column", gap: 2 }}
+            >
+              <span style={{ fontSize: "var(--fs-12)", color: "#64748B" }}>
+                {s.label}
+              </span>
+              <span
+                className="font-mono-nums"
+                style={{
+                  fontSize: "var(--fs-14)",
+                  fontWeight: 600,
+                  color: s.color,
+                }}
+              >
+                {s.value}
+              </span>
+            </div>
+          ))}
+          <div style={{ width: 1, height: 36, background: "#CBD5E1" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span
+              style={{
+                fontSize: "var(--fs-12)",
+                fontWeight: 600,
+                color: "var(--color-brand)",
+              }}
+            >
+              最终确认金额
+            </span>
+            <span
+              className="font-mono-nums"
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: exceedRemain
+                  ? "var(--color-danger-fg)"
+                  : "var(--color-brand)",
+                letterSpacing: "-0.5px",
+              }}
+            >
+              {formatCNY(finalAmount)}
+            </span>
+          </div>
+        </div>
+      </div>
+      {exceedRemain && (
+        <div
+          style={{
+            fontSize: "var(--fs-12)",
+            color: "var(--color-danger-fg)",
+            marginTop: 6,
+          }}
+        >
+          最终确认金额已超出任务剩余可结算 {formatCNY(remain)}
+          ，无法确认；请调低金额或拆分结算。
+        </div>
+      )}
+
+      {/* ⑤ 确认声明 */}
       <label
         style={{
           display: "flex",
           alignItems: "flex-start",
           gap: 8,
-          marginTop: 14,
-          fontSize: "var(--fs-13)",
-          color: "#344054",
+          marginTop: 12,
+          padding: "10px 12px",
+          background: "var(--color-brand-subtle)",
+          borderRadius: 8,
+          cursor: "pointer",
         }}
       >
         <input
@@ -6176,8 +6589,15 @@ function ConfirmBillModal({
           style={{ marginTop: 3 }}
         />
         <span>
-          <strong>确认声明（{SETTLEMENT_DECLARATION_VERSION}）</strong>
-          <div style={{ color: "#667085", marginTop: 4 }}>
+          <strong style={{ color: "var(--color-brand)" }}>确认声明</strong>
+          <div
+            style={{
+              color: "#334155",
+              marginTop: 4,
+              fontSize: "var(--fs-12)",
+              lineHeight: 1.6,
+            }}
+          >
             {SETTLEMENT_DECLARATION_TEXT}
           </div>
         </span>

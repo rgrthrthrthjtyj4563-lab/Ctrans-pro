@@ -363,11 +363,31 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     actions: acts("hospital-visits", ["view", "approve", "export"]),
   },
   {
-    id: "settlement",
-    module: "业务管理",
-    name: "结算明细",
-    description: "结算单提交、确认与导出",
-    actions: acts("settlement", ["view", "submit", "approve", "export"]),
+    id: "visit-audit-hospital",
+    module: "业务数据管理",
+    name: "医院拜访管理",
+    description: "医院拜访记录审核工作台：状态页签筛选、二级审核通过与驳回、批量审核与导出（自拜访管理审核工作台设计稿移植）",
+    actions: acts("visit-audit-hospital", ["view", "approve", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
+  },
+  {
+    id: "visit-audit-commercial",
+    module: "业务数据管理",
+    name: "商业拜访管理",
+    description: "商业拜访记录审核工作台：状态页签筛选、二级审核通过与驳回、批量审核与导出（自拜访管理审核工作台设计稿移植）",
+    actions: acts("visit-audit-commercial", ["view", "approve", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
+  },
+  {
+    id: "visit-audit-pharmacy",
+    module: "业务数据管理",
+    name: "药房拜访管理",
+    description: "药房拜访记录审核工作台：含金额列与查看详情抽屉（记录不可批量审核，自拜访管理审核工作台设计稿移植）",
+    actions: acts("visit-audit-pharmacy", ["view", "approve", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "rep-filing",
@@ -452,17 +472,24 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     tenantTypes: ["provider"],
   },
   {
+    id: "questionnaire-config",
+    module: "基础数据",
+    name: "问卷配置",
+    description: "药厂维护问卷库：新建问卷与题目导入、题目版本替换、停用/启用，并按品种维护计价方案归属（只选方案、回显价格；金额在价目表维护）；版本与单价在任务创建时锁定",
+    actions: acts("questionnaire-config", ["view", "create", "edit"]),
+  },
+  {
     id: "price-config",
     module: "价目管理",
     name: "价目表配置",
-    description: "药厂绑定默认价目表，品种继承或解绑定制；一张表含基础/会议/报告/区域四个价格区",
+    description: "药厂按品种维护价目：价目类别（含问卷计价方案）与对公/对私价格矩阵、发包标准价；方案被哪些问卷选用在问卷配置侧维护",
     actions: acts("price-config", ["view", "edit"]),
   },
   {
     id: "roles",
     module: "企业管理",
     name: "角色与数据范围",
-    description: "角色、页面权限、按钮权限与角色成员授权的唯一可编辑入口（服务商角色另含组织数据范围；药厂成员可见区域随所属部门；成员授予/回收在角色详情「已授权成员」页签）",
+    description: "角色、页面权限、按钮权限与角色成员授权的唯一可编辑入口（服务商角色另含组织数据范围；药厂成员负责区域按成员配置、调岗不变；成员授予/回收在角色详情「已授权成员」页签）",
     actions: acts("roles", ["view", "create", "edit", "delete", "export"]),
     realms: ["TENANT"],
   },
@@ -586,9 +613,9 @@ export const RESOURCE_PAGES: ResourcePage[] = [
   {
     id: "talk-script-variety",
     module: "话术管理",
-    name: "品种话术维护",
+    name: "话术管理",
     description:
-      "按品种与拜访类别维护标准话术与客户反馈：查询、启停、科室规则、复制与导入导出；AI 生成入口跳转 baiyee-AI",
+      "通用话术（系统内置）查看与启停；品种话术按拜访场景/业务类别/类别细分维护：新增、编辑、启停、批量停用、CSV 导入与导出",
     actions: acts("talk-script-variety", ["view", "create", "edit", "delete", "export"]),
   },
   {
@@ -647,13 +674,6 @@ export const SENSITIVE_FIELDS: SensitiveField[] = [
     module: "结算",
     description: "收款账户",
     maskExample: "6222 **** **** 8890",
-  },
-  {
-    key: "settlement.amount",
-    name: "精确结算金额",
-    module: "结算明细",
-    description: "结算单逐行与合计金额",
-    maskExample: "￥1.2万",
   },
   {
     key: "contact.info",
@@ -761,13 +781,16 @@ export const TENANT_ROLES: SysRole[] = [
       ["vendor-access", ["view", "create", "approve", "edit"]],
       ["budget-plan", ["view", "create", "edit", "export"]],
       ["task-dispatch", ["view", "create", "edit", "submit", "export"]],
-      ["hospital-visits", ["view", "export"]],
-      ["settlement", ["view", "approve", "export"]],
+      // hospital-visits 药厂侧入口已下线（2026-10-30）：拜访查看与审核统一走 visit-audit-* 审核工作台；服务商角色仍持有本页
+      ["visit-audit-hospital", ["view", "approve", "export"]],
+      ["visit-audit-commercial", ["view", "approve", "export"]],
+      ["visit-audit-pharmacy", ["view", "approve", "export"]],
       ["doctors", ["view", "export"]],
       ["varieties", ["view", "create", "edit"]],
       ["variety-auth", ["view", "create", "edit", "delete"]],
       ["pharma-cooperation", ["view", "edit", "approve"]],
       ["contract-management", ["view", "create", "delete"]],
+      ["questionnaire-config", ["view", "create", "edit"]],
       ["price-config", ["view", "edit"]],
       ["execution-chain", ["view", "edit"]],
       ["business-switch", ["view", "edit"]],
@@ -784,11 +807,11 @@ export const TENANT_ROLES: SysRole[] = [
   }),
   role({
     // 2026-10-27 方向修订：真正的只读区域角色——京卫「区域销售仅限查看进度」场景。
-    // 只看任务列表与进度；无新建/下发/验收/结算/导出；精确金额在字段策略中置为隐藏（待客户确认后放开）。
+    // 只看任务列表与进度；无新建/下发/验收/结算/导出（结算明细独立页已移除，结算动作统一在任务执行内受权限控制）。
     id: "role-pharma-region-view",
     name: "区域进度查看",
     description:
-      "只读查看任务列表与执行进度（可见范围 = 本人负责区域命中的任务）；不含新建/下发/验收/结算/导出，精确金额默认隐藏（待客户确认）",
+      "只读查看任务列表与执行进度（可见范围 = 本人负责区域命中的任务）；不含新建/下发/验收/结算/导出",
     kind: "preset",
     status: "enabled",
     realm: "TENANT",
@@ -800,7 +823,7 @@ export const TENANT_ROLES: SysRole[] = [
       ["dashboard", ["view"]],
       ["task-dispatch", ["view"]],
     ]),
-    fieldPolicies: { ...ALL_VISIBLE, "settlement.amount": "hidden" },
+    fieldPolicies: { ...ALL_VISIBLE },
   }),
   role({
     id: "role-provider-admin",
@@ -817,7 +840,6 @@ export const TENANT_ROLES: SysRole[] = [
       ["dashboard", ["view"]],
       ["task-dispatch", ["view", "edit", "submit", "export"]],
       ["hospital-visits", ["view", "approve"]],
-      ["settlement", ["view", "submit", "export"]],
       ["rep-filing", ["view", "create", "edit"]],
       ["vendor-access", ["view", "submit"]],
       ["vendor-access-records", ["view"]],
@@ -861,7 +883,6 @@ export const TENANT_ROLES: SysRole[] = [
     fieldPolicies: {
       ...ALL_VISIBLE,
       "doctor.name": "mask",
-      "settlement.amount": "hidden",
     },
   }),
   role({
@@ -879,14 +900,12 @@ export const TENANT_ROLES: SysRole[] = [
       ["dashboard", ["view"]],
       ["task-dispatch", ["view", "submit"]],
       ["hospital-visits", ["view"]],
-      ["settlement", ["view"]],
       ["performance-specialist", ["view"]],
     ]),
     fieldPolicies: {
       ...ALL_VISIBLE,
       "doctor.name": "mask",
       "doctor.phone": "hidden",
-      "settlement.amount": "hidden",
       "user.idNo": "hidden",
       "user.bankAccount": "hidden",
       "evidence.pii": "hidden",
@@ -908,7 +927,7 @@ export const seedCustomRoles: SysRole[] = [
     realm: "TENANT",
     tenantId: "org-pharma",
     appliesTo: ["pharma"],
-    // 药厂侧范围档位已退役（2026-10-27）：PHARMA 仅表示授权挂企业根，可见区域随部门
+    // 药厂侧范围档位已退役（2026-10-27）：PHARMA 仅表示授权挂企业根，负责区域按成员配置
     defaultScope: "PHARMA",
     customScope: {
       ...emptyCustomScope(),
@@ -920,25 +939,6 @@ export const seedCustomRoles: SysRole[] = [
     pagePerms: {
       ...TENANT_ROLES.find((r) => r.id === "role-pharma-admin")!.pagePerms,
     },
-  }),
-  role({
-    id: "role-custom-settle-review",
-    name: "结算复核专员",
-    description: "仅结算查看与导出，待发布草稿",
-    kind: "custom",
-    status: "draft",
-    realm: "TENANT",
-    tenantId: "org-pharma",
-    appliesTo: ["pharma"],
-    defaultScope: "PHARMA",
-    version: 1,
-    updatedBy: "李航",
-    updatedAt: "2026-08-25 09:18",
-    pagePerms: perms([
-      ["dashboard", ["view"]],
-      ["settlement", ["view", "export"]],
-    ]),
-    fieldPolicies: { ...ALL_VISIBLE, "settlement.amount": "visible" },
   }),
 ]
 
@@ -1098,7 +1098,7 @@ export function resolveGrantAnchor(
   const current = orgs.find((o) => o.id === userOrgId)
   let hit: PermOrg | undefined
   if (role.appliesTo?.includes("pharma")) {
-    // 药厂侧范围档位已退役（2026-10-27 D1/D2）：授权统一挂租户根，数据区域随成员所属部门
+    // 药厂侧范围档位已退役（2026-10-27 D1/D2）：授权统一挂租户根，负责区域按成员配置（调岗不变）
     hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
   } else if (scope === "PHARMA") {
     hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
@@ -1287,6 +1287,32 @@ export const PERM_USERS: PermUser[] = [
     createdAt: "2026-10-27 09:00",
   },
   {
+    // 演示：账号已停用但成员身份仍在——组织人数照常计入（2026-10-28 组织架构改造）
+    id: "u-suhang",
+    name: "苏航",
+    account: "suhang",
+    phone: "13901350135",
+    email: "suhang@baiyee.com",
+    orgId: "org-dept-sales",
+    orgName: "销售部",
+    accountStatus: "disabled",
+    createdAt: "2026-03-20 10:00",
+    lastLoginAt: "2026-08-15 09:30",
+  },
+  {
+    // 演示：待归属成员——成员身份有效但 orgUnit 指向已不存在的节点（原东北大区裁撤）
+    id: "u-linyiming",
+    name: "林一鸣",
+    account: "linyiming",
+    phone: "13901350136",
+    email: "linyiming@baiyee.com",
+    orgId: "org-dept-sales",
+    orgName: "销售部",
+    accountStatus: "enabled",
+    createdAt: "2026-05-09 14:00",
+    lastLoginAt: "2026-09-20 16:10",
+  },
+  {
     // 药厂企业管理员演示账号：本药厂组织/用户/角色/授权与数据范围管理
     id: "u-shenyue",
     name: "沈悦",
@@ -1383,6 +1409,9 @@ export const TENANT_MEMBERSHIPS: TenantMembership[] = [
   { id: "mb-18", userId: "u-zhouqian", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-sales", jobTitle: "区域销售", status: "active", joinedAt: "2026-10-27", responsibleRegions: ["陕西", "宁夏"] },
   { id: "mb-19", userId: "u-wutong", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-sales", jobTitle: "区域销售", status: "active", joinedAt: "2026-10-27", responsibleRegions: ["四川", "重庆", "陕西"] },
   { id: "mb-20", userId: "u-zhengnan", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-sales", jobTitle: "销售总监", status: "active", joinedAt: "2026-10-27", responsibleRegions: ["全国"] },
+  // 组织架构改造演示（2026-10-28）：停用账号仍计入部门人数；待归属成员 orgUnit 指向已裁撤节点 → 进入「未分配成员」
+  { id: "mb-21", userId: "u-suhang", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-sales", jobTitle: "区域销售", status: "active", joinedAt: "2026-03-20", responsibleRegions: ["上海", "浙江"] },
+  { id: "mb-22", userId: "u-linyiming", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northeast-legacy", jobTitle: "区域销售", status: "active", joinedAt: "2026-05-09", responsibleRegions: ["辽宁", "吉林"] },
 ]
 
 /**
@@ -1698,17 +1727,6 @@ export const seedAssignments: RoleAssignment[] = [
 
 export const seedChangeLogs: RoleChangeLog[] = [
   {
-    id: "cl-01",
-    roleId: "role-pharma-admin",
-    time: "2026-08-20 16:08",
-    actor: "李航",
-    action: "发布权限",
-    summary: "为结算明细增加导出",
-    beforeSummary: "结算明细：查看、审核",
-    afterSummary: "结算明细：查看、审核、导出",
-    version: 3,
-  },
-  {
     id: "cl-02",
     roleId: "role-custom-region-sales",
     time: "2026-08-24 15:06",
@@ -1727,47 +1745,9 @@ export const seedChangeLogs: RoleChangeLog[] = [
     summary: "授权李航 · 组织=西北大区 · 本部门及以下",
     version: 2,
   },
-  {
-    id: "cl-04",
-    roleId: "role-custom-settle-review",
-    time: "2026-08-25 09:18",
-    actor: "李航",
-    action: "新建角色",
-    summary: "创建草稿角色「结算复核专员」",
-    version: 1,
-  },
-  {
-    id: "cl-05",
-    roleId: "role-pharma-admin",
-    time: "2026-08-18 09:40",
-    actor: "赵宁",
-    action: "字段策略",
-    summary: "精确结算金额改为脱敏",
-    beforeSummary: "可见",
-    afterSummary: "脱敏",
-    version: 3,
-  },
 ]
 
 export const seedPermAudit: PermAuditEvent[] = [
-  {
-    id: "PE00080",
-    time: "2026-08-26 09:12",
-    actor: "李航",
-    actorRole: "企业管理员",
-    org: "百益制药",
-    target: "结算复核专员",
-    roleName: "结算复核专员",
-    module: "角色管理",
-    action: "新建角色",
-    resource: "roles.create",
-    decision: "允许",
-    reason: "创建草稿",
-    afterSummary: "草稿 / 本药厂",
-    requestId: "req-8260912",
-    ip: "10.2.18.41",
-    result: "成功",
-  },
   {
     id: "PE00079",
     time: "2026-08-25 18:04",
@@ -1838,23 +1818,6 @@ export const seedPermAudit: PermAuditEvent[] = [
     requestId: "req-8241140",
     ip: "10.4.21.33",
     result: "成功",
-  },
-  {
-    id: "PE00075",
-    time: "2026-08-23 14:18",
-    actor: "杨明",
-    actorRole: "服务专员",
-    org: "工作组三",
-    target: "结算明细",
-    roleName: "服务专员",
-    module: "结算明细",
-    action: "越权访问",
-    resource: "settlement.approve",
-    decision: "拒绝",
-    reason: "无审核/确认权限",
-    requestId: "req-8231418",
-    ip: "10.9.12.7",
-    result: "失败",
   },
   {
     id: "PE00074",
@@ -2094,8 +2057,8 @@ export function summarizePerms(role: SysRole): string {
   const writes = Object.values(role.pagePerms)
     .flat()
     .filter((a) => a !== "view").length
-  // 药厂角色不再携带范围档位（可见区域随成员所属部门）；保持三段式，登录身份页按末段裁切的逻辑不受影响
-  const scopePart = role.appliesTo?.includes("pharma") ? "数据区域随所属部门" : scopeLabel(role.defaultScope)
+  // 药厂角色不再携带范围档位（负责区域按成员配置、调岗不变）；保持三段式，登录身份页按末段裁切的逻辑不受影响
+  const scopePart = role.appliesTo?.includes("pharma") ? "负责区域按成员配置" : scopeLabel(role.defaultScope)
   return `${pages} 个页面 · ${writes} 项操作 · ${scopePart}`
 }
 
@@ -2350,6 +2313,57 @@ export function validateDeptParent(
     }
   }
   return { ok: true }
+}
+
+/**
+ * 部门删除前置检查（2026-10-28 组织架构改造）：企业根不可删；本部门及全部下级
+ * 内仍有成员、仍有直接下级节点、或被业务配置（验收链等）按名引用时，删除被阻止。
+ * 返回的每条 blocker 自带面向用户的处理提示；空数组 = 允许进入二次确认。
+ */
+export interface DeptDeleteBlocker {
+  kind: "root" | "members" | "children" | "business-ref"
+  message: string
+  /** business-ref：可查看的引用位置（页面 · 配置项），供弹窗列出 */
+  refs?: string[]
+}
+
+export function deptDeleteBlockers(input: {
+  orgs: PermOrg[]
+  memberships: TenantMembership[]
+  orgId: string
+  /** 业务配置当前引用的部门名集合（调用方从各配置页收集，如验收链配置） */
+  businessRefDeptNames: string[]
+}): DeptDeleteBlocker[] {
+  const org = input.orgs.find((o) => o.id === input.orgId)
+  if (!org) return [{ kind: "root", message: "部门不存在或已被删除，请刷新后重试" }]
+  if (org.type !== "department") {
+    return [{ kind: "root", message: "企业根节点与工作组不在此删除（工作组删除见工作组维护入口）" }]
+  }
+  const blockers: DeptDeleteBlocker[] = []
+  const subtreeIds = new Set(orgDescendantIds(input.orgs, org.id))
+  const memberCount = input.memberships.filter(
+    (m) => m.status !== "removed" && subtreeIds.has(m.orgUnitId),
+  ).length
+  if (memberCount > 0) {
+    blockers.push({
+      kind: "members",
+      message: `「${org.name}」及其下级仍有 ${memberCount} 名成员，请先调整这些成员的所属部门`,
+    })
+  }
+  if (input.orgs.some((o) => o.parentId === org.id)) {
+    blockers.push({
+      kind: "children",
+      message: `「${org.name}」存在下级部门，请先调整或删除下级部门`,
+    })
+  }
+  if (input.businessRefDeptNames.includes(org.name)) {
+    blockers.push({
+      kind: "business-ref",
+      message: `「${org.name}」正在被业务配置引用，请先调整相关配置`,
+      refs: [`执行链路配置 · 验收部门「${org.name}」`],
+    })
+  }
+  return blockers
 }
 
 let idSeq = 100

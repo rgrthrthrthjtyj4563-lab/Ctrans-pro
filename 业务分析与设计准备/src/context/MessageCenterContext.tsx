@@ -100,11 +100,13 @@ function buildSeeds(): McMessage[] {
     { id: "mc-lihang-2", recipientUserId: "u-lihang", workspaceKey: ORG_PHARMA, tab: "待办", type: "结算",
       title: "结算单 SET-0822 待确认", desc: "东方恒业 · 本月结算批次 · 待确认金额", minutesAgo: 160,
       unread: true, status: "pending", deadline: "今日 17:00 截止确认", level: "hour",
-      target: { page: "settlement" } },
+      // 结算明细独立页已移除：结算确认统一在「任务执行」内操作
+      target: { page: "task-dispatch" } },
     { id: "mc-lihang-3", recipientUserId: "u-lihang", workspaceKey: ORG_PHARMA, tab: "待办", type: "验收",
       title: "9 月成果批次待审核", desc: "拜访记录 24 条 · 工作组一", minutesAgo: 4320,
       unread: false, status: "pending", deadline: "10-29 18:00 截止", level: "before3",
-      target: { page: "hospital-visits", focus: { serviceMonth: "2026-09", provider: "东方恒业推广有限公司" } } },
+      // 药厂侧拜访入口统一走业务数据管理的审核工作台（hospital-visits 药厂侧已下线）
+      target: { page: "visit-audit-hospital", focus: { serviceMonth: "2026-09", provider: "东方恒业推广有限公司" } } },
 
     // 沈悦（百益 · 企业管理员）：合同归档 + 价目联动视角
     { id: "mc-shenyue-1", recipientUserId: "u-shenyue", workspaceKey: ORG_PHARMA, tab: "待办", type: "合同",

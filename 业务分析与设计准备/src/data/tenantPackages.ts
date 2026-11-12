@@ -44,11 +44,11 @@ export interface PackageOpResult {
 }
 
 interface TenantPackageState {
-  version: 1
+  version: 2
   packages: TenantPackage[]
 }
 
-const STORAGE_KEY = "baiyee-tenant-packages-v1"
+const STORAGE_KEY = "baiyee-tenant-packages-v2"
 
 function nowStamp(): string {
   const d = new Date()
@@ -79,7 +79,7 @@ const LITE_EXCLUDED: PageId[] = [
 function buildSeedState(): TenantPackageState {
   const all = tenantFacinigPageIds()
   return {
-    version: 1,
+    version: 2,
     packages: [
       {
         id: "pkg-default",
@@ -112,7 +112,7 @@ function loadState(): TenantPackageState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return buildSeedState()
     const parsed = JSON.parse(raw) as TenantPackageState
-    if (parsed?.version !== 1 || !Array.isArray(parsed.packages)) return buildSeedState()
+    if (parsed?.version !== 2 || !Array.isArray(parsed.packages)) return buildSeedState()
     return parsed
   } catch {
     return buildSeedState()

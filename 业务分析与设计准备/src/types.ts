@@ -443,6 +443,26 @@ export interface ServiceItem {
   suggestedUnitPrice: number
   suggestedAmount: number
   adjustReason?: string
+  /** 问卷类项目：引用的问卷与题目版本（价格快照见 Task.questionnaireSnapshots） */
+  questionnaire?: { code: string; name: string; version: number }
+}
+
+/** 问卷计价快照：任务创建时按 问卷 × 品种 锁定题目版本与公私单价，之后改配置/改价不影响 */
+export interface QuestionnaireTaskSnapshot {
+  code: string
+  name: string
+  audience: string
+  /** 品种名（价格按品种取） */
+  variety: string
+  /** 计价方案（价目表 serviceId）与显示名 */
+  schemeId: string
+  schemeName: string
+  /** 锁定的题目版本 */
+  version: number
+  versionCreatedAt: string
+  questions: { title: string; kind: string; options?: string[] }[]
+  /** 创建时点锁定的对公/对私单价（元/份）；对公 = 任务结算单价 */
+  prices: { pub: number; priv: number | null }
 }
 
 /** 拆解粒度 = 单工作组 + 单品种 + 单地区 + 单业务（服务项目） */
@@ -576,6 +596,8 @@ export interface Task {
   priceBookSnapshot: PriceBook
   /** 创建时锁定的执行链快照；后续修改链配置不得影响既有任务 */
   chainSnapshot: ExecutionChain
+  /** 问卷类项目的计价快照（题目版本 + 公私单价）；后续改问卷归属或改价不影响 */
+  questionnaireSnapshots?: QuestionnaireTaskSnapshot[]
   /** 预算推荐总金额（仅提示） */
   recommendedAmount: number
   recommendedConfigured: boolean
@@ -647,8 +669,10 @@ export interface NavFocus {
   budgetAnalysis?: { budgetPlanId: string; year: number; provider: string }
   /** 跳转「用户与组织」时按角色筛选人员列表（来自角色管理「已授权用户」跳转） */
   userOrgRoleId?: string
-  /** 跳转「用户管理」时直接打开该成员详情（来自组织架构成员行「查看授权」，D8） */
+  /** 跳转「用户管理」时直接打开该成员详情（来自组织架构成员详情「管理账号」） */
   userDetailUserId?: string
+  /** 跳转「用户管理」时直接打开新建用户弹窗并预选该部门为默认归属（来自组织架构「新建用户」独立入口） */
+  createUserDefaultOrgId?: string
   /** 跳转「业务授权」时预选的服务商（来自合作关系/准入详情「查看授权」） */
   businessAuthProviderTenantId?: string
   /** 跳转「合同管理」时直接打开该服务商的上传合同弹窗（来自准入通过承接引导，对象不可改选） */
@@ -695,26 +719,56 @@ export interface AuditLogEntry {
  * - 系统管理后台新增 菜单管理 / 合作关系监管 / 系统审计日志（软件服务方唯一预置角色=贝医系统管理员）。
  * 菜单显示统一由 ResourcePage.realms/tenantTypes + 角色 pagePerms 判定，不再按旧视角隐藏。
  */
-export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "settlement" | "business-switch" | "execution-chain" | "menus" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "cooperation-supervision" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management" | "tenant-package" | "contract-management"
+export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "business-switch" | "execution-chain" | "menus" | "questionnaire-config" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "cooperation-supervision" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management" | "tenant-package" | "contract-management" | "visit-audit-hospital" | "visit-audit-commercial" | "visit-audit-pharmacy"
 
-// ===== 话术管理（品种话术维护 + baiyee-AI 生成场景） =====
+// ===== 话术管理（话术管理页 + baiyee-AI 采纳入库） =====
+// 依据《话术管理功能需求文档》V1.1（2026-10-29）重构：
+// 通用话术（系统内置，GS 编号，仅查看与启停）与品种话术（PN 编号，按
+// 拜访场景 → 业务类别 → 类别细分 组织）分为两个独立数据集。
 
-export type TalkScriptStatus = "启用" | "禁用" | "待启用"
+/** 管理状态：启用/停用为常规两态；"待启用" 仅 baiyee-AI 采纳入库的中间态 */
+export type ScriptManageStatus = "启用" | "停用" | "待启用"
 
-export interface TalkScript {
-  id: number
-  /** 商品名(规格)；默认话术固定为 "通用品种" */
-  variety: string
-  firstCat: string
-  /** 跟台服务无二级类别，固定为 "—" */
-  secondCat: string
-  content: string
+/** 通用话术（系统内置，禁止新增/编辑/导入/删除，仅支持查看与启停） */
+export interface GeneralScript {
+  /** 编号：GS + 4 位流水，如 GS-0001 */
+  id: string
+  /** 通用类别：开场白/产品介绍/异议处理/促成成交/客情维护 */
+  category: string
+  /** 客户反馈：自由文本，可为空 */
   feedback: string
-  isDefault: "是" | "否"
-  /** "待启用" 仅 AI 采纳入库使用，人工启用后进入正常两态流转 */
-  status: TalkScriptStatus
-  isCoop: "是" | "否"
-  deptRule: string
+  /** 话术内容：最长 500 字 */
+  content: string
+  status: "启用" | "停用"
+  creator: string
+  createdAt: string
+  updatedAt: string
+  updater: string
+}
+
+/** 品种话术（绑定具体品种，按 拜访场景 → 业务类别 → 类别细分 组织） */
+export interface ProductScript {
+  /** 编号：PN + 4 位流水，如 PN-0001 */
+  id: string
+  /** 拜访场景：终端拜访/药房拜访/商业拜访/其他场景拜访；新增时由子场景带入不可修改 */
+  scene: string
+  /** 品种（取自品种主数据字典） */
+  product: string
+  /** 业务类别（选项随拜访场景联动） */
+  bizCat: string
+  /** 类别细分（选项随业务类别联动，可为空） */
+  subCat: string
+  /** 客户反馈：自由文本，可为空 */
+  feedback: string
+  /** 话术内容：最长 500 字 */
+  content: string
+  status: ScriptManageStatus
+  /** 是否合作性话术：仅"商业拜访"场景下展示与维护 */
+  isCoop?: "是" | "否"
+  creator: string
+  createdAt: string
+  updatedAt: string
+  updater: string
   /** baiyee-AI 采纳入库标记 */
   isAI?: boolean
   /** AI 入库确认人留痕，如 "李航 · 2026-09-10 14:32" */
