@@ -5,6 +5,7 @@
  * 两个入口共用本文件的弹窗与写路径，保证同一条记录只有一个可信状态。
  */
 import { useEffect, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Modal } from "../components/Modal"
 import { Button } from "../components/Button"
 import { formatCNY } from "../constants"
@@ -147,6 +148,9 @@ const DIRECT_UI_CSS = `
 .dpq-seg .dpq-cnt { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; color:#98A2B3 }
 .dpq-seg button[aria-pressed="true"] .dpq-cnt { color:var(--color-brand); opacity:.75 }
 .dpq-avatar { flex:none; display:grid; place-items:center; width:34px; height:34px; border-radius:50%; background:var(--color-brand-subtle, #E8F4EE); color:var(--color-brand, #176451); font-weight:650; font-size:13px }
+.dpq-pager button { transition: background 120ms ease }
+.dpq-pager button:disabled { opacity:.4; cursor:not-allowed }
+.dpq-pager button:not(:disabled):not([aria-current="page"]):hover { background:#F6FAF7 }
 `
 
 /** 页面级直达 UI 样式（每个使用页渲染一次） */
@@ -197,6 +201,76 @@ export function DirectPersonCell({ name, account }: { name: string; account: str
           {account}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** 紧凑翻页器：嵌在卡片灰底页脚右侧使用（单页时不渲染，避免占位） */
+export function DirectPager({
+  page,
+  pageSize,
+  total,
+  onChange,
+}: {
+  page: number
+  pageSize: number
+  total: number
+  onChange: (page: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  if (totalPages <= 1) return null
+  let pages: (number | "...")[]
+  if (totalPages <= 7) {
+    pages = Array.from({ length: totalPages }, (_, i) => i + 1)
+  } else if (page <= 4) {
+    pages = [1, 2, 3, 4, 5, "...", totalPages]
+  } else if (page >= totalPages - 3) {
+    pages = [1, "...", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
+  } else {
+    pages = [1, "...", page - 1, page, page + 1, "...", totalPages]
+  }
+  const go = (next: number) => {
+    if (next >= 1 && next <= totalPages && next !== page) onChange(next)
+  }
+  const btn = (active: boolean): React.CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 28,
+    height: 28,
+    padding: "0 7px",
+    fontSize: 12.5,
+    fontWeight: active ? 600 : 400,
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+    color: active ? "var(--color-brand)" : "#667085",
+    background: active ? "var(--color-brand-subtle, #E8F4EE)" : "#fff",
+    border: `1px solid ${active ? "var(--color-brand)" : "var(--color-border)"}`,
+    borderRadius: 6,
+    cursor: "pointer",
+  })
+  const navBtn: React.CSSProperties = { ...btn(false), padding: 0, cursor: "pointer" }
+  return (
+    <div className="dpq-pager" style={{ display: "inline-flex", alignItems: "center", gap: 4 }} role="navigation" aria-label="分页">
+      <span style={{ fontSize: 12, color: "#667085", marginRight: 8, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+        第 {page} / {totalPages} 页
+      </span>
+      <button type="button" style={navBtn} disabled={page <= 1} aria-label="上一页" onClick={() => go(page - 1)}>
+        <ChevronLeft size={14} />
+      </button>
+      {pages.map((p, index) =>
+        p === "..." ? (
+          <span key={`gap-${index}`} style={{ fontSize: 12, color: "#98A2B3", padding: "0 2px" }}>
+            …
+          </span>
+        ) : (
+          <button key={p} type="button" style={btn(p === page)} aria-current={p === page ? "page" : undefined} onClick={() => go(p)}>
+            {p}
+          </button>
+        ),
+      )}
+      <button type="button" style={navBtn} disabled={page >= totalPages} aria-label="下一页" onClick={() => go(page + 1)}>
+        <ChevronRight size={14} />
+      </button>
     </div>
   )
 }

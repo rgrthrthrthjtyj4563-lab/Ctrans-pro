@@ -57,6 +57,7 @@ import { SpecialistDetailModal, SpecialistFormModal, StatementModal } from "./Pe
 import {
   DirectAssessmentModal,
   DirectAuditModal,
+  DirectPager,
   DirectPersonCell,
   DirectRecordModal,
   DirectReturnModal,
@@ -436,11 +437,13 @@ export function PerformanceSpecialist({ addToast }: Props) {
               </tbody>
             </table>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 20px", background: "#F9FAFB", borderTop: "1px solid var(--color-border)", color: "#667085", fontSize: 12.5 }}>
-            <span>共 <b style={{ color: "var(--color-text-1)" }}>{directFiltered.length}</b> 条</span>
-            {!canSubmitDirect && <span>当前身份为只读：提交与退回需服务商管理员权限。</span>}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, padding: "12px 20px", background: "#F9FAFB", borderTop: "1px solid var(--color-border)", color: "#667085", fontSize: 12.5 }}>
+            <span>
+              共 <b style={{ color: "var(--color-text-1)" }}>{directFiltered.length}</b> 条
+              {!canSubmitDirect && <span style={{ marginLeft: 14 }}>当前身份为只读：提交与退回需服务商管理员权限。</span>}
+            </span>
+            <DirectPager page={directPage} pageSize={PAGE_SIZE} total={directFiltered.length} onChange={setDirectPage} />
           </div>
-          <Pagination page={directPage} pageSize={PAGE_SIZE} total={directFiltered.length} onChange={setDirectPage} />
         </section>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>

@@ -13,7 +13,6 @@ import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, regionNamesInScope, useServi
 import { NO_REGION_SCOPE_TITLE, NO_REGION_SCOPE_DESCRIPTION, usePharmaRegionScope } from '../hooks/usePharmaRegionScope';
 import { FilterBar } from "../components/FilterBar"
 import { Button } from "../components/Button"
-import { Pagination } from "../components/Pagination"
 import type { ToastMessage } from "../components/Toast"
 import { usePermission } from "../context/PermissionContext"
 import { useTaskData } from "../context/TaskDataContext"
@@ -43,6 +42,7 @@ import { usePerfSettings } from "../data/performanceData"
 import {
   DirectAssessmentModal,
   DirectAuditModal,
+  DirectPager,
   DirectPersonCell,
   DirectRecordModal,
   DirectReturnModal,
@@ -511,11 +511,13 @@ export function PerformanceTeamQuality({ addToast }: Props) {
                 </tbody>
               </table>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "12px 20px", background: "#F9FAFB", borderTop: "1px solid var(--color-border)", color: "#667085", fontSize: 12.5 }}>
-              <span>共 <b style={{ color: "var(--color-text-1)" }}>{directRows.length}</b> 个任务包</span>
-              <span>有任一专员待考核即显示「待考核」；全部完成后转「已考核」。</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, padding: "12px 20px", background: "#F9FAFB", borderTop: "1px solid var(--color-border)", color: "#667085", fontSize: 12.5 }}>
+              <span>
+                共 <b style={{ color: "var(--color-text-1)" }}>{directRows.length}</b> 个任务包
+                <span style={{ marginLeft: 14 }}>有任一专员待考核即显示「待考核」；全部完成后转「已考核」。</span>
+              </span>
+              <DirectPager page={directPage} pageSize={PAGE_SIZE} total={directRows.length} onChange={setDirectPage} />
             </div>
-            <Pagination page={directPage} pageSize={PAGE_SIZE} total={directRows.length} onChange={setDirectPage} />
           </section>
         </div>
       )}
