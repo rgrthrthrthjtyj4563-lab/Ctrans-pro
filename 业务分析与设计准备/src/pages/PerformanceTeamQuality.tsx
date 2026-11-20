@@ -260,49 +260,19 @@ export function PerformanceTeamQuality({ addToast }: Props) {
 
   const deniedView = denied || regionScope.denied
 
-  // ── 二级详情视图 ───────────────────────────────────────────────────────────
+  // ── 二级详情视图（与项目其他列表→详情页一致：PageHeader + actions 返回按钮） ──
   const detailView = detailPackage && detailStats && (
     <div>
       <DirectUiStyle />
-      {/* 一体化页头：返回 + 任务标识 + 链路标签（返回后保留一级列表筛选与页码） */}
-      <div style={{ padding: "18px 24px 16px", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
-        <button
-          type="button"
-          className="dpq-back"
-          onClick={() => { setDetailKey(null); setRosterTab("all"); setPersonQuery("") }}
-          title="返回任务包列表（保留筛选与页码）"
-        >
-          <span className="dpq-back-ico" aria-hidden="true">
-            <ArrowLeft size={14} />
-          </span>
-          返回列表
-        </button>
-        <span aria-hidden="true" style={{ width: 1, height: 42, background: "var(--color-border)" }} />
-        <div style={{ flex: 1, minWidth: 280 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <h1 style={{ margin: 0, fontSize: 19, fontWeight: 650, color: "var(--color-text-1)", letterSpacing: "-.01em", lineHeight: 1.3 }}>
-              {detailPackage.taskName}
-            </h1>
-            <span className="dpq-tag brand">三级直达</span>
-            {detailPackage.locked && <span className="dpq-tag warn">已结算完结 · 仅供查阅</span>}
-          </div>
-          <div style={{ marginTop: 7, fontSize: 12.5, color: "#667085", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{detailPackage.taskNo}</span>
-            <span aria-hidden="true" style={{ color: "#D5DDE4" }}>·</span>
-            <span>{detailPackage.serviceMonth} 考核月</span>
-            <span aria-hidden="true" style={{ color: "#D5DDE4" }}>·</span>
-            <span>{detailPackage.holderPharma}</span>
-            <span aria-hidden="true" style={{ color: "#D5DDE4" }}>·</span>
-            <span>{detailPackage.varietyNames.join("、")}</span>
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 11.5, color: "#98A2B3" }}>考核进度</div>
-          <div style={{ fontSize: 14, fontWeight: 650, color: "var(--color-text-1)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", marginTop: 3 }}>
-            {detailStats.done} / {detailStats.total} 人
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title={detailPackage.taskName}
+        description={`${detailPackage.taskNo} · ${detailPackage.serviceMonth} 考核月 · 三级直达 · ${detailPackage.holderPharma}${detailPackage.locked ? " · 任务已结算完结，记录仅供查阅" : ""}`}
+        actions={
+          <Button variant="ghost" size="md" icon={<ArrowLeft size={14} />} onClick={() => { setDetailKey(null); setRosterTab("all"); setPersonQuery("") }}>
+            返回列表
+          </Button>
+        }
+      />
       <div style={{ padding: "0 24px 24px" }}>
         <div style={{ background: "#fff", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, padding: "14px 20px", borderBottom: "1px solid var(--color-border)" }}>
