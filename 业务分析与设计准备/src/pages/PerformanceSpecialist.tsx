@@ -57,11 +57,15 @@ import { SpecialistDetailModal, SpecialistFormModal, StatementModal } from "./Pe
 import {
   DirectAssessmentModal,
   DirectAuditModal,
+  DirectPersonCell,
   DirectRecordModal,
   DirectReturnModal,
+  DirectSegmentedTabs,
   DirectSourceItemsModal,
   DirectSourcesModal,
+  DirectStatusPill,
   DirectSuccessModal,
+  DirectUiStyle,
   type AssessmentSubmitInput,
 } from "./PerformanceDirect"
 
@@ -87,6 +91,11 @@ const td: React.CSSProperties = {
 const mono: React.CSSProperties = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 }
+const numTd: React.CSSProperties = {
+  ...td,
+  textAlign: "right",
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+}
 const linkBtn: React.CSSProperties = {
   border: "none",
   background: "none",
@@ -109,27 +118,6 @@ type DirectTab = "all" | "待考核" | "已考核"
 
 function now() {
   return new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-")
-}
-
-function DirectStatusPill({ status }: { status: "待考核" | "已考核" }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "3px 8px",
-        borderRadius: 20,
-        fontSize: 11,
-        fontWeight: 650,
-        color: status === "已考核" ? "#115E59" : "#855613",
-        background: status === "已考核" ? "#E8F4EE" : "#FBF2DF",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {status}
-    </span>
-  )
 }
 
 export function PerformanceSpecialist({ addToast }: Props) {
@@ -343,62 +331,49 @@ export function PerformanceSpecialist({ addToast }: Props) {
       ) : (
         <>
         {/* ── 直达任务包记录（新流程；两入口同源同规则） ─────────────────── */}
-        <section style={{ background: "#fff", border: "1px solid var(--color-border)", borderRadius: 8, overflow: "hidden", marginBottom: 24 }} aria-label="直达任务包记录">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "14px 18px" }}>
+        <DirectUiStyle />
+        <section style={{ background: "#fff", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden", marginBottom: 26 }} aria-label="直达任务包记录">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "16px 20px", borderBottom: "1px solid var(--color-border)" }}>
             <div>
-              <b style={{ fontSize: 14 }}>直达任务包记录</b>
-              <span style={{ display: "block", fontSize: 12, color: "#667085", marginTop: 3 }}>
+              <b style={{ fontSize: 15 }}>直达任务包记录</b>
+              <span style={{ display: "block", fontSize: 12, color: "#667085", marginTop: 4 }}>
                 关联任务的直达考核；提交、退回与「团队工作质量评价」写同一份留痕，完结任务仅供查阅。
               </span>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {(["all", "待考核", "已考核"] as DirectTab[]).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => { setDirectTab(tab); setDirectPage(1) }}
-                  aria-pressed={directTab === tab}
-                  style={{
-                    border: "none",
-                    background: directTab === tab ? "var(--color-brand-subtle)" : "transparent",
-                    color: directTab === tab ? "var(--color-brand)" : "#667085",
-                    fontSize: 12.5,
-                    fontWeight: directTab === tab ? 700 : 500,
-                    padding: "5px 10px",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                  }}
-                >
-                  {tab === "all" ? "全部" : tab} <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 11 }}>{directTotals[tab]}</span>
-                </button>
-              ))}
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <DirectSegmentedTabs
+                current={directTab}
+                counts={directTotals}
+                onChange={(tab) => { setDirectTab(tab); setDirectPage(1) }}
+                ariaLabel="直达记录考核状态筛选"
+              />
               <input
                 type="search"
                 value={directQuery}
                 placeholder="搜索专员或任务编号"
                 onChange={(e) => { setDirectQuery(e.target.value); setDirectPage(1) }}
                 aria-label="搜索直达记录"
-                style={{ minHeight: 32, width: 180, border: "1px solid #D0D5DD", borderRadius: 6, padding: "4px 10px", fontSize: 12.5 }}
+                style={{ minHeight: 34, width: 200, border: "1px solid #D0D5DD", borderRadius: 7, padding: "6px 12px", fontSize: 12.5 }}
               />
             </div>
           </div>
-          <div style={{ overflowX: "auto", borderTop: "1px solid var(--color-border)" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
+          <div style={{ overflowX: "auto" }}>
+            <table className="dpq-roster" style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
               <thead>
                 <tr>
-                  <th style={th}>任务包 / 考核月</th>
-                  <th style={th}>服务专员</th>
-                  <th style={{ ...th, textAlign: "right" }}>有效工作量</th>
-                  <th style={{ ...th, textAlign: "right" }}>默认绩效</th>
-                  <th style={{ ...th, textAlign: "right" }}>已确认绩效</th>
-                  <th style={th}>考核状态</th>
-                  <th style={th}>操作</th>
+                  <th style={{ ...th, padding: "12px 20px" }}>任务包 / 考核月</th>
+                  <th style={{ ...th, padding: "12px 20px" }}>服务专员</th>
+                  <th style={{ ...th, textAlign: "right", padding: "12px 20px" }}>有效工作量</th>
+                  <th style={{ ...th, textAlign: "right", padding: "12px 20px" }}>默认绩效</th>
+                  <th style={{ ...th, textAlign: "right", padding: "12px 20px" }}>已确认绩效</th>
+                  <th style={{ ...th, padding: "12px 20px" }}>考核状态</th>
+                  <th style={{ ...th, textAlign: "right", padding: "12px 20px", width: 230 }}>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {directPaged.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ ...td, textAlign: "center", color: "#667085" }}>
+                    <td colSpan={7} style={{ ...td, padding: "15px 20px", textAlign: "center", color: "#667085" }}>
                       暂无直达任务包记录（三级链任务且该月有已审核工作量后生成）。
                     </td>
                   </tr>
@@ -410,30 +385,29 @@ export function PerformanceSpecialist({ addToast }: Props) {
                     const hasHistory = historyOf(record.id).length > 0
                     return (
                       <tr key={record.id}>
-                        <td style={td}>
-                          {record.taskNo}
-                          <span style={{ display: "block", fontSize: 11, color: "#667085" }}>
+                        <td style={{ ...td, padding: "15px 20px" }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 600 }}>{record.taskNo}</div>
+                          <div style={{ fontSize: 11, color: "#98A2B3", marginTop: 3 }}>
                             {record.serviceMonth} · {pkg.holderPharma}
                             {pkg.locked ? " · 已完结锁定" : ""}
-                          </span>
+                          </div>
                         </td>
-                        <td style={td}>
-                          {record.specialist}
-                          <span style={{ display: "block", fontSize: 11, color: "#667085", ...mono }}>{record.specialistAccount}</span>
+                        <td style={{ ...td, padding: "15px 20px" }}>
+                          <DirectPersonCell name={record.specialist} account={record.specialistAccount} />
                         </td>
-                        <td style={{ ...td, textAlign: "right", ...mono }}>{workloadOf(items)} 次</td>
-                        <td style={{ ...td, textAlign: "right", ...mono }}>
+                        <td style={{ ...numTd, padding: "15px 20px" }}>{workloadOf(items)} 次</td>
+                        <td style={{ ...numTd, padding: "15px 20px" }}>
                           {formatCentsText(baseCentsOf(items))}
-                          {record.missingPrice && <span style={{ display: "block", fontSize: 11, color: "#C73A3A" }}>含缺价分项</span>}
+                          {record.missingPrice && <span style={{ display: "block", fontSize: 11, color: "#C73A3A", fontFamily: "inherit" }}>含缺价分项</span>}
                         </td>
-                        <td style={{ ...td, textAlign: "right", ...mono }}>
-                          {active ? formatCentsText(active.cents) : <span style={{ color: "#9CA3AF" }}>—</span>}
+                        <td style={{ ...numTd, padding: "15px 20px" }}>
+                          {active ? formatCentsText(active.cents) : <span style={{ color: "#C2CAD4" }}>—</span>}
                         </td>
-                        <td style={td}>
+                        <td style={{ ...td, padding: "15px 20px" }}>
                           <DirectStatusPill status={statusOf(record)} />
                         </td>
-                        <td style={td}>
-                          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                        <td style={{ ...td, padding: "15px 20px", textAlign: "right" }}>
+                          <div style={{ display: "inline-flex", gap: 16, alignItems: "center" }}>
                             {canSubmitDirect && !pkg.locked && !active && !record.missingPrice && !partial && (
                               <button
                                 style={linkBrand}
@@ -462,8 +436,8 @@ export function PerformanceSpecialist({ addToast }: Props) {
               </tbody>
             </table>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 18px", borderTop: "1px solid var(--color-border)", color: "#667085", fontSize: 12 }}>
-            <span>共 {directFiltered.length} 条</span>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 20px", background: "#F9FAFB", borderTop: "1px solid var(--color-border)", color: "#667085", fontSize: 12.5 }}>
+            <span>共 <b style={{ color: "var(--color-text-1)" }}>{directFiltered.length}</b> 条</span>
             {!canSubmitDirect && <span>当前身份为只读：提交与退回需服务商管理员权限。</span>}
           </div>
           <Pagination page={directPage} pageSize={PAGE_SIZE} total={directFiltered.length} onChange={setDirectPage} />

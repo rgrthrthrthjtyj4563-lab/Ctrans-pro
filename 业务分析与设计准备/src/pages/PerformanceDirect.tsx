@@ -132,6 +132,75 @@ function StyleBlock() {
   return <style>{DPA_CSS}</style>
 }
 
+// ── 直达列表共享 UI（分段状态切换 / 人员格 / 状态徽标 / 表格悬停） ─────────────
+
+const DIRECT_UI_CSS = `
+.dpq-pill { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:650; white-space:nowrap }
+.dpq-pill::before { content:""; width:5px; height:5px; border-radius:50%; background:currentColor }
+.dpq-pill.dpq-pending { background:#FBF2DF; color:#855613 }
+.dpq-pill.dpq-active { background:#E8F4EE; color:#115E59 }
+.dpq-roster tbody tr { transition: background 120ms ease }
+.dpq-roster tbody tr:hover > td { background:#F6FAF7 }
+.dpq-seg { display:inline-flex; background:#F2F4F7; border-radius:8px; padding:3px; gap:2px }
+.dpq-seg button { border:1px solid transparent; background:transparent; color:#667085; font-size:12.5px; font-weight:500; padding:5px 12px; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-family:inherit; white-space:nowrap }
+.dpq-seg button[aria-pressed="true"] { background:#fff; border-color:var(--color-border); color:var(--color-brand); font-weight:650; box-shadow:0 1px 2px rgba(16,24,40,.06) }
+.dpq-seg .dpq-cnt { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; color:#98A2B3 }
+.dpq-seg button[aria-pressed="true"] .dpq-cnt { color:var(--color-brand); opacity:.75 }
+.dpq-avatar { flex:none; display:grid; place-items:center; width:34px; height:34px; border-radius:50%; background:var(--color-brand-subtle, #E8F4EE); color:var(--color-brand, #176451); font-weight:650; font-size:13px }
+`
+
+/** 页面级直达 UI 样式（每个使用页渲染一次） */
+export function DirectUiStyle() {
+  return <style>{DIRECT_UI_CSS}</style>
+}
+
+/** 考核状态徽标（带圆点） */
+export function DirectStatusPill({ status }: { status: "待考核" | "已考核" }) {
+  return <span className={`dpq-pill ${status === "已考核" ? "dpq-active" : "dpq-pending"}`}>{status}</span>
+}
+
+/** 分段式状态切换（全部 / 待考核 / 已考核，含计数） */
+export function DirectSegmentedTabs({
+  current,
+  counts,
+  onChange,
+  ariaLabel = "考核状态筛选",
+}: {
+  current: "all" | "待考核" | "已考核"
+  counts: { all: number; 待考核: number; 已考核: number }
+  onChange: (tab: "all" | "待考核" | "已考核") => void
+  ariaLabel?: string
+}) {
+  const tabs: ("all" | "待考核" | "已考核")[] = ["all", "待考核", "已考核"]
+  return (
+    <div className="dpq-seg" role="group" aria-label={ariaLabel}>
+      {tabs.map((tab) => (
+        <button key={tab} type="button" aria-pressed={current === tab} onClick={() => onChange(tab)}>
+          {tab === "all" ? "全部" : tab}
+          <span className="dpq-cnt">{counts[tab]}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** 人员格：头像 + 姓名 + 账号 */
+export function DirectPersonCell({ name, account }: { name: string; account: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+      <span className="dpq-avatar" aria-hidden="true">
+        {name.slice(0, 1)}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--color-text-1)", lineHeight: 1.35 }}>{name}</div>
+        <div style={{ fontSize: 11, color: "#98A2B3", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", lineHeight: 1.4 }}>
+          {account}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function parseAmountCents(text: string): number {
   const trimmed = text.trim()
   if (!trimmed || !Number.isFinite(Number(trimmed))) return Number.NaN
