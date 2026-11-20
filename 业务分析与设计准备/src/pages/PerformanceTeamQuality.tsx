@@ -449,7 +449,7 @@ export function PerformanceTeamQuality({ addToast }: Props) {
                 <thead>
                   <tr>
                     <th style={th}>任务包</th>
-                    <th style={th}>考核月份</th>
+                    <th style={{ ...th, textAlign: "right" }}>考核月份</th>
                     <th style={th}>合作药厂 / 品种</th>
                     <th style={th}>考核进度</th>
                     <th style={{ ...th, textAlign: "right" }}>已确认绩效</th>
