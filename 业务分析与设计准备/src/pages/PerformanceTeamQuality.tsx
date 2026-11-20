@@ -437,12 +437,13 @@ export function PerformanceTeamQuality({ addToast }: Props) {
               />
             </div>
             <div style={{ overflowX: "auto", borderTop: "1px solid var(--color-border)" }}>
-              <table className="dpq-roster" style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+              <table className="dpq-roster" style={{ width: "100%", borderCollapse: "collapse", minWidth: 940 }}>
                 <thead>
                   <tr>
                     <th style={th}>任务包</th>
                     <th style={{ ...th, textAlign: "right" }}>考核月份</th>
                     <th style={th}>合作药厂 / 品种</th>
+                    <th style={{ ...th, textAlign: "right" }}>考核进度</th>
                     <th style={{ ...th, textAlign: "right" }}>已确认绩效</th>
                     <th style={th}>考核状态</th>
                     <th style={{ ...th, textAlign: "right", width: 110 }}>操作</th>
@@ -451,7 +452,7 @@ export function PerformanceTeamQuality({ addToast }: Props) {
                 <tbody>
                   {directPaged.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ ...td, textAlign: "center", color: "#667085", padding: "32px 20px" }}>
+                      <td colSpan={7} style={{ ...td, textAlign: "center", color: "#667085", padding: "32px 20px" }}>
                         没有符合条件的三级直达任务包（需三级链任务且该月有已审核工作量）。
                       </td>
                     </tr>
@@ -469,6 +470,7 @@ export function PerformanceTeamQuality({ addToast }: Props) {
                             {pkg.holderPharma}
                             <span style={{ display: "block", fontSize: 11, color: "#98A2B3", marginTop: 3 }}>{pkg.varietyNames.join("、")}</span>
                           </td>
+                          <td style={numTd}>{stats.done} / {stats.total} 人</td>
                           <td style={numTd}>
                             {stats.done > 0 ? formatCentsText(stats.confirmedCents) : <span style={{ color: "#C2CAD4" }}>—</span>}
                           </td>
