@@ -151,6 +151,13 @@ const DIRECT_UI_CSS = `
 .dpq-pager button { transition: background 120ms ease }
 .dpq-pager button:disabled { opacity:.4; cursor:not-allowed }
 .dpq-pager button:not(:disabled):not([aria-current="page"]):hover { background:#F6FAF7 }
+.dpq-back { display:inline-flex; align-items:center; gap:9px; height:42px; padding:0 18px 0 10px; border:1px solid var(--color-border); background:#fff; border-radius:11px; cursor:pointer; font-family:inherit; font-size:13.5px; font-weight:600; color:var(--color-text-1); box-shadow:0 1px 2px rgba(16,24,40,.05); transition:background 140ms ease, border-color 140ms ease }
+.dpq-back:hover { background:#F6FAF7; border-color:#C4D2CB }
+.dpq-back .dpq-back-ico { display:grid; place-items:center; width:26px; height:26px; border-radius:8px; background:var(--color-brand-subtle, #E8F4EE); color:var(--color-brand, #176451) }
+.dpq-tag { display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:7px; font-size:11.5px; font-weight:650; white-space:nowrap }
+.dpq-tag.brand { background:var(--color-brand-subtle, #E8F4EE); color:var(--color-brand, #176451) }
+.dpq-tag.muted { background:#F2F4F7; color:#667085 }
+.dpq-tag.warn { background:#FBF2DF; color:#855613 }
 `
 
 /** 页面级直达 UI 样式（每个使用页渲染一次） */
