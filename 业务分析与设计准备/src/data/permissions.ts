@@ -543,14 +543,6 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     realms: ["TENANT"],
   },
   {
-    id: "cooperation-supervision",
-    module: "系统服务",
-    name: "合作关系监管",
-    description: "软件服务方只读监管各药厂—服务商合作关系与业务授权状态（不介入企业间授权决策）",
-    actions: acts("cooperation-supervision", ["view", "export"]),
-    realms: ["PLATFORM"],
-  },
-  {
     id: "platform-audit",
     module: "系统服务",
     name: "系统审计日志",
@@ -731,7 +723,7 @@ function role(
 
 /**
  * 系统角色（realm=PLATFORM，软件服务方域）：仅保留「贝医系统管理员」一个预置角色，
- * 负责租户开通与企业码、租户套餐、菜单管理、合作关系监管与系统审计。系统角色不得持有
+ * 负责租户开通与企业码、租户套餐、菜单管理与系统审计。系统角色不得持有
  * 任何租户内部页面（组织/用户/租户角色/数据范围/业务数据），也不得出现在
  * 企业角色页与企业菜单树中；软件服务方认证成功后直接进入租户管理页（系统工作台已移除），无角色确认页。
  */
@@ -739,7 +731,7 @@ export const PLATFORM_ROLES: SysRole[] = [
   role({
     id: "role-sys-admin",
     name: "贝医系统管理员",
-    description: "租户开通与企业码、菜单管理、合作关系监管与系统审计（软件服务方唯一预置角色，不属于任何企业租户）",
+    description: "租户开通与企业码、租户套餐、菜单管理与系统审计（软件服务方唯一预置角色，不属于任何企业租户）",
     kind: "preset",
     status: "enabled",
     realm: "PLATFORM",
@@ -750,7 +742,6 @@ export const PLATFORM_ROLES: SysRole[] = [
       ["tenant-management", ["view", "create", "edit", "approve"]],
       ["tenant-package", ["view", "create", "edit"]],
       ["menus", ["view", "create", "edit"]],
-      ["cooperation-supervision", ["view", "export"]],
       ["platform-audit", ["view"]],
     ]),
   }),
@@ -1372,7 +1363,7 @@ export const PLATFORM_BINDINGS: PlatformRoleBinding[] = [
     id: "pb-01",
     userId: "u-wangmin",
     platformRoleId: "role-sys-admin",
-    dutyScope: "系统管理：租户开通与企业码、菜单管理、合作关系监管、系统审计",
+    dutyScope: "系统管理：租户开通与企业码、租户套餐、菜单管理、系统审计",
     effectiveFrom: "2026-01-01",
     grantedBy: "系统预置",
     grantedAt: "2026-01-01 09:00",

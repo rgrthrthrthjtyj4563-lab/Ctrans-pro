@@ -52,7 +52,6 @@ import { UserManage } from "./pages/UserManage"
 import { WorkGroupManage } from "./pages/WorkGroupManage"
 import { ProviderPartners } from "./pages/ProviderPartners"
 import { ContractManagement } from "./pages/ContractManagement"
-import { CooperationSupervision } from "./pages/CooperationSupervision"
 import { TalkScriptProvider } from "./context/TalkScriptContext"
 import { AICreditProvider } from "./context/AICreditContext"
 import { BrandLogo } from "./components/Brand"
@@ -118,7 +117,6 @@ const pageLabels: Record<string, string> = {
   "workgroup-manage": "工作组管理",
   "audit-log": "企业审计日志",
   "platform-audit": "系统审计日志",
-  "cooperation-supervision": "合作关系监管",
   "execution-chain": "执行链路配置",
   "performance-team": "团队工作质量评价",
   "performance-specialist": "服务专员绩效",
@@ -166,7 +164,6 @@ const pageSections: Record<string, string> = {
   "workgroup-manage": "企业管理",
   "audit-log": "企业管理",
   "platform-audit": "系统服务",
-  "cooperation-supervision": "系统服务",
   "execution-chain": "基础数据",
   "biz-detail-export": "业务管理",
   "talk-script-variety": "业务管理",
@@ -1065,8 +1062,6 @@ function AppShell() {
         return <AuditLog />
       case "platform-audit":
         return <AuditLog />
-      case "cooperation-supervision":
-        return <CooperationSupervision addToast={addToast} />
       case "menus":
         return (
           <MenuManage

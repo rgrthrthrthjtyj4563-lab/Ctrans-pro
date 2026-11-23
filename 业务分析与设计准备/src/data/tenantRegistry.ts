@@ -1099,14 +1099,21 @@ export function resumeTenant(tenantId: string, reasonCode: string, note: string,
 
 export function terminateTenant(tenantId: string, reasonCode: string, note: string, actor: string): OpResult {
   const tenant = state.tenants.find((t) => t.id === tenantId)
-  // 待激活租户从未开通使用，允许直接终止（开户作废）；正常租户须先暂停再终止
-  if (!tenant || (tenant.status !== "suspended" && tenant.status !== "pending_activation")) {
-    return { ok: false, error: "仅待激活或已暂停租户可终止（正常租户先暂停再终止）", audits: [] }
+  // 待激活（开户作废）、正常（解约/清退直接终止）、已暂停均可终止；已终止不可重复操作
+  if (!tenant || tenant.status === "terminated") {
+    return { ok: false, error: "仅非终止状态租户可终止", audits: [] }
   }
   const reasonLabel = TERMINATE_REASON_OPTIONS.find((r) => r.code === reasonCode)?.label ?? reasonCode
+  const affected = tenant.status === "active" ? activeMemberCount(tenant) : 0
+  const impactNote =
+    tenant.status === "pending_activation"
+      ? "待激活邀请一并失效 · 主企业码永久停用（retired）"
+      : affected > 0
+        ? `受影响：${affected} 名活跃成员禁止登录 · 主企业码永久停用（retired），历史记录保留`
+        : "主企业码永久停用（retired），历史记录保留"
   const line = audit("TENANT_TERMINATED", tenant.shortName, actor, {
     code: tenant.primaryCode,
-    detail: `${reasonLabel}${note ? `：${note}` : ""} · 主企业码永久停用（retired），历史记录保留`,
+    detail: `${reasonLabel}${note ? `：${note}` : ""} · ${impactNote}`,
   })
   commit({
     tenants: state.tenants.map((t) => t.id === tenantId ? { ...t, status: "terminated", statusChangedAt: nowStamp(), statusReasonCode: reasonCode, statusNote: note } : t),

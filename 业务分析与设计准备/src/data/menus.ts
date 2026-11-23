@@ -67,13 +67,12 @@ function item(
 }
 
 const SEED_MENU_ITEMS: MenuSeedItem[] = [
-  // ── 系统管理后台（固定五项：租户管理 / 租户套餐管理 / 菜单管理 / 合作关系监管 / 系统审计日志）
+  // ── 系统管理后台（固定四项：租户管理 / 租户套餐管理 / 菜单管理 / 系统审计日志）
   // 2026-09-18 系统工作台移除（暂无实际意义）；同批新增租户套餐管理（移植 RuoYi 套餐模型）
   item({ id: 'menu-tenant-management', name: '租户管理', type: 'page', parentId: null, pageId: 'tenant-management', section: '', iconKey: 'building-2', sort: 1, workspace: 'platform' }),
   item({ id: 'menu-tenant-package', name: '租户套餐管理', type: 'page', parentId: null, pageId: 'tenant-package', section: '', iconKey: 'award', sort: 2, workspace: 'platform' }),
   item({ id: 'menu-menus-sys', name: '菜单管理', type: 'page', parentId: null, pageId: 'menus', section: '', iconKey: 'shield', sort: 3, workspace: 'platform' }),
-  item({ id: 'menu-cooperation-supervision', name: '合作关系监管', type: 'page', parentId: null, pageId: 'cooperation-supervision', section: '', iconKey: 'handshake', sort: 4, workspace: 'platform' }),
-  item({ id: 'menu-platform-audit', name: '系统审计日志', type: 'page', parentId: null, pageId: 'platform-audit', section: '', iconKey: 'file-text', sort: 5, workspace: 'platform' }),
+  item({ id: 'menu-platform-audit', name: '系统审计日志', type: 'page', parentId: null, pageId: 'platform-audit', section: '', iconKey: 'file-text', sort: 4, workspace: 'platform' }),
 
   // ── 药厂 / 服务商共享：业务工作台 ──────────────────────────────────────────
   // 业务工作台分属两个租户工作空间（软件服务方侧已无工作台首页，两树互不串台）

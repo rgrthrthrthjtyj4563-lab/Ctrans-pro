@@ -362,6 +362,7 @@ body {
    遵循 4px/8px 间距体系与全局字号 token；焦点环清晰、状态不只靠颜色。 */
 .tm-primary-btn,
 .tm-ghost-btn,
+.tm-warn-btn,
 .tm-danger-btn {
   display: inline-flex;
   align-items: center;
@@ -390,6 +391,12 @@ body {
   color: #374151;
 }
 .tm-ghost-btn:hover:not(:disabled) { background: #F9FAFB; }
+.tm-warn-btn {
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  background: #FFFBEB;
+  color: #B45309;
+}
+.tm-warn-btn:hover:not(:disabled) { background: #FEF3E2; }
 .tm-danger-btn {
   border: 1px solid rgba(199, 58, 58, 0.4);
   background: rgba(199, 58, 58, 0.05);
@@ -398,11 +405,13 @@ body {
 .tm-danger-btn:hover:not(:disabled) { background: rgba(199, 58, 58, 0.1); }
 .tm-primary-btn:disabled,
 .tm-ghost-btn:disabled,
+.tm-warn-btn:disabled,
 .tm-danger-btn:disabled { cursor: not-allowed; opacity: 0.55; }
 .tm-btn-sm { height: 32px; padding: 0 12px; font-size: var(--fs-12); }
 
 .tm-primary-btn:focus-visible,
 .tm-ghost-btn:focus-visible,
+.tm-warn-btn:focus-visible,
 .tm-danger-btn:focus-visible,
 .tm-field:focus-visible,
 .tm-tabs .tm-tab:focus-visible,
@@ -509,7 +518,7 @@ body {
   font-weight: 600;
   color: var(--color-brand, #2F6BCE);
   cursor: pointer;
-  max-width: 180px;
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -555,8 +564,9 @@ body {
   text-overflow: ellipsis;
 }
 .tm-chip--primary { background: rgba(47, 107, 206, 0.08); color: var(--color-brand, #2F6BCE); font-weight: 600; }
-.tm-chip--ok { background: #DCFCE7; color: #15803D; }
-.tm-chip--warn { background: #FEF3E2; color: #B45309; }
+.tm-chip--ok { background: #DCFCE7; color: #15803D; font-weight: 600; }
+.tm-chip--warn { background: #FEF3E2; color: #B45309; font-weight: 600; }
+.tm-chip--danger { background: #FEE2E2; color: #B91C1C; font-weight: 600; }
 .tm-chip--muted { background: #F3F4F6; color: #9CA3AF; }
 
 .tm-field { transition: border-color 150ms ease; }

@@ -8,7 +8,7 @@
  *
  * 2026-09-15 整改拍板：无申请/审核/驳回/补正；一个租户一个主企业码（无别名
  * 码、无重发激活提醒）；状态机四态（待激活/正常/已暂停/已终止）；状态操作
- * 收敛到详情头部；详情内容卡按「套餐与开通 / 主体资料 / 首位管理员」选项卡切换。
+ * 收敛到详情头部；详情内容卡按「套餐与开通 / 主体资料 / 管理员信息」选项卡切换。
  *
  * 数据全部来自运行时注册表（mock，localStorage 演示），生产环境由服务端与
  * 数据库完成（见 tenantRegistry.ts 头注）。页面可见性由角色页面权限收敛：
@@ -71,6 +71,7 @@ import {
   TENANT_STATUS_LABEL,
   TENANT_TYPE_LABEL,
   type TenantAdminDesignee,
+  type TenantAuditLine,
   type TenantRecord,
   type TenantSubjectProfile,
   type TenantType,
@@ -268,7 +269,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
     () =>
       tenants.filter((t) => {
         const q = search.toUpperCase();
-        if (q && !t.legalName.toUpperCase().includes(q) && !t.shortName.toUpperCase().includes(q) && !t.uscc.toUpperCase().includes(q) && !t.primaryCode.includes(q)) return false;
+        if (q && !t.legalName.toUpperCase().includes(q) && !t.uscc.toUpperCase().includes(q) && !t.primaryCode.includes(q)) return false;
         if (fType && t.type !== fType) return false;
         if (fStatus && t.status !== fStatus) return false;
         return true;
@@ -429,9 +430,8 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: "var(--fs-14)", fontWeight: 600, color: "var(--color-text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.legalName}>
-                      {t.shortName}
+                      {t.legalName}
                     </div>
-                    <div className="tm-sub" title={t.legalName}>{t.legalName}</div>
                   </div>
                   <StatusPill status={t.status} />
                 </div>
@@ -443,7 +443,6 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
                   })()}
                   <CodeText code={t.primaryCode} />
                   <span className="tm-chip font-mono-nums" title={t.uscc}>{t.uscc}</span>
-                  <span className="tm-chip">{t.initialAdmin.name} · {maskPhone(t.initialAdmin.phone)}</span>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                   <button type="button" className="tm-ghost-btn tm-btn-sm" onClick={() => setDetailTenantId(t.id)}>详情</button>
@@ -456,7 +455,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
             <table className="tm-table" style={{ width: "100%", borderCollapse: "collapse", minWidth: 1160 }}>
               <thead>
                 <tr>
-                  {["企业名称", "类型", "统一社会信用代码", "主企业码", "套餐与开通", "首位管理员", "租户状态", "创建时间", "操作"].map((h) => (
+                  {["企业名称", "类型", "统一社会信用代码", "主企业码", "套餐与开通", "租户状态", "创建时间", "操作"].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -466,9 +465,8 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
                   <tr key={t.id}>
                     <td>
                       <button type="button" className="tm-name-btn" title={t.legalName} onClick={() => setDetailTenantId(t.id)}>
-                        {t.shortName}
+                        {t.legalName}
                       </button>
-                      <div className="tm-sub">{t.legalName}</div>
                     </td>
                     <td>{TENANT_TYPE_LABEL[t.type]}</td>
                     <td>
@@ -480,23 +478,15 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
                         const pkg = packageOfTenant(t.id);
                         const expired = tenantExpired(t);
                         return (
-                          <>
-                            <div style={{ fontSize: "var(--fs-13)", color: "var(--color-text-1)" }} title={pkg?.remark}>
-                              {pkg ? `${pkg.name} · ${pkg.menuIds.length} 项` : "—"}
-                            </div>
-                            <div
-                              className="tm-sub font-mono-nums"
-                              style={expired ? { color: "#C73A3A", fontWeight: 600 } : undefined}
-                            >
-                              {t.expireAt ? (expired ? `已过期 ${t.expireAt}` : `至 ${t.expireAt}`) : "永久"}
-                            </div>
-                          </>
+                          <div
+                            style={{ fontSize: "var(--fs-13)", color: expired ? "#C73A3A" : "var(--color-text-1)", fontWeight: expired ? 600 : undefined }}
+                            title={pkg?.remark}
+                          >
+                            {pkg ? `${pkg.name} · ${pkg.menuIds.length} 项` : "—"}
+                            {expired && <span className="font-mono-nums"> · 已过期 {t.expireAt}</span>}
+                          </div>
                         );
                       })()}
-                    </td>
-                    <td>
-                      <div style={{ fontSize: "var(--fs-13)", color: "var(--color-text-1)" }}>{t.initialAdmin.name}</div>
-                      <div className="tm-sub font-mono-nums">{maskPhone(t.initialAdmin.phone)}</div>
                     </td>
                     <td><StatusPill status={t.status} /></td>
                     <td className="font-mono-nums tm-time">{t.createdAt}</td>
@@ -551,7 +541,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
 const PHARMA_CATEGORIES = ["化学药品制剂", "中药与天然药", "生物制品", "原料药", "药械组合"];
 
 // ─── 工商信息自动带出（演示模拟） ────────────────────────────────────────────
-// 生产环境应在服务端对接企查查/天眼查等工商数据 API，按企业名称/简称查询工商
+// 生产环境应在服务端对接企查查/天眼查等工商数据 API，按企业名称查询工商
 // 登记信息（统一社会信用代码 + 注册地址）；演示原型用本地模拟：优先命中已建
 // 租户的登记数据，否则按名称哈希生成一组稳定的演示数据，让「输入企业名称 →
 // 自动带出信用代码与注册地址」可走通。
@@ -571,7 +561,7 @@ function lookupEnterpriseRecord(key: string): EnterpriseRegistryRecord | null {
   const k = key.trim();
   if (k.length < 4) return null;
   const hit = getTenantRegistrySnapshot().tenants.find(
-    (t) => t.legalName === k || t.shortName === k || t.legalName.includes(k) || k.includes(t.shortName),
+    (t) => t.legalName.includes(k),
   );
   if (hit) return { uscc: hit.uscc, address: hit.profile.address };
   let h = 0;
@@ -592,7 +582,6 @@ function lookupEnterpriseRecord(key: string): EnterpriseRegistryRecord | null {
 interface WizardForm {
   type: TenantType
   legalName: string
-  shortName: string
   uscc: string
   address: string
   contactName: string
@@ -621,7 +610,7 @@ function defaultPackageChoice(): string {
 
 const emptyForm = (type: TenantType): WizardForm => ({
   type,
-  legalName: "", shortName: "", uscc: "", address: "", contactName: "", contactPhone: "",
+  legalName: "", uscc: "", address: "", contactName: "", contactPhone: "",
   licenseAttachment: "", remark: "",
   pharmaCategory: "", mahHolderFlag: true,
   bizOwner: "", complianceOwner: "", qualificationNo: "", qualificationValidTo: "",
@@ -652,7 +641,7 @@ function TenantWizard({
     setDirty(true);
   };
 
-  // 工商登记信息自动带出（演示模拟企查查）：法定名称/简称失焦即查，也可点「查询」；带出信用代码 + 注册地址
+  // 工商登记信息自动带出（演示模拟企查查）：法定名称失焦即查，也可点「查询」；带出信用代码 + 注册地址
   const [addrLookup, setAddrLookup] = useState<{ status: "idle" | "searching" | "found" | "notfound"; key: string }>({ status: "idle", key: "" });
   const addrTimer = useRef<number | null>(null);
   useEffect(() => () => { if (addrTimer.current !== null) window.clearTimeout(addrTimer.current) }, []);
@@ -683,7 +672,6 @@ function TenantWizard({
     const errs: Record<string, string> = {};
     if (s === 1) {
       if (!form.legalName.trim()) errs.legalName = "请输入企业法定名称";
-      if (!form.shortName.trim()) errs.shortName = "请输入企业简称";
       if (!/^[0-9A-Z]{18}$/.test(form.uscc.trim().toUpperCase())) errs.uscc = "请输入 18 位统一社会信用代码（数字与大写字母）";
       else if (isUsccTaken(form.uscc)) errs.uscc = "该企业主体已存在租户，请先查看现有记录";
       if (!form.address.trim()) errs.address = "请输入企业注册地址";
@@ -712,7 +700,8 @@ function TenantWizard({
 
   const buildProfile = (): TenantSubjectProfile => ({
     legalName: form.legalName.trim(),
-    shortName: form.shortName.trim(),
+    // 企业简称已从界面移除；注册表的 shortName 字段保留（种子数据与审计标签沿用），按法定名称回填
+    shortName: form.legalName.trim(),
     uscc: form.uscc.trim().toUpperCase(),
     address: form.address.trim(),
     contactName: form.contactName.trim(),
@@ -867,7 +856,7 @@ function TenantWizard({
                 {...inputProps("wf-legalName", errors.legalName)}
                 value={form.legalName}
                 onChange={(e) => set({ legalName: e.target.value })}
-                onBlur={(e) => runAddressLookup(e.currentTarget.value || form.shortName)}
+                onBlur={(e) => runAddressLookup(e.currentTarget.value)}
                 placeholder="与营业执照一致"
               />
               <button
@@ -875,7 +864,7 @@ function TenantWizard({
                 className="tm-ghost-btn"
                 style={{ height: 40, flexShrink: 0 }}
                 disabled={addrLookup.status === "searching"}
-                onClick={() => runAddressLookup(form.legalName || form.shortName)}
+                onClick={() => runAddressLookup(form.legalName)}
                 title="按企业名称查询工商登记信息（演示模拟企查查）"
               >
                 {addrLookup.status === "searching"
@@ -884,15 +873,6 @@ function TenantWizard({
                 查询
               </button>
             </div>
-          </Field>
-          <Field id="wf-shortName" label="企业简称" required error={errors.shortName} hint="仅用于界面展示，不参与企业码生成">
-            <input
-              {...inputProps("wf-shortName", errors.shortName)}
-              value={form.shortName}
-              onChange={(e) => set({ shortName: e.target.value })}
-              onBlur={(e) => { if (!form.legalName.trim()) runAddressLookup(e.currentTarget.value) }}
-              placeholder="如：朗盛生物"
-            />
           </Field>
           <Field
             id="wf-uscc"
@@ -949,7 +929,7 @@ function TenantWizard({
           >
             <div style={{ display: "flex", gap: 8 }}>
               <input {...inputProps("wf-license")} value={form.licenseAttachment} readOnly placeholder="未选择材料" style={{ ...fieldInput, background: "#F9FAFB" }} />
-              <button type="button" className="tm-ghost-btn" style={{ height: 40, flexShrink: 0 }} onClick={() => set({ licenseAttachment: `营业执照-${form.shortName || "新租户"}.pdf（模拟附件）` })}>
+              <button type="button" className="tm-ghost-btn" style={{ height: 40, flexShrink: 0 }} onClick={() => set({ licenseAttachment: `营业执照-${form.legalName || "新租户"}.pdf（模拟附件）` })}>
                 模拟上传
               </button>
               {form.licenseAttachment && (
@@ -1201,7 +1181,7 @@ function TenantDetailDrawer({
   const [pkgErr, setPkgErr] = useState<string | null>(null);
 
   // 详情内容卡片选项卡
-  const [detailTab, setDetailTab] = useState<"package" | "profile" | "admin">("package");
+  const [detailTab, setDetailTab] = useState<"package" | "profile" | "admin" | "log">("package");
   useEffect(() => {
     setDetailTab("package");
   }, [tenantId]);
@@ -1210,6 +1190,67 @@ function TenantDetailDrawer({
   const p = tenant.profile;
   const pkg = packageOfTenant(tenant.id);
   const expired = tenantExpired(tenant);
+
+  // 汇总本租户的操作日志（实时操作流水 + 种子租户的初始基线记录）
+  const tenantLog = (() => {
+    const rawLogs = registry.activityLog.filter(
+      (l) => l.targetTenant === tenant.shortName || l.code === tenant.primaryCode,
+    );
+    const hasCreated = rawLogs.some((l) => l.reasonCode === "TENANT_CREATED");
+    if (hasCreated) return rawLogs;
+    const seedBaseline: TenantAuditLine[] = [];
+    if (
+      tenant.status === "terminated" &&
+      !rawLogs.some((l) => l.reasonCode === "TENANT_TERMINATED")
+    ) {
+      seedBaseline.push({
+        id: `seed-term-${tenant.id}`,
+        at: tenant.statusChangedAt,
+        actor: tenant.createdBy,
+        reasonCode: "TENANT_TERMINATED",
+        targetTenant: tenant.shortName,
+        code: tenant.primaryCode,
+        detail: `${tenant.statusReasonCode ? statusReasonLabel(tenant.statusReasonCode) : "合作协议终止"}${tenant.statusNote ? `：${tenant.statusNote}` : ""} · 主企业码永久停用（retired）`,
+      });
+    } else if (
+      tenant.status === "suspended" &&
+      !rawLogs.some((l) => l.reasonCode === "TENANT_SUSPENDED")
+    ) {
+      seedBaseline.push({
+        id: `seed-susp-${tenant.id}`,
+        at: tenant.statusChangedAt,
+        actor: tenant.createdBy,
+        reasonCode: "TENANT_SUSPENDED",
+        targetTenant: tenant.shortName,
+        code: tenant.primaryCode,
+        detail: `${tenant.statusReasonCode ? statusReasonLabel(tenant.statusReasonCode) : "合作协议暂停"}${tenant.statusNote ? `：${tenant.statusNote}` : ""}`,
+      });
+    }
+    if (
+      tenant.initialAdmin.memberStatus === "active" &&
+      !rawLogs.some((l) => l.reasonCode === "TENANT_ACTIVATED")
+    ) {
+      seedBaseline.push({
+        id: `seed-act-${tenant.id}`,
+        at: tenant.initialAdmin.activatedAt ?? tenant.statusChangedAt,
+        actor: tenant.initialAdmin.name,
+        reasonCode: "TENANT_ACTIVATED",
+        targetTenant: tenant.shortName,
+        code: tenant.primaryCode,
+        detail: `首位管理员「${tenant.initialAdmin.name}」首次登录完成激活，租户转为正常状态`,
+      });
+    }
+    seedBaseline.push({
+      id: `seed-create-${tenant.id}`,
+      at: tenant.createdAt,
+      actor: tenant.createdBy,
+      reasonCode: "TENANT_CREATED",
+      targetTenant: tenant.shortName,
+      code: tenant.primaryCode,
+      detail: `${TENANT_TYPE_LABEL[tenant.type]} · 生成主企业码 ${tenant.primaryCode} · 预置首位管理员 ${tenant.initialAdmin.name}（${maskPhone(tenant.initialAdmin.phone)}）`,
+    });
+    return [...rawLogs, ...seedBaseline];
+  })();
 
   const copyCode = async (code: string) => {
     const ok = await copyTextWithFallback(code);
@@ -1270,7 +1311,7 @@ function TenantDetailDrawer({
 
   return (
     <>
-      <Modal open title={`租户详情 · ${tenant.shortName}`} width={720} onClose={onClose}>
+      <Modal open title={`租户详情 · ${tenant.legalName}`} width={720} onClose={onClose}>
         {/* 页头卡：企业身份 + 主企业码 + 状态元信息在左，生命周期动作在右 */}
         <div className="tm-detail-head">
           <div style={{ minWidth: 0, flex: "1 1 280px" }}>
@@ -1293,7 +1334,7 @@ function TenantDetailDrawer({
               主企业码全局唯一、系统生成，仅可查看和复制；租户终止后永久保留且不得分配给其他企业。
             </div>
           </div>
-          {/* 生命周期主操作（变更首位管理员在「首位管理员」卡片） */}
+          {/* 生命周期主操作（变更首位管理员在「管理员信息」选项卡） */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {tenant.status === "pending_activation" && (
               <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("terminate")}>
@@ -1302,10 +1343,16 @@ function TenantDetailDrawer({
               </button>
             )}
             {tenant.status === "active" && (
-              <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("suspend")}>
-                <PauseCircle size={14} aria-hidden />
-                暂停租户
-              </button>
+              <>
+                <button type="button" className="tm-warn-btn" disabled={busy !== null} onClick={() => openStatusAction("suspend")}>
+                  <PauseCircle size={14} aria-hidden />
+                  暂停租户
+                </button>
+                <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("terminate")}>
+                  <Ban size={14} aria-hidden />
+                  终止租户
+                </button>
+              </>
             )}
             {tenant.status === "suspended" && (
               <>
@@ -1322,12 +1369,13 @@ function TenantDetailDrawer({
           </div>
         </div>
 
-        {/* 内容选项卡：套餐与开通 / 主体资料 / 首位管理员 */}
+        {/* 内容选项卡：套餐与开通 / 主体资料 / 管理员信息 / 操作日志 */}
         <div className="tm-tabs" role="tablist" aria-label="租户详情内容分区">
           {([
             ["package", "套餐与开通"],
             ["profile", "主体资料"],
-            ["admin", "首位管理员"],
+            ["admin", "管理员信息"],
+            ["log", "操作日志"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -1340,6 +1388,22 @@ function TenantDetailDrawer({
               onClick={() => setDetailTab(key)}
             >
               {label}
+              {key === "log" && (
+                <span
+                  className="font-mono-nums"
+                  style={{
+                    marginLeft: 5,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: detailTab === "log" ? "rgba(47, 107, 206, 0.12)" : "#F3F4F6",
+                    color: detailTab === "log" ? "var(--color-brand, #2F6BCE)" : "#6B7280",
+                  }}
+                >
+                  {tenantLog.length}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -1400,7 +1464,6 @@ function TenantDetailDrawer({
               </div>
               <dl className="tm-confirm-grid">
                 <dt>企业法定名称</dt><dd>{tenant.legalName}</dd>
-                <dt>企业简称</dt><dd>{tenant.shortName}</dd>
                 <dt>统一社会信用代码</dt><dd className="font-mono-nums">{tenant.uscc}</dd>
                 <dt>注册地址</dt><dd>{p.address}</dd>
                 <dt>企业联系人</dt><dd>{p.contactName} · <span className="font-mono-nums" style={{ fontWeight: 400 }}>{p.contactPhone}</span></dd>
@@ -1422,7 +1485,7 @@ function TenantDetailDrawer({
             </section>
           )}
 
-          {/* 选项卡 3：首位管理员（动作在卡头右侧） */}
+          {/* 选项卡 3：管理员信息（动作在卡头右侧） */}
           {detailTab === "admin" && (
             <section
               id="tm-detail-panel-admin"
@@ -1431,7 +1494,7 @@ function TenantDetailDrawer({
               className="tm-sec"
             >
               <div className="tm-sec-head">
-                <h4 className="tm-sec-title">首位管理员</h4>
+                <h4 className="tm-sec-title">管理员信息</h4>
                 {tenant.status === "pending_activation" && (
                   <button type="button" className="tm-ghost-btn tm-btn-sm" disabled={busy !== null} onClick={() => { setAdminForm({ name: "", account: "", phone: "", reason: "" }); setAdminErr({}); setAdminChangeOpen(true) }}>
                     <UserCog size={13} aria-hidden />
@@ -1455,6 +1518,96 @@ function TenantDetailDrawer({
             </section>
           )}
 
+          {/* 选项卡 4：操作日志（生命周期与配置变更记录） */}
+          {detailTab === "log" && (
+            <section
+              id="tm-detail-panel-log"
+              role="tabpanel"
+              aria-labelledby="tm-detail-tab-log"
+              className="tm-sec"
+            >
+              <div className="tm-sec-head">
+                <h4 className="tm-sec-title">操作日志</h4>
+                <span className="tm-sub" style={{ marginTop: 0 }}>
+                  共 {tenantLog.length} 条记录 · 按时间倒序
+                </span>
+              </div>
+              {tenantLog.length === 0 ? (
+                <div className="tm-empty-inline" style={{ marginTop: 8 }}>
+                  暂无本租户的操作记录。
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 8, maxHeight: 360, overflowY: "auto" }}>
+                  {tenantLog.map((l) => {
+                    const chipTone =
+                      l.reasonCode === "TENANT_TERMINATED"
+                        ? "tm-chip tm-chip--danger"
+                        : l.reasonCode === "TENANT_SUSPENDED"
+                          ? "tm-chip tm-chip--warn"
+                          : l.reasonCode === "TENANT_REACTIVATED" || l.reasonCode === "TENANT_ACTIVATED"
+                            ? "tm-chip tm-chip--ok"
+                            : "tm-chip tm-chip--primary";
+                    const dotColor =
+                      l.reasonCode === "TENANT_TERMINATED"
+                        ? "#C73A3A"
+                        : l.reasonCode === "TENANT_SUSPENDED"
+                          ? "#B45309"
+                          : l.reasonCode === "TENANT_REACTIVATED" || l.reasonCode === "TENANT_ACTIVATED"
+                            ? "#15803D"
+                            : "#2F6BCE";
+                    return (
+                      <div
+                        key={l.id}
+                        className="tm-history-item"
+                        style={{
+                          display: "flex",
+                          gap: 10,
+                          alignItems: "flex-start",
+                          padding: "10px 12px",
+                          background: "#FAFAFA",
+                          border: "1px solid #F3F4F6",
+                          borderRadius: 8,
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: dotColor,
+                            marginTop: 7,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span className={chipTone}>
+                                {AUDIT_ACTION_LABEL[l.reasonCode] ?? "租户管理操作"}
+                              </span>
+                              <span className="tm-chip font-mono-nums" style={{ fontSize: 11, padding: "1px 8px" }}>
+                                {l.reasonCode}
+                              </span>
+                            </div>
+                            <span className="font-mono-nums" style={{ fontSize: "var(--fs-12)", color: "#6B7280" }}>
+                              {l.actor} · {l.at}
+                            </span>
+                          </div>
+                          {l.detail && (
+                            <div style={{ marginTop: 6, fontSize: "var(--fs-13)", color: "#374151", lineHeight: 1.6 }}>
+                              {l.detail}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+
           {tenant.status === "terminated" && (
             <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 12 }}>
               <Ban size={14} aria-hidden />
@@ -1468,7 +1621,7 @@ function TenantDetailDrawer({
       {pkgChangeOpen && (
         <Modal
           open
-          title={`更换套餐 · ${tenant.shortName}`}
+          title={`更换套餐 · ${tenant.legalName}`}
           width={480}
           onClose={() => { if (busy === null) setPkgChangeOpen(false) }}
         >
@@ -1530,7 +1683,7 @@ function TenantDetailDrawer({
                           if (r.ok) {
                             flushAudits(r.audits);
                             setPkgChangeOpen(false);
-                            addToast({ type: "success", title: "套餐已更换", description: `「${tenant.shortName}」已换绑「${targetPkg.name}」，该租户菜单即时生效。` });
+                            addToast({ type: "success", title: "套餐已更换", description: `「${tenant.legalName}」已换绑「${targetPkg.name}」，该租户菜单即时生效。` });
                           } else {
                             addToast({ type: "error", title: "换绑失败", description: r.error });
                           }
@@ -1552,7 +1705,7 @@ function TenantDetailDrawer({
       {statusAction && (
         <Modal
           open
-          title={`${statusAction === "suspend" ? "暂停" : statusAction === "resume" ? "恢复" : "终止"}租户 · ${tenant.shortName}`}
+          title={`${statusAction === "suspend" ? "暂停" : statusAction === "resume" ? "恢复" : "终止"}租户 · ${tenant.legalName}`}
           width={480}
           onClose={() => { if (busy === null) setStatusAction(null) }}
         >
@@ -1563,6 +1716,7 @@ function TenantDetailDrawer({
                 <span>
                   终止后<b>不可恢复</b>，主企业码 {tenant.primaryCode} 永久停用（retired），历史记录保留。
                   {tenant.status === "pending_activation" && "该租户尚未激活，终止即开户作废，首位管理员的待激活邀请一并失效。"}
+                  {tenant.status === "active" && "该租户当前处于正常使用状态，终止后所有在册成员将立即被阻断登录。"}
                 </span>
               </div>
             )}
