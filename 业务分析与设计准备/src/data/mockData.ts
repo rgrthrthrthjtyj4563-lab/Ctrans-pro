@@ -1293,7 +1293,7 @@ const PRICE_DEFS: {
     unit: "次",
     isContractAmount: true,
     isPreset: true,
-    ratio: 40,
+    ratio: 35,
   },
   {
     category: "市场推广服务",
@@ -1311,7 +1311,7 @@ const PRICE_DEFS: {
     unit: "场",
     isContractAmount: true,
     isPreset: true,
-    ratio: 30,
+    ratio: 25,
   },
   {
     category: "市场推广服务",
@@ -1322,10 +1322,21 @@ const PRICE_DEFS: {
     isPreset: true,
     ratio: 20,
   },
+  {
+    // 推广侧「调查问卷」（2026-11-20 迭代）：放推广明细末位、单位「份」，
+    // 计划份数逐级拆包给工作组 / 专员执行；单价按品种维护（D01 建议方案口径）。
+    category: "市场推广服务",
+    name: "调查问卷",
+    amount: 30,
+    unit: "份",
+    isContractAmount: true,
+    isPreset: true,
+    ratio: 10,
+  },
 ]
 
 const REPORT_PRICE_DEFS: {
-  reportType: "分析报告服务" | "问卷调研与分析服务"
+  reportType: "分析报告服务" | "问卷调研与分析服务" | "数据收集与报表提交服务"
   name: string
   amount: number
   unit: string
@@ -1346,6 +1357,7 @@ const REPORT_PRICE_DEFS: {
     ratio: 30,
   },
   {
+    // 报告侧「调研问卷与分析服务」：问卷样本 / 分析总结两行各自计价（D02 建议方案：独立报告项目价目）。
     reportType: "问卷调研与分析服务",
     name: "问卷样本量",
     amount: 20,
@@ -1358,6 +1370,21 @@ const REPORT_PRICE_DEFS: {
     amount: 3000,
     unit: "份",
     ratio: 20,
+  },
+  {
+    // 数据收集与报表提交服务（D03 建议方案：原型用示例项目演示）。
+    reportType: "数据收集与报表提交服务",
+    name: "流向数据收集",
+    amount: 3,
+    unit: "条",
+    ratio: 70,
+  },
+  {
+    reportType: "数据收集与报表提交服务",
+    name: "月度流向报表",
+    amount: 600,
+    unit: "份",
+    ratio: 30,
   },
 ]
 

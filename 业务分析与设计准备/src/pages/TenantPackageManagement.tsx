@@ -15,7 +15,6 @@ import {
   Award,
   ChevronDown,
   ChevronRight,
-  ListTree,
   Minus,
   Package,
   Plus,
@@ -294,7 +293,6 @@ export function TenantPackageManagement({ addToast }: { addToast: (msg: { type: 
                     </td>
                     <td>
                       <span className="tm-time">{p.createdAt}</span>
-                      <div className="tm-sub">{p.createdBy}</div>
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: 6, whiteSpace: "nowrap" }}>
@@ -322,14 +320,6 @@ export function TenantPackageManagement({ addToast }: { addToast: (msg: { type: 
             </table>
           </div>
         )}
-
-        <div className="tm-note tm-note--info" role="note" style={{ marginTop: 12 }}>
-          <ListTree size={14} aria-hidden />
-          <span>
-            套餐在<b>租户管理</b>侧绑定（新建租户向导或详情页「更换套餐」）；绑定后该租户用户的可见菜单即时按套餐裁剪，
-            直跳未开通页面会被拦截并写入权限审计。统一套餐池对药厂/服务商通用，菜单树中各工作空间分区只对对应类型租户生效。
-          </span>
-        </div>
       </div>
 
       <PackageEditor

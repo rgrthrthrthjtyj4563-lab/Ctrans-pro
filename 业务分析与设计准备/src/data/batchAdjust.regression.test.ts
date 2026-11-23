@@ -124,6 +124,37 @@ describe("manual quantity adjustment", () => {
   })
 })
 
+// C2. 优化迭代需求 §3.4 预算回填示例：两类各回填 ¥6,000；初始金额守恒、改数量只重算该项
+describe("doc §3.4 budget backfill example", () => {
+  it("backfills ¥12,000 into two categories at ¥6,000 each", () => {
+    expect(splitBudgetEvenly(12000, 2)).toEqual([6000, 6000])
+  })
+
+  it("keeps allocated ¥1,111 with floored qty 2, then qty 3 recomputes to ¥1,200 (超预算 ¥89)", () => {
+    // 推广类某项目：初始分得 ¥1,111，单价 ¥400 → 初始数量 2，初始金额仍为 ¥1,111
+    const [item] = deriveCategoryItems(1111, [
+      { name: "示例项目", unit: "次", unitPrice: 400, ratio: 100 },
+    ])
+    expect(eqCents(item.initialAmount, 1111)).toBe(true)
+    expect(item.initialQty).toBe(2)
+    expect(eqCents(item.amount, 1111)).toBe(true)
+    expect(item.adjusted).toBe(false)
+
+    // 手动改数量为 3：仅该项金额变为 3 × 400 = ¥1,200；
+    // 服务商计划合计 = 推广其余项目 ¥4,889 + 该项 ¥1,200 + 分析报告类 ¥6,000 = ¥12,089 → 超预算 ¥89
+    const adjusted = {
+      ...item,
+      qty: 3,
+      amount: amountForQty(3, 400),
+      adjusted: true,
+    }
+    expect(eqCents(adjusted.amount, 1200)).toBe(true)
+    const planTotal = 4889 + adjusted.amount + 6000
+    expect(eqCents(planTotal, 12089)).toBe(true)
+    expect(planTotal - 12000).toBe(89)
+  })
+})
+
 // C. 组合守恒：提交按 品种 × 地区 分摊时数量与金额都不变（地区不制造差额）
 describe("combo-conserving distribution at submit", () => {
   it("conserves total quantity across combos (floor + remainder to the first)", () => {

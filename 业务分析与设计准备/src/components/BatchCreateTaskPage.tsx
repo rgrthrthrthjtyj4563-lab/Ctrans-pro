@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react"
 import { ArrowLeft } from "lucide-react"
 import { Modal } from "./Modal"
 import { ConfirmDialog } from "./ConfirmDialog"
@@ -14,16 +20,20 @@ import { useTaskData, type MutationResult } from "../context/TaskDataContext"
 import {
   amountForQty,
   deriveCategoryItems,
-  deriveSurveyItems,
   sameAmount,
   splitAmountAcrossCombos,
   splitBudgetEvenly,
   splitQtyAcrossCombos,
   type PlanItemState,
 } from "../domain/batchAdjust"
-import { listQuestionnaires, surveySchemes } from "../data/questionnaireStore"
-import { surveyPriceOf } from "../data/priceTableStore"
-import { formatCNY } from "../constants"
+import {
+  REPORT_GROUP_TITLE,
+  REPORT_SERVICE_CATEGORIES,
+  serviceCategoryFullName,
+  serviceCategoryLabel,
+  serviceCategoryShort,
+  formatCNY,
+} from "../constants"
 import type {
   CreateTaskInput,
   PriceBook,
@@ -37,12 +47,13 @@ import type { ToastMessage } from "./Toast"
 
 /**
  * 多服务商批量发包（两步，应用内整页：任务执行页点「创建任务」整体切换进来）：
- * ① 多选品种（限同一张价目表）→ 带出授权地区与可承接服务商（可移除/重加）→ 勾服务类别 → 调整统一业务比例；
- *   服务商列表展示按口径匹配出的本次预算金额。
+ * ① 多选品种（限同一张价目表）→ 带出授权地区与可承接服务商（可移除/重加）→ 勾服务类别
+ *   （市场推广服务 + 报告组「调研与报告一体化服务」三类子服务）→ 调整统一业务比例。
  * ② 预算在已选服务类别间平均回填为类别计划金额 → 按统一比例派生项目计划金额与整数测算数量；
- *   需要时进「调整工作量」弹窗改数量（只有被改项目的金额变为 数量×单价）→ 一次提交。
+ *   需要时进「调整工作量」弹窗改数量（推广区含「调查问卷」行；报告区按子服务页签编辑）→ 一次提交。
  * 计算顺序：预算 → 类别平均 → 比例分配金额 → 金额÷单价取整数量；初始金额不因取整反写，
  * 地区是执行范围、不参与均摊与取整。提交后每家服务商生成独立任务，走原有确认 / 拆解 / 审核 / 结算链路。
+ * 推广「调查问卷」的计划份数在此录入，是下游 拆包→工作组→专员 二维码链路的额度来源（2026-11-20 迭代）。
  * 离开页面时自动保存未完成草稿（localStorage），下次进入恢复；提交全部成功后草稿清除。
  */
 
@@ -59,22 +70,14 @@ const AI_STEPS = [
 ]
 const AI_QUOTA_TOTAL = 10
 
-/**
- * 问卷调研与分析服务：不走价目表扁平规则——按品种选问卷、经「问卷 × 品种 → 计价方案」
- * 取对公价（2026-11-10 接入）。价目表内若残留该类别规则，仍不在本页露出。
- */
-const SURVEY_CATEGORY: ServiceCategory = "问卷调研与分析服务"
+const PROMO_CATEGORY: ServiceCategory = "市场推广服务"
 
+/** 新建任务默认勾选：仅市场推广服务（2026-11-20 迭代 §2.1） */
 const DEFAULT_CAT_ON: Record<string, boolean> = {
   市场推广服务: true,
   分析报告服务: false,
-}
-
-/** 价目类别 → 步骤②计划金额列的短名 */
-const CATEGORY_COLUMN: Record<string, string> = {
-  市场推广服务: "推广计划金额",
-  分析报告服务: "报告计划金额",
-  问卷调研与分析服务: "问卷计划金额",
+  问卷调研与分析服务: false,
+  数据收集与报表提交服务: false,
 }
 
 /** 服务商的计划状态：预算快照 + 各类别分配（初始金额 / 初始数量 / 当前值 / 调整标记） */
@@ -123,6 +126,7 @@ interface BatchDraft {
   pickedRegions: string[]
   catOn: Record<string, boolean>
   ratioDraft: Record<string, string>
+  /** 旧版（按品种选问卷）遗留字段：仅用于恢复时识别旧草稿并给出复核提示，新草稿不再写入 */
   surveyPick?: Record<string, string>
   removed: string[]
   plans: PlanMap
@@ -131,22 +135,20 @@ interface BatchDraft {
   pasteText: string
 }
 
-/** 价目表按类别分组（保持价目表内顺序，过滤问卷类别——它按品种走问卷计价） */
+/** 价目表按类别分组（保持价目表内顺序；全部类别按价目规则计价） */
 function visibleGroups(
   book: PriceBook | undefined,
 ): { category: ServiceCategory; rules: PriceBookRule[] }[] {
   if (!book) return []
   const order: ServiceCategory[] = []
   const map = new Map<ServiceCategory, PriceBookRule[]>()
-  book.rules
-    .filter((r) => r.category !== SURVEY_CATEGORY)
-    .forEach((r) => {
-      if (!map.has(r.category)) {
-        map.set(r.category, [])
-        order.push(r.category)
-      }
-      map.get(r.category)!.push(r)
-    })
+  book.rules.forEach((r) => {
+    if (!map.has(r.category)) {
+      map.set(r.category, [])
+      order.push(r.category)
+    }
+    map.get(r.category)!.push(r)
+  })
   return order.map((category) => ({ category, rules: map.get(category)! }))
 }
 
@@ -163,6 +165,36 @@ function defaultRatiosFor(book: PriceBook | undefined): Record<string, string> {
 }
 
 const cents = (v: number) => Math.round(v * 100) / 100
+
+/**
+ * 恢复的草稿计划对齐当前价目表：剔除价目中已不存在的项目与空类别。
+ * 旧版「按品种选问卷」类别的项目名（问卷名 · 品种）不会匹配新价目规则，
+ * 恢复后由待复核提示引导用户重新配置该类别（2026-11-20 迭代 §5）。
+ */
+function sanitizePlans(plans: PlanMap, book: PriceBook | undefined): PlanMap {
+  if (!book) return plans
+  const ruleNames = new Map<string, Set<string>>()
+  book.rules.forEach((r) => {
+    const set = ruleNames.get(r.category) ?? new Set<string>()
+    set.add(r.name)
+    ruleNames.set(r.category, set)
+  })
+  const next: PlanMap = {}
+  Object.entries(plans).forEach(([provider, p]) => {
+    const categories: Partial<Record<ServiceCategory, CatPlanState>> = {}
+    Object.entries(p.categories).forEach(([cat, state]) => {
+      const allowed = ruleNames.get(cat)
+      if (!allowed) return
+      const items = Object.fromEntries(
+        Object.entries(state.items).filter(([name]) => allowed.has(name)),
+      )
+      if (Object.keys(items).length)
+        categories[cat as ServiceCategory] = { ...state, items }
+    })
+    next[provider] = { ...p, categories }
+  })
+  return next
+}
 
 interface SubmitOutcome {
   provider: string
@@ -195,9 +227,13 @@ const bctCss = `
 .bct-region-picker label{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #DFE5ED;border-radius:6px;color:#5D6B7D;font-size:12px;cursor:pointer;background:#fff}
 .bct-region-picker label.checked{background:var(--color-brand-subtle);border-color:var(--color-brand);color:var(--color-brand);font-weight:600}
 .bct-region-picker input{accent-color:var(--color-brand)}
-.bct-category-checks{display:flex;gap:24px;align-items:center;color:#44536C;font-size:13px}
+.bct-category-checks{display:flex;gap:16px;align-items:stretch;color:#44536C;font-size:13px;flex-wrap:wrap}
 .bct-category-checks label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;white-space:nowrap}
 .bct-category-checks input{accent-color:var(--color-brand)}
+/* 报告组「调研与报告一体化服务」：标题 + 三个子服务复选框，宽度不足时换行 */
+.bct-cat-group{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px 18px;border:1px solid #DFE8E3;border-radius:8px;padding:8px 14px;background:#FBFDFC}
+.bct-cat-group>b{font-size:13px;color:#44536C;font-weight:600;position:relative;padding-left:10px}
+.bct-cat-group>b::before{content:"";position:absolute;left:0;top:2px;bottom:2px;width:3px;border-radius:2px;background:var(--color-brand)}
 .bct-ratio-list{display:flex;flex-direction:column;gap:12px}
 .bct-ratio-group{border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}
 .bct-ratio-group-head{display:flex;align-items:center;justify-content:space-between;background:#F7FAF9;padding:10px 14px}
@@ -242,6 +278,18 @@ table.bct-table{width:100%;border-collapse:collapse;font-size:12px;min-width:920
 .bct-adj-cat{border:1px solid #E2E8F0;border-radius:8px;margin-bottom:16px;overflow:hidden}
 .bct-adj-cat-head{display:flex;align-items:center;background:#F7FAF9;padding:10px 14px}
 .bct-adj-cat-head b{font-size:13px;color:var(--color-text-1)}
+/* 报告组：组头（组名 + 报告小计）与子服务页签 */
+.bct-adj-report-head{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#F7FAF9;padding:10px 14px;border-bottom:1px solid #EEF1F4}
+.bct-adj-report-head b{font-size:13px;color:var(--color-text-1)}
+.bct-adj-report-head .sum{font-size:12px;color:#657185;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.bct-adj-report-head .sum b{font-size:12px;font-variant-numeric:tabular-nums}
+.bct-adj-tabs{display:flex;overflow-x:auto;background:#FBFCFD;border-bottom:1px solid #E2E8F0;scrollbar-width:thin}
+.bct-adj-tab{position:relative;flex:none;border:0;background:transparent;cursor:pointer;font:inherit;font-size:12px;font-weight:600;color:#6D778A;padding:9px 14px;white-space:nowrap}
+.bct-adj-tab:hover{color:var(--color-brand)}
+.bct-adj-tab[aria-selected="true"]{color:var(--color-brand)}
+.bct-adj-tab[aria-selected="true"]::after{content:"";position:absolute;inset:auto 8px -1px;border-block-end:2px solid var(--color-brand)}
+.bct-adj-tab:focus-visible{outline:2px solid var(--color-brand);outline-offset:-2px}
+.bct-adj-tab .err-badge{display:inline-block;margin-left:6px;font-size:10px;font-weight:600;color:#B45309;background:#FFF4E0;border:1px solid #F2D19A;border-radius:8px;padding:0 6px;line-height:16px;vertical-align:1px}
 .bct-adj-table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
 .bct-adj-table th{color:#758398;background:#FAFBFD;font-weight:600;text-align:right;padding:7px 14px;border-top:1px solid #F0F2F5;border-bottom:1px solid #F0F2F5;white-space:nowrap}
 .bct-adj-table th:first-child{text-align:left;padding-left:14px}
@@ -375,8 +423,6 @@ export function BatchCreateTaskPage({
     ...DEFAULT_CAT_ON,
   })
   const [ratioDraft, setRatioDraft] = useState<Record<string, string>>({})
-  /** 问卷类别：品种 → 问卷编码；未设置 = 该品种不参与问卷类别 */
-  const [surveyPick, setSurveyPick] = useState<Record<string, string>>({})
   const [removed, setRemoved] = useState<string[]>([])
   const [plans, setPlans] = useState<PlanMap>({})
   const [vendorSearch, setVendorSearch] = useState("")
@@ -385,6 +431,8 @@ export function BatchCreateTaskPage({
   const [workDrawerFor, setWorkDrawerFor] = useState<string | null>(null)
   const [workQtyDraft, setWorkQtyDraft] =
     useState<Record<string, Record<string, WorkDraftCell>>>({})
+  /** 弹窗内报告区当前页签（报告子服务类别）；null = 未打开或只选推广 */
+  const [workTab, setWorkTab] = useState<ServiceCategory | null>(null)
   /** 弹窗内「恢复初始分配」覆盖前确认 */
   const [confirmRestore, setConfirmRestore] = useState(false)
   /** 第二步直接修改「存在数量调整」的类别金额：覆盖前确认；null = 无待确认项 */
@@ -393,6 +441,12 @@ export function BatchCreateTaskPage({
     category: ServiceCategory
     value: number
   } | null>(null)
+  /** 第一步取消「已调整」的类别：移出前确认；null = 无待确认项 */
+  const [pendingCatOff, setPendingCatOff] = useState<ServiceCategory | null>(
+    null,
+  )
+  /** 恢复的草稿含旧版「按品种选问卷」配置：显示待复核提示 */
+  const [legacySurveyNote, setLegacySurveyNote] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   /** 清空重填二次确认 */
   const [confirmClear, setConfirmClear] = useState(false)
@@ -512,90 +566,11 @@ export function BatchCreateTaskPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auths, varietySel, pickedRegions])
 
-  /** 已勾选的服务类别分组 */
-  const basePickedCatGroups = useMemo(
+  /** 已勾选的服务类别分组（含推广与报告三类，全部按价目规则计价、参与统一业务比例） */
+  const pickedCatGroups = useMemo(
     () => catGroups.filter((g) => catOn[g.category]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [catGroups, catOn],
-  )
-
-  // ─── 问卷类别（按品种选问卷 → 计价方案 → 对公价） ───────────
-  /** 品种可选问卷：启用 + 适用范围覆盖该品种（归属待补齐也可选，选中后无价则行内拦截） */
-  const surveyVarietyOptions = useMemo(() => {
-    const enabled = listQuestionnaires().filter((q) => q.status === "启用")
-    return varietySel.map((v) => ({
-      variety: v,
-      list: enabled.filter((q) => v in q.pricing),
-    }))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [varietySel])
-
-  interface SurveyInput {
-    variety: string
-    code: string
-    qName: string
-    audience: string
-    version: number
-    schemeId: string
-    schemeName: string
-    pub: number
-    priv: number | null
-  }
-
-  /** 参与问卷类别的品种 → 解析后的计价输入；归属缺方案或对公价未就绪（null/0）的品种剔除 */
-  const surveyInputs = useMemo<SurveyInput[]>(() => {
-    const enabled = listQuestionnaires().filter((q) => q.status === "启用")
-    const schemes = surveySchemes()
-    return varietySel.flatMap((v) => {
-      const code = surveyPick[v]
-      if (!code) return []
-      const q = enabled.find((x) => x.code === code)
-      const sid = q && v in q.pricing ? q.pricing[v] : null
-      if (!q || !sid) return []
-      const price = surveyPriceOf(v, sid, q.audience)
-      const version = q.versions[q.versions.length - 1]
-      if (!version || price.pub === null || price.pub <= 0) return []
-      return [{
-        variety: v, code: q.code, qName: q.name, audience: q.audience,
-        version: version.version, schemeId: sid,
-        schemeName: schemes.find((s) => s.id === sid)?.name ?? sid,
-        pub: price.pub, priv: price.priv,
-      }]
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [varietySel, surveyPick])
-
-  /** 规则名 → 问卷元数据（buildItems 按品种落明细用） */
-  const surveyMeta = useMemo(
-    () => Object.fromEntries(surveyInputs.map((x) => [`${x.qName} · ${x.variety}`, x])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [surveyInputs],
-  )
-
-  /** 问卷虚拟分组：规则 = 品种 × 问卷（单价 = 各品种自己的对公价），与价目表分组同形接入计划/表格 */
-  const surveyVirtualGroup = useMemo(() => {
-    if (!catOn[SURVEY_CATEGORY] || !surveyInputs.length) return null
-    return {
-      category: SURVEY_CATEGORY,
-      rules: surveyInputs.map((x) => ({
-        id: `survey-${x.code}-${x.variety}`,
-        category: SURVEY_CATEGORY,
-        name: `${x.qName} · ${x.variety}`,
-        amount: x.pub,
-        unit: "份",
-        isContractAmount: false,
-        isPreset: false,
-        ratio: 0,
-      })) as PriceBookRule[],
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catOn, surveyInputs])
-
-  /** 已勾选分组 = 价目表分组 + 问卷虚拟分组（问卷不参与统一业务比例） */
-  const pickedCatGroups = useMemo(
-    () => (surveyVirtualGroup ? [...basePickedCatGroups, surveyVirtualGroup] : basePickedCatGroups),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [basePickedCatGroups, surveyVirtualGroup],
   )
 
   /** 第一步「匹配的服务商」列表的预算口径：按 服务商 × 品种 × 执行地区 × 推广期覆盖月份 匹配预算行汇总 */
@@ -706,27 +681,21 @@ export function BatchCreateTaskPage({
     )
   }
 
-  /** 派生某个类别计划：基准 × 当前统一比例 → 项目初始金额 + floor 数量；问卷类别按品种等比派生 */
+  /** 派生某个类别计划：基准 × 当前统一比例 → 项目初始金额 + floor 数量 */
   function deriveCatPlan(
     baseline: number,
     g: { category?: ServiceCategory; rules: PriceBookRule[] },
     ratios: Record<string, number> | null,
   ): CatPlanState {
-    const items =
-      g.category === SURVEY_CATEGORY
-        ? deriveSurveyItems(
-            baseline,
-            g.rules.map((r) => ({ variety: r.name, unitPrice: r.amount })),
-          )
-        : deriveCategoryItems(
-            baseline,
-            g.rules.map((r) => ({
-              name: r.name,
-              unit: r.unit,
-              unitPrice: r.amount,
-              ratio: (ratios ?? defaultRatioMap())[r.name] ?? 0,
-            })),
-          )
+    const items = deriveCategoryItems(
+      baseline,
+      g.rules.map((r) => ({
+        name: r.name,
+        unit: r.unit,
+        unitPrice: r.amount,
+        ratio: (ratios ?? defaultRatioMap())[r.name] ?? 0,
+      })),
+    )
     return {
       baseline,
       frozen: false,
@@ -773,34 +742,6 @@ export function BatchCreateTaskPage({
       g.rules.forEach((r) => {
         const it = cat.items[r.name]
         if (!it) return
-        // 问卷类规则只落到自己品种的 品种×地区 组合（单价按品种解析，不是全品种均摊）
-        if (r.category === SURVEY_CATEGORY) {
-          const meta = surveyMeta[r.name]
-          if (!meta) return
-          const mine = combos.filter((c) => c.variety === meta.variety)
-          const m = Math.max(1, mine.length)
-          const qtys = splitQtyAcrossCombos(it.qty, m)
-          const amounts = splitAmountAcrossCombos(it.amount, m)
-          mine.forEach((c, i) => {
-            if (qtys[i] <= 0 && (amounts[i] ?? 0) <= 0) return
-            items.push({
-              id: `new-${items.length}`,
-              variety: c.variety,
-              region: c.region,
-              category: r.category,
-              name: meta.qName,
-              unitPrice: meta.pub,
-              unit: r.unit,
-              qty: qtys[i],
-              amount: amounts[i],
-              suggestedUnitPrice: meta.pub,
-              suggestedAmount: amounts[i],
-              adjustReason: "",
-              questionnaire: { code: meta.code, name: meta.qName, version: meta.version },
-            })
-          })
-          return
-        }
         const qtys = splitQtyAcrossCombos(it.qty, n)
         const amounts = splitAmountAcrossCombos(it.amount, n)
         combos.forEach((c, i) => {
@@ -854,35 +795,20 @@ export function BatchCreateTaskPage({
     return () => document.removeEventListener("mousedown", close)
   }, [varietyOpen])
 
-  /** 品种变化：清理已移除品种的问卷选择 */
-  useEffect(() => {
-    setSurveyPick((prev) => {
-      const next = Object.fromEntries(
-        Object.entries(prev).filter(([v]) => varietySel.includes(v)),
-      )
-      return Object.keys(next).length === Object.keys(prev).length ? prev : next
-    })
-  }, [varietySel])
-
-  /** 问卷选择变化：同步第二步的问卷类别计划（等比派生，用户改过则保留基准） */
-  useEffect(() => {
-    if (step > 0) ensurePlans("sync")
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surveyPick])
-
   /** 卸载时清掉 AI 分析的模拟定时器 */
   useEffect(() => () => aiTimers.current.forEach(clearTimeout), [])
 
   /** 整页模式：Esc 返回列表（粘贴/工作弹窗/确认弹窗打开时让位，由弹窗自身处理） */
   useEffect(() => {
-    if (workDrawerFor || pasteOpen || confirmClear || pendingCatEdit) return
+    if (workDrawerFor || pasteOpen || confirmClear || pendingCatEdit || pendingCatOff)
+      return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") requestClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workDrawerFor, pasteOpen, confirmClear, pendingCatEdit])
+  }, [workDrawerFor, pasteOpen, confirmClear, pendingCatEdit, pendingCatOff])
 
   /**
    * 进入初始化：优先恢复上次离开自动保存的草稿（品种仍可选才恢复），否则全新默认。
@@ -903,8 +829,11 @@ export function BatchCreateTaskPage({
     setRemember(!!memoDates?.startDate)
     openedWithRef.current = { startDate: initStart, endDate: initEnd }
     setWorkDrawerFor(null)
+    setWorkTab(null)
     setConfirmRestore(false)
     setPendingCatEdit(null)
+    setPendingCatOff(null)
+    setLegacySurveyNote(false)
     setPasteOpen(false)
     setConfirmClear(false)
     setOutcomes([])
@@ -945,16 +874,11 @@ export function BatchCreateTaskPage({
       )
       setCatOn({ ...DEFAULT_CAT_ON, ...(draft.catOn ?? {}) })
       setRatioDraft(draft.ratioDraft ?? defaultRatiosFor(bookFor(draftSel)))
-      setSurveyPick(
-        Object.fromEntries(
-          Object.entries(draft.surveyPick ?? {}).filter(([v]) =>
-            draftSel.includes(v),
-          ),
-        ),
-      )
+      // 旧版草稿带「按品种选问卷」配置：恢复后提示复核服务类别与工作量（§5 存量兼容）
+      setLegacySurveyNote(Object.keys(draft.surveyPick ?? {}).length > 0)
       setRemoved(draft.removed ?? [])
-      // 计划状态整包恢复：含预算快照、分配基准、初始金额/数量与用户调整
-      setPlans(draft.plans ?? {})
+      // 计划状态整包恢复：含预算快照、分配基准、初始金额/数量与用户调整；先对齐当前价目表
+      setPlans(sanitizePlans(draft.plans ?? {}, bookFor(draftSel)))
       setVendorSearch(draft.vendorSearch ?? "")
       setInvalidOnly(!!draft.invalidOnly)
       setPasteText(draft.pasteText ?? "")
@@ -968,7 +892,6 @@ export function BatchCreateTaskPage({
     setPickedRegions(poolForVarieties(freshSel))
     setRatioDraft(defaultRatiosFor(bookFor(freshSel)))
     setCatOn({ ...DEFAULT_CAT_ON })
-    setSurveyPick({})
     setRemoved([])
     setPlans({})
     setVendorSearch("")
@@ -988,6 +911,7 @@ export function BatchCreateTaskPage({
     setVendorSearch("")
     setInvalidOnly(false)
     setRestoredAt(null)
+    setLegacySurveyNote(false)
   }
 
   /** 多选品种：地区重置为全选新授权池、比例重预填、已填金额与结果清空 */
@@ -1100,10 +1024,31 @@ export function BatchCreateTaskPage({
     })
   }
 
-  /** 勾选服务类别变化：同步已有计划（未选类别移除、新增类别按首次回填口径处理） */
+  /** 勾选服务类别变化：新增类别按首次回填口径处理；取消「已调整」类别先确认再移出（§2.1） */
   function changeCategory(category: ServiceCategory, on: boolean) {
+    if (!on) {
+      const hasAdjusted = Object.values(plans).some(
+        (p) =>
+          p.categories[category] &&
+          (p.categories[category]!.frozen ||
+            Object.values(p.categories[category]!.items).some((it) => it.adjusted)),
+      )
+      if (hasAdjusted) {
+        setPendingCatOff(category)
+        return
+      }
+    }
     setCatOn({ ...catOn, [category]: on })
     ensurePlans("sync")
+  }
+
+  /** 确认取消已调整类别：仅移除本类计划，其他类别与其他服务商的调整各自保留 */
+  function confirmCatOff() {
+    const category = pendingCatOff
+    if (!category) return
+    setCatOn({ ...catOn, [category]: false })
+    ensurePlans("sync")
+    setPendingCatOff(null)
   }
 
   /** 用户在第二步修改类别计划金额（确认后执行）：仅重新分配该服务商该类别，新金额成为分配基准 */
@@ -1228,6 +1173,12 @@ export function BatchCreateTaskPage({
     })
     setWorkQtyDraft(draft)
     setConfirmRestore(false)
+    // 报告区默认选中顺序最靠前的已选页签：分析报告 → 调研问卷与分析 → 数据收集与报表提交（§3.2）
+    setWorkTab(
+      REPORT_SERVICE_CATEGORIES.find(
+        (c) => catOn[c] && p.categories[c],
+      ) ?? null,
+    )
     setWorkDrawerFor(provider)
   }
 
@@ -1291,6 +1242,24 @@ export function BatchCreateTaskPage({
     })
   }
 
+  /** 离开数量输入框：内容非法（空 / 负数 / 非整数）时按上次有效数量回显；「0」是有效输入保留（§3.4） */
+  function blurDraftQty(category: string, item: PlanItemState) {
+    setWorkQtyDraft((prev) => {
+      const cell = prev[category]?.[item.name]
+      if (!cell || draftTextOk(cell.text)) return prev
+      return {
+        ...prev,
+        [category]: {
+          ...(prev[category] ?? {}),
+          [item.name]: {
+            text: String(draftQtyOf(cell, item)),
+            amount: item.amount,
+          },
+        },
+      }
+    })
+  }
+
   /**
    * 弹窗内「恢复初始分配」：草稿整体回到当前分配基准下的初始整数数量与初始项目金额
    * （一并恢复，不用 数量×单价 重算），覆盖前做一次简短确认；保存前仍可取消。
@@ -1332,13 +1301,15 @@ export function BatchCreateTaskPage({
     const provider = workDrawerFor
     const p = provider ? plans[provider] : undefined
     if (!provider || !p) return
-    const invalid = pickedCatGroups.some((g) =>
+    // 非法数量：定位到首个有错误的页签（§3.2），字段级提示保留在数量控件下
+    const invalidCat = pickedCatGroups.find((g) =>
       Object.values(workQtyDraft[g.category] ?? {}).some(
         (c) => c.text !== "" && !draftTextOk(c.text),
       ),
     )
-    if (invalid) {
-      addToast({ type: "error", title: "数量必须为非负整数，请修正后再保存" })
+    if (invalidCat) {
+      if (invalidCat.category !== PROMO_CATEGORY) setWorkTab(invalidCat.category)
+      addToast({ type: "error", title: "数量必须为非负整数，已定位到需修正的位置" })
       return
     }
     setPlans((prev) => {
@@ -1556,25 +1527,11 @@ export function BatchCreateTaskPage({
       return addToast({ type: "error", title: "请选择推广品种" })
     if (!pickedRegions.length)
       return addToast({ type: "error", title: "请选择推广地区" })
-    if (!catGroups.some((g) => catOn[g.category]) && !catOn[SURVEY_CATEGORY])
+    if (!pickedCatGroups.length)
       return addToast({ type: "error", title: "请至少选择一种服务类别" })
-    const surveyChosen = varietySel.filter((v) => surveyPick[v])
-    if (catOn[SURVEY_CATEGORY] && surveyChosen.length === 0)
-      return addToast({
-        type: "error",
-        title: "勾选问卷调研与分析服务后，请至少为一个品种选择问卷",
-      })
-    const surveyBad = surveyChosen.filter(
-      (v) => !surveyInputs.some((x) => x.variety === v),
-    )
-    if (surveyBad.length)
-      return addToast({
-        type: "error",
-        title: `问卷计价未就绪：${surveyBad.join("、")} 缺计价方案或对公价，请先在问卷配置 / 价目表补齐，或取消该品种的问卷选择`,
-      })
     if (!selectedRows.length)
       return addToast({ type: "error", title: "请至少选择一家服务商" })
-    if (globalRatios === null && basePickedCatGroups.some((g) => catOn[g.category]))
+    if (globalRatios === null)
       return addToast({
         type: "error",
         title: "请将各服务类别的业务比例分别调整为 100%",
@@ -1650,7 +1607,6 @@ export function BatchCreateTaskPage({
       !remember &&
       JSON.stringify(pickedRegions) === JSON.stringify(regionPool) &&
       JSON.stringify(catOn) === JSON.stringify(DEFAULT_CAT_ON) &&
-      !Object.keys(surveyPick).length &&
       JSON.stringify(ratioDraft) ===
         JSON.stringify(defaultRatiosFor(lockedBook)) &&
       !removed.length &&
@@ -1677,7 +1633,6 @@ export function BatchCreateTaskPage({
       pickedRegions,
       catOn,
       ratioDraft,
-      surveyPick,
       plans,
       vendorSearch,
       invalidOnly,
@@ -1730,7 +1685,6 @@ export function BatchCreateTaskPage({
     setPickedRegions(poolForVarieties(freshSel))
     setRatioDraft(defaultRatiosFor(bookFor(freshSel)))
     setCatOn({ ...DEFAULT_CAT_ON })
-    setSurveyPick({})
     setRemoved([])
     setPlans({})
     setVendorSearch("")
@@ -1739,9 +1693,12 @@ export function BatchCreateTaskPage({
     setOutcomes([])
     setResultFilter("全部")
     setRestoredAt(null)
+    setLegacySurveyNote(false)
     setWorkDrawerFor(null)
+    setWorkTab(null)
     setConfirmRestore(false)
     setPendingCatEdit(null)
+    setPendingCatOff(null)
     aiTimers.current.forEach(clearTimeout)
     setAiState("idle")
     setAiStep(0)
@@ -2042,111 +1999,46 @@ export function BatchCreateTaskPage({
         <div className="bct-subhead">
           <div>
             <h5>本次服务类别</h5>
-            <p>勾选后才显示对应的业务比例和第二步的金额输入列。</p>
+            <p>选择本次发包涉及的服务。下一步按服务商配置计划金额和工作量。</p>
           </div>
         </div>
         <div className="bct-category-checks">
-          {catGroups.map((g) => (
-            <label key={g.category}>
-              <input
-                type="checkbox"
-                checked={!!catOn[g.category]}
-                onChange={(e) => changeCategory(g.category, e.target.checked)}
-              />
-              {g.category}
-            </label>
-          ))}
-        </div>
-        {/* 问卷调研与分析服务：按品种选问卷，经「问卷 × 品种 → 计价方案」取对公价 */}
-        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-          <label
-            style={{
-              display: "inline-flex",
-              gap: 6,
-              alignItems: "center",
-              fontSize: 12,
-              color: "#5D6B7D",
-              cursor: surveyVarietyOptions.some((o) => o.list.length) ? "pointer" : "not-allowed",
-            }}
-          >
+          {/* 市场推广服务：推广明细底部含「调查问卷」行，计划份数在第二步填写（§1.1） */}
+          <label>
             <input
               type="checkbox"
-              checked={!!catOn[SURVEY_CATEGORY]}
-              disabled={!surveyVarietyOptions.some((o) => o.list.length)}
-              onChange={(e) => changeCategory(SURVEY_CATEGORY, e.target.checked)}
+              checked={!!catOn[PROMO_CATEGORY]}
+              onChange={(e) => changeCategory(PROMO_CATEGORY, e.target.checked)}
             />
-            问卷调研与分析服务（按品种选问卷计价，不走统一业务比例）
+            市场推广服务
           </label>
-          {!!catOn[SURVEY_CATEGORY] &&
-            surveyVarietyOptions.map(({ variety, list }) => {
-              const pick = surveyPick[variety] ?? ""
-              const chosen = list.find((q) => q.code === pick)
-              const sid = chosen ? chosen.pricing[variety] : null
-              const price =
-                chosen && sid ? surveyPriceOf(variety, sid, chosen.audience) : null
-              const ready =
-                !!chosen && !!sid && price !== null && price.pub !== null && price.pub > 0
-              return (
-                <label
-                  key={variety}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    fontSize: 12,
-                    color: "#5D6B7D",
-                    flexWrap: "wrap",
-                    paddingLeft: 22,
-                  }}
-                >
-                  <b style={{ minWidth: 56 }}>{variety}</b>
-                  <select
-                    value={pick}
-                    disabled={!list.length}
-                    aria-label={`${variety} 选用问卷`}
-                    onChange={(e) =>
-                      setSurveyPick((p) => ({ ...p, [variety]: e.target.value }))
-                    }
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      fontSize: 12,
-                      background: "#fff",
-                      border: `1px solid ${pick && !ready ? "#CB8274" : "var(--color-border)"}`,
-                    }}
-                  >
-                    <option value="">{list.length ? "不参与" : "无适用问卷"}</option>
-                    {list.map((q) => (
-                      <option
-                        key={q.code}
-                        value={q.code}
-                        disabled={q.pricing[variety] === null}
-                      >
-                        {q.name}（{q.audience}）
-                        {q.pricing[variety] === null ? " · 待补齐" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {pick &&
-                    (ready ? (
-                      <span style={{ color: "#4F887B" }}>
-                        对公 {formatCNY(price?.pub ?? 0)}/份 · 题目 V
-                        {chosen?.versions[chosen.versions.length - 1]?.version}
-                      </span>
-                    ) : (
-                      <span style={{ color: "#BA574B" }}>
-                        计价未就绪（缺方案或价格）
-                      </span>
-                    ))}
-                </label>
-              )
-            })}
-          {!!catOn[SURVEY_CATEGORY] && (
-            <p style={{ margin: 0, paddingLeft: 22, fontSize: 12, color: "#8A94A5" }}>
-              每个品种独立选问卷；单价按该问卷计价方案的「填写对象」档位对公价读取，任务创建时与题目版本一起快照锁定。
-            </p>
-          )}
+          {/* 报告组：三个子服务可单选 / 多选，也可与市场推广一起选择；宽度不足时换行 */}
+          <span className="bct-cat-group">
+            <b>{REPORT_GROUP_TITLE}</b>
+            {REPORT_SERVICE_CATEGORIES.map((category) => (
+              <label key={category}>
+                <input
+                  type="checkbox"
+                  checked={!!catOn[category]}
+                  onChange={(e) => changeCategory(category, e.target.checked)}
+                />
+                {serviceCategoryLabel(category)}
+              </label>
+            ))}
+          </span>
         </div>
+        {/* 所选类别无匹配价目：就地提示，可回上一步取消选择或先维护价目（§2.1 / §3.4） */}
+        {pickedCatGroups
+          .filter((g) => !g.rules.length)
+          .map((g) => (
+            <p
+              key={g.category}
+              style={{ margin: "8px 0 0", fontSize: 12, color: "#B45309" }}
+            >
+              {serviceCategoryFullName(g.category)}
+              ：当前范围暂无可用价目，可取消选择该类别，或维护价目后继续。
+            </p>
+          ))}
         <label
           style={{
             display: "inline-flex",
@@ -2549,6 +2441,15 @@ export function BatchCreateTaskPage({
     (r) => !invalidOnly || rowError(r),
   )
 
+  /** 金额表列分组：推广单列；报告三类归入「调研与报告一体化服务」组头（§3.1） */
+  const promoPickedGroups = pickedCatGroups.filter(
+    (g) => g.category === PROMO_CATEGORY,
+  )
+  const reportPickedGroups = pickedCatGroups.filter(
+    (g) => g.category !== PROMO_CATEGORY,
+  )
+  const amountHeaderRows = reportPickedGroups.length ? 2 : 1
+
   /** 预算差额展示：未配置＝—，计划小于预算＝未安排，超出＝超预算（警告色） */
   function renderDiff(
     budget: BudgetSnapshot,
@@ -2608,7 +2509,7 @@ export function BatchCreateTaskPage({
           <div>
             <h4 style={{ margin: 0 }}>服务商计划金额</h4>
             <p className="bct-desc" style={{ margin: "4px 0 0" }}>
-              本次预算在已选服务类别间平均回填；计划合计＝各类计划金额之和（只读）。
+              本次预算在已选服务类别间平均回填；计划合计＝推广小计与各报告子服务金额之和（只读）。
             </p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -2634,17 +2535,40 @@ export function BatchCreateTaskPage({
           <table className="bct-table">
             <thead>
               <tr>
-                <th className="sticky-col">服务商</th>
-                <th>本次预算</th>
-                {pickedCatGroups.map((g) => (
-                  <th key={g.category}>
-                    {CATEGORY_COLUMN[g.category] ?? g.category}
+                <th className="sticky-col" rowSpan={amountHeaderRows}>
+                  服务商
+                </th>
+                <th rowSpan={amountHeaderRows}>本次预算</th>
+                {promoPickedGroups.map((g) => (
+                  <th
+                    key={g.category}
+                    rowSpan={amountHeaderRows}
+                    title={serviceCategoryFullName(g.category)}
+                  >
+                    {serviceCategoryShort(g.category)}
                   </th>
                 ))}
-                <th>计划合计</th>
-                <th>预算差额</th>
-                <th>操作</th>
+                {reportPickedGroups.length > 0 && (
+                  <th colSpan={reportPickedGroups.length}>
+                    {REPORT_GROUP_TITLE}
+                  </th>
+                )}
+                <th rowSpan={amountHeaderRows}>计划合计</th>
+                <th rowSpan={amountHeaderRows}>预算差额</th>
+                <th rowSpan={amountHeaderRows}>操作</th>
               </tr>
+              {reportPickedGroups.length > 0 && (
+                <tr>
+                  {reportPickedGroups.map((g) => (
+                    <th
+                      key={g.category}
+                      title={serviceCategoryFullName(g.category)}
+                    >
+                      {serviceCategoryShort(g.category)}
+                    </th>
+                  ))}
+                </tr>
+              )}
             </thead>
             <tbody>
               {visibleStep2Rows.map((row) => {
@@ -2688,7 +2612,7 @@ export function BatchCreateTaskPage({
                             type="number"
                             min={0}
                             step={0.01}
-                            aria-label={`${row.provider}${CATEGORY_COLUMN[g.category]}`}
+                            aria-label={`${row.provider} ${serviceCategoryFullName(g.category)}`}
                             value={
                               pending ?? cents(row.catCurrent[g.category] ?? 0)
                             }
@@ -2748,8 +2672,8 @@ export function BatchCreateTaskPage({
           </table>
         </div>
         <div className="bct-footnote">
-          仅显示第一步选中的服务类别；未配置预算时差额显示「—」，可手动填写计划金额。
-          从 Excel 粘贴的总金额将计入首个已选服务类别。
+          仅显示第一步选中的服务类别；报告三类金额列归入「调研与报告一体化服务」组，列头悬停可见完整名称。
+          未配置预算时差额显示「—」，可手动填写计划金额；从 Excel 粘贴的总金额将计入首个已选服务类别。
         </div>
       </div>
     </>
@@ -2930,10 +2854,146 @@ export function BatchCreateTaskPage({
 
   /** 草稿计划合计（跨类别金额求和） */
   const drawerDraftTotal = cents(drawerCats.reduce((s, c) => s + c.catTotal, 0))
-  const drawerInvalidCount = drawerCats.reduce(
-    (s, c) => s + c.rows.filter((x) => x.invalid).length,
-    0,
+  /** 推广区 / 报告区拆分：推广独立成区，报告三类以页签编辑（§3.2） */
+  const drawerPromo =
+    drawerCats.find((c) => c.group.category === PROMO_CATEGORY) ?? null
+  const drawerReports = drawerCats.filter(
+    (c) => c.group.category !== PROMO_CATEGORY,
   )
+  const drawerReportTotal = cents(
+    drawerReports.reduce((s, c) => s + c.catTotal, 0),
+  )
+  /** 各类别非法输入数：页签角标（非当前页签也显示错误提示） */
+  const drawerInvalidByCat: Partial<Record<ServiceCategory, number>> =
+    Object.fromEntries(
+      drawerCats
+        .map((c) => [c.group.category, c.rows.filter((x) => x.invalid).length] as const)
+        .filter(([, n]) => n > 0),
+    )
+  /** 当前页签的类别内容（草稿跨页签保留在同一弹窗） */
+  const activeReport =
+    drawerReports.find((c) => c.group.category === workTab) ??
+    drawerReports[0] ??
+    null
+
+  /**
+   * 报告页签键盘导航：←/→/↑/↓ 相邻移动、Home/End 跳两端，选中随焦点移动；
+   * 页签为 roving tabindex（选中页签 tabindex=0，其余 -1）。
+   */
+  function moveReportTab(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    category: ServiceCategory,
+  ) {
+    const cats = drawerReports.map((c) => c.group.category)
+    const i = cats.indexOf(category)
+    if (i < 0) return
+    let next = -1
+    if (event.key === "ArrowRight" || event.key === "ArrowDown")
+      next = (i + 1) % cats.length
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
+      next = (i - 1 + cats.length) % cats.length
+    else if (event.key === "Home") next = 0
+    else if (event.key === "End") next = cats.length - 1
+    if (next < 0) return
+    event.preventDefault()
+    setWorkTab(cats[next])
+    requestAnimationFrame(() => {
+      const list = event.currentTarget.parentElement
+      const target = list?.querySelector<HTMLButtonElement>(
+        `[data-cat="${CSS.escape(cats[next])}"]`,
+      )
+      target?.focus()
+    })
+  }
+
+  /** 弹窗单类明细表（推广区 / 报告页签共用）：数量步进 + 行内错误 + 本类小计 */
+  function renderDrawerTable(
+    entry: (typeof drawerCats)[number],
+    sumLabel: string,
+  ) {
+    if (!entry.rows.length)
+      return (
+        <div
+          style={{
+            padding: "24px 14px",
+            textAlign: "center",
+            color: "#8A94A5",
+            fontSize: 12,
+          }}
+        >
+          当前服务范围暂无可用价目
+        </div>
+      )
+    return (
+      <table className="bct-adj-table">
+        <thead>
+          <tr>
+            <th>服务项目</th>
+            <th>单价</th>
+            <th>计划数量</th>
+            <th>计划金额</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entry.rows.map((x) => (
+            <tr key={x.rule.id}>
+              <td>
+                <b>{x.rule.name}</b>
+              </td>
+              <td>
+                {formatCNY(x.rule.amount)} / {x.rule.unit}
+              </td>
+              <td>
+                <span className="bct-adj-step">
+                  <button
+                    type="button"
+                    aria-label={`减少${x.rule.name}数量`}
+                    disabled={x.qty <= 0}
+                    onClick={() => stepDraftQty(entry.group.category, x.saved, -1)}
+                  >
+                    −
+                  </button>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    aria-label={`${drawerRow?.provider ?? ""}${x.rule.name}计划数量`}
+                    aria-invalid={x.invalid}
+                    value={x.cell.text}
+                    onChange={(e) =>
+                      changeDraftQty(entry.group.category, x.saved, e.target.value)
+                    }
+                    onBlur={() => blurDraftQty(entry.group.category, x.saved)}
+                  />
+                  <button
+                    type="button"
+                    aria-label={`增加${x.rule.name}数量`}
+                    onClick={() => stepDraftQty(entry.group.category, x.saved, 1)}
+                  >
+                    ＋
+                  </button>
+                  <span className="unit">{x.rule.unit}</span>
+                </span>
+                {x.invalid && (
+                  <span className="bct-adj-sub warn">
+                    请输入非负整数数量
+                  </span>
+                )}
+              </td>
+              <td>
+                <b>{formatCNY(draftAmountOf(x.cell, x.saved))}</b>
+              </td>
+            </tr>
+          ))}
+          <tr className="sum">
+            <td>{sumLabel}</td>
+            <td>—</td>
+            <td>—</td>
+            <td>{formatCNY(entry.catTotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+    )
+  }
   /** 是否存在有效分配基准（任一类别基准 > 0）：恢复初始分配的可用条件 */
   const drawerHasBaseline = drawerCats.some((c) => {
     const cat = drawerRow
@@ -2986,6 +3046,11 @@ export function BatchCreateTaskPage({
                   </>
                 ) : (
                   "离开时自动保存已填内容，下次进入自动恢复"
+                )}
+                {legacySurveyNote && (
+                  <span style={{ color: "#B45309", marginLeft: 8 }}>
+                    检测到旧版「按品种选问卷」配置：本版已改为按价目计价，请复核服务类别与工作量后继续。
+                  </span>
                 )}
               </div>
             )}
@@ -3115,11 +3180,8 @@ export function BatchCreateTaskPage({
               >
                 取消
               </Button>
-              <Button
-                variant="primary"
-                disabled={drawerInvalidCount > 0}
-                onClick={saveWorkDrawer}
-              >
+              {/* 保存可点击：存在非法数量时定位到首个错误页签（§3.2），而不是禁用 */}
+              <Button variant="primary" onClick={saveWorkDrawer}>
                 保存调整
               </Button>
             </>
@@ -3142,84 +3204,76 @@ export function BatchCreateTaskPage({
             </span>
           </div>
 
-          {drawerCats.map(({ group: g, rows, catTotal }) => (
-            <section className="bct-adj-cat" key={g.category}>
+          {/* 市场推广服务区：明细底部含「调查问卷」行（价目表顺序在末位），小计行 = 推广小计 */}
+          {drawerPromo && (
+            <section className="bct-adj-cat">
               <div className="bct-adj-cat-head">
-                <b>{g.category}</b>
+                <b>{serviceCategoryLabel(drawerPromo.group.category)}</b>
               </div>
-              <table className="bct-adj-table">
-                <thead>
-                  <tr>
-                    <th>服务项目</th>
-                    <th>单价</th>
-                    <th>计划数量</th>
-                    <th>计划金额</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((x) => (
-                    <tr key={x.rule.id}>
-                      <td>
-                        <b>{x.rule.name}</b>
-                      </td>
-                      <td>
-                        {formatCNY(x.rule.amount)} / {x.rule.unit}
-                      </td>
-                      <td>
-                        <span className="bct-adj-step">
-                          <button
-                            type="button"
-                            aria-label={`减少${x.rule.name}数量`}
-                            disabled={x.qty <= 0}
-                            onClick={() =>
-                              stepDraftQty(g.category, x.saved, -1)
-                            }
+              {renderDrawerTable(drawerPromo, "推广小计")}
+            </section>
+          )}
+
+          {/* 调研与报告一体化服务区：组头带报告小计，三个已选子服务页签共享同一弹窗草稿 */}
+          {drawerReports.length > 0 && activeReport && (
+            <section className="bct-adj-cat">
+              <div className="bct-adj-report-head">
+                <b>
+                  {REPORT_GROUP_TITLE}
+                  {drawerReports.length === 1 &&
+                    ` · ${serviceCategoryLabel(activeReport.group.category)}`}
+                </b>
+                <span className="sum">
+                  报告小计 <b>{formatCNY(drawerReportTotal)}</b>
+                </span>
+              </div>
+              {drawerReports.length > 1 && (
+                <div
+                  role="tablist"
+                  aria-label={`${REPORT_GROUP_TITLE}子服务页签`}
+                  className="bct-adj-tabs"
+                >
+                  {drawerReports.map((c) => {
+                    const cat = c.group.category
+                    const selected = activeReport.group.category === cat
+                    const invalidN = drawerInvalidByCat[cat] ?? 0
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        aria-controls="bct-report-panel"
+                        id={`bct-tab-${cat}`}
+                        data-cat={cat}
+                        tabIndex={selected ? 0 : -1}
+                        className="bct-adj-tab"
+                        onClick={() => setWorkTab(cat)}
+                        onKeyDown={(e) => moveReportTab(e, cat)}
+                      >
+                        {serviceCategoryLabel(cat)}
+                        {invalidN > 0 && (
+                          <span
+                            className="err-badge"
+                            title={`${invalidN} 处数量需修正`}
                           >
-                            −
-                          </button>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            aria-label={`${drawerRow.provider}${x.rule.name}计划数量`}
-                            value={x.cell.text}
-                            onChange={(e) =>
-                              changeDraftQty(
-                                g.category,
-                                x.saved,
-                                e.target.value,
-                              )
-                            }
-                          />
-                          <button
-                            type="button"
-                            aria-label={`增加${x.rule.name}数量`}
-                            onClick={() => stepDraftQty(g.category, x.saved, 1)}
-                          >
-                            ＋
-                          </button>
-                          <span className="unit">{x.rule.unit}</span>
-                        </span>
-                        {x.invalid && (
-                          <span className="bct-adj-sub warn">
-                            请输入整数数量
+                            {invalidN}
                           </span>
                         )}
-                      </td>
-                      <td>
-                        <b>{formatCNY(draftAmountOf(x.cell, x.saved))}</b>
-                      </td>
-                    </tr>
-                  ))}
-                  <tr className="sum">
-                    <td>合计</td>
-                    <td>—</td>
-                    <td>—</td>
-                    <td>{formatCNY(catTotal)}</td>
-                  </tr>
-                </tbody>
-              </table>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <div
+                role="tabpanel"
+                id="bct-report-panel"
+                aria-labelledby={`bct-tab-${activeReport.group.category}`}
+              >
+                {renderDrawerTable(activeReport, "本类小计")}
+              </div>
             </section>
-          ))}
+          )}
 
           <div className="bct-adj-budget">
             <span>
@@ -3255,7 +3309,7 @@ export function BatchCreateTaskPage({
           open={!!pendingCatEdit}
           title="覆盖已调整的工作量？"
           description={`「${
-            CATEGORY_COLUMN[pendingCatEdit.category] ?? pendingCatEdit.category
+            serviceCategoryLabel(pendingCatEdit.category)
           }」改为 ${formatCNY(
             pendingCatEdit.value,
           )} 后，将按统一比例重新生成该类别的项目金额与整数数量，已手动调整的数量会被替换。`}
@@ -3270,6 +3324,18 @@ export function BatchCreateTaskPage({
             setPendingCatEdit(null)
           }}
           onCancel={() => setPendingCatEdit(null)}
+        />
+      )}
+
+      {pendingCatOff && (
+        <ConfirmDialog
+          open={!!pendingCatOff}
+          title={`取消「${serviceCategoryLabel(pendingCatOff)}」？`}
+          description={`该类别的计划（含已调整的项目金额与数量）将从本批次移除；其他类别和其他服务商的调整按各自记录保留。`}
+          confirmLabel="移出该类别计划"
+          cancelLabel="保留该类别"
+          onConfirm={confirmCatOff}
+          onCancel={() => setPendingCatOff(null)}
         />
       )}
     </>

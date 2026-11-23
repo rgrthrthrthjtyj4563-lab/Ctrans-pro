@@ -113,27 +113,6 @@ export function deriveCategoryItems(
   })
 }
 
-/**
- * 问卷调研类别的异价派生：类别预算在参与品种间均摊（等比 100/N 复用最大余数法），
- * 各品种数量 = floor(自身金额 ÷ 自身对公单价)。问卷类别不走统一业务比例，
- * 每个品种的单价由 问卷 × 品种 → 计价方案 解析，天然不同。
- */
-export function deriveSurveyItems(
-  base: number,
-  rows: { variety: string; unitPrice: number }[],
-): PlanItemState[] {
-  const n = rows.length
-  return deriveCategoryItems(
-    base,
-    rows.map((r) => ({
-      name: r.variety,
-      unit: "份",
-      unitPrice: r.unitPrice,
-      ratio: n > 0 ? 100 / n : 0,
-    })),
-  )
-}
-
 /** 数量在 n 个组合（品种 × 执行地区）间守恒分摊：floor + 余数给前几个组合 */
 export function splitQtyAcrossCombos(qty: number, combos: number): number[] {
   const n = Math.max(1, Math.floor(combos))

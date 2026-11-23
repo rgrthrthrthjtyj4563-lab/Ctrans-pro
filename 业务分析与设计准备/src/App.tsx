@@ -1008,13 +1008,13 @@ function AppShell() {
         return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} navFocus={navFocus} />
       case "pharmacy-visits":
         return <VisitManagement addToast={addToast} currentRole={currentRole ?? undefined} navigate={navigate} navFocus={navFocus} />
-      // 业务数据管理：拜访管理审核工作台（独立设计稿移植，页面内容自带样式与交互）
+      // 业务数据管理：拜访管理审核工作台（已对齐项目设计基准，复用全局 Toast）
       case "visit-audit-hospital":
-        return <VisitAuditWorkbench key="hospital" page="hospital" />
+        return <VisitAuditWorkbench key="hospital" page="hospital" addToast={addToast} />
       case "visit-audit-commercial":
-        return <VisitAuditWorkbench key="business" page="business" />
+        return <VisitAuditWorkbench key="business" page="business" addToast={addToast} />
       case "visit-audit-pharmacy":
-        return <VisitAuditWorkbench key="pharmacy" page="pharmacy" />
+        return <VisitAuditWorkbench key="pharmacy" page="pharmacy" addToast={addToast} />
       case "budget-plan":
         return (
           <BudgetPlanPage

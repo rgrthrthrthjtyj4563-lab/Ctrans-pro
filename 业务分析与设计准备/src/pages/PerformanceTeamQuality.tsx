@@ -6,7 +6,7 @@
  * 本页专注任务包直达考核，两个入口共用同一数据层与写路径。
  */
 import { useMemo, useState } from "react"
-import { ArrowLeft, Download, ShieldOff } from "lucide-react"
+import { ArrowLeft, ShieldOff } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
 import { EmptyState } from "../components/EmptyState"
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, regionNamesInScope, useServingScope } from '../hooks/useServingBizScope';
@@ -385,11 +385,6 @@ export function PerformanceTeamQuality({ addToast }: Props) {
       <PageHeader
         title="团队工作质量评价"
         description="直达专员绩效 · 按任务包（任务 × 考核月份）一对一考核服务专员；四级链批次评价在「服务专员绩效」页进行。"
-        actions={
-          <Button variant="ghost" icon={<Download size={14} />} onClick={() => addToast({ type: "success", title: "批次快照已生成下载（演示）" })}>
-            导出批次快照
-          </Button>
-        }
       />
 
       {deniedView ? (

@@ -1,41 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { deriveSurveyItems } from './batchAdjust';
 import { bindQuestionnaire, questionnaireTaskSnapshot, resetQuestionnaireStore } from '../data/questionnaireStore';
 
 beforeEach(() => {
   resetQuestionnaireStore();
 });
 
-describe('问卷类别异价派生 deriveSurveyItems', () => {
-  it('类别预算在品种间均摊，数量 = floor(自身金额 ÷ 自身单价)', () => {
-    const items = deriveSurveyItems(10000, [
-      { variety: '希刻劳', unitPrice: 1120 },
-      { variety: '泰诺林', unitPrice: 1008 },
-    ]);
-    expect(items.map((x) => x.name)).toEqual(['希刻劳', '泰诺林']);
-    expect(items[0].initialAmount).toBe(5000);
-    expect(items[1].initialAmount).toBe(5000);
-    expect(items[0].initialQty).toBe(4); // floor(5000 / 1120)
-    expect(items[1].initialQty).toBe(4); // floor(5000 / 1008)
-    expect(items.every((x) => !x.adjusted)).toBe(true);
-  });
-
-  it('金额不因取整反写：金额不足以整份时数量为 0、金额保留', () => {
-    const items = deriveSurveyItems(1000, [{ variety: '希刻劳', unitPrice: 1120 }]);
-    expect(items[0].initialQty).toBe(0);
-    expect(items[0].initialAmount).toBe(1000);
-  });
-
-  it('三个品种按分精确均摊（合计＝基准）', () => {
-    const items = deriveSurveyItems(100, [
-      { variety: 'A', unitPrice: 10 },
-      { variety: 'B', unitPrice: 20 },
-      { variety: 'C', unitPrice: 30 },
-    ]);
-    const total = items.reduce((s, x) => s + x.initialAmount, 0);
-    expect(Math.round(total * 100)).toBe(10000);
-  });
-});
+// 「问卷类别异价派生 deriveSurveyItems」已随 2026-11-20 迭代移除：
+// 报告侧「调研问卷与分析服务」改为按价目项目（问卷样本量 / 分析总结）计价，
+// 推广侧「调查问卷」走市场推广价目，下游拆包时再选问卷类型。
 
 describe('问卷计价快照 questionnaireTaskSnapshot', () => {
   it('锁定最新题目版本与公私单价；unitPrice 以创建流程传入值为准', () => {

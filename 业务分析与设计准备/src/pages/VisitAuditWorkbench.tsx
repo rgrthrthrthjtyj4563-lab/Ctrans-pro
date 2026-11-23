@@ -1,18 +1,45 @@
 /**
  * 拜访管理审核工作台（业务数据管理）。
  *
- * 自「拜访管理审核工作台」独立设计稿（明澈管理平台）整体移植：列表筛选、状态页签、
- * 批量审核、详情抽屉（拜访详情 / 审核日志 / 预约凭证时间线 / 地图定位 / 照片附件）、
- * 审核弹窗与批量结果弹窗、加载骨架与空态。
- * 样式收在 VisitAuditWorkbench.css 的 .visit-audit 命名空间内，自成配色体系，
- * 不改写宿主原型的全局样式；侧栏与顶栏由宿主壳层提供，设计稿的页面内容原样保留。
+ * 医院拜访 / 商业拜访 / 药房拜访三个二级页面共用本组件（page 入参切换文案与数据）。
+ * 视觉与交互对齐项目设计基准：页头状态页签（PageHeader）、筛选区（FilterBar）、
+ * 状态标签（StatusTag）、分页（Pagination）、居中详情弹窗（DetailDrawer）、
+ * 确认弹窗（ConfirmDialog）/ 意见弹窗（Modal）、时间线（Timeline）、
+ * 空态（EmptyState）与全局 Toast 均复用 components 设计组件，不再维护独立配色。
  */
-import { useMemo, useState, type ReactNode } from "react";
-import "./VisitAuditWorkbench.css";
+import { useMemo, useState, type CSSProperties } from 'react';
+import {
+  AlertCircle,
+  Camera,
+  CheckCircle,
+  Clock,
+  Download,
+  Info,
+  MapPin,
+  Smartphone,
+  XCircle,
+} from 'lucide-react';
+import { PageHeader } from '../components/PageHeader';
+import { FilterBar } from '../components/FilterBar';
+import { StatusTag, Tag } from '../components/StatusTag';
+import { Pagination } from '../components/Pagination';
+import { Button } from '../components/Button';
+import { DetailDrawer, FieldGroup, FieldItem } from '../components/DetailDrawer';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Modal } from '../components/Modal';
+import { Timeline } from '../components/Timeline';
+import { EmptyState } from '../components/EmptyState';
+import type { ToastMessage } from '../components/Toast';
 
-export type VisitAuditPageKey = "hospital" | "business" | "pharmacy";
-type AuditState = "待审核" | "已通过" | "已驳回";
-type ModalState = null | { type: "approve" | "reject" | "batch-approve" | "batch-reject"; count?: number };
+export type VisitAuditPageKey = 'hospital' | 'business' | 'pharmacy';
+type AuditState = '待审核' | '已通过' | '已驳回';
+type StatusTab = '全部' | AuditState;
+type DrawerTab = '拜访详情' | '审核日志';
+
+interface VisitAuditWorkbenchProps {
+  page: VisitAuditPageKey;
+  addToast: (msg: Omit<ToastMessage, 'id'>) => void;
+}
 
 type Visit = {
   id: number;
@@ -28,7 +55,7 @@ type Visit = {
   date: string;
   time: string;
   location: string;
-  performance: "未打绩效" | "已打绩效";
+  performance: '未打绩效' | '已打绩效';
   status: AuditState;
   opinion: string;
   amount?: string;
@@ -38,289 +65,490 @@ export const VISIT_AUDIT_PAGE_CONFIG: Record<
   VisitAuditPageKey,
   { title: string; subtitle: string; target: string; date: string }
 > = {
-  hospital: { title: "医院拜访管理", subtitle: "查看医院拜访记录并处理审核", target: "拜访医院", date: "拜访时间" },
-  business: { title: "商业拜访管理", subtitle: "查看商业拜访记录并处理审核", target: "拜访公司", date: "拜访日期" },
-  pharmacy: { title: "药房拜访管理", subtitle: "查看药房拜访记录并处理审核", target: "拜访药房", date: "拜访日期" },
+  hospital: { title: '医院拜访管理', subtitle: '查看医院拜访记录并处理审核', target: '拜访医院', date: '拜访时间' },
+  business: { title: '商业拜访管理', subtitle: '查看商业拜访记录并处理审核', target: '拜访公司', date: '拜访日期' },
+  pharmacy: { title: '药房拜访管理', subtitle: '查看药房拜访记录并处理审核', target: '拜访药房', date: '拜访日期' },
 };
 
 const visits: Record<VisitAuditPageKey, Visit[]> = {
   hospital: [
-    { id: 1, specialist: "陈思远", provider: "华东医药服务有限公司", group: "上海一组", target: "上海市第一人民医院", targetMeta: "三级甲等 · 心内科", visitor: "王主任", product: "瑞舒伐他汀钙片 10mg×7片", category: "学术拜访", content: "介绍最新临床研究进展，与科室沟通患者用药反馈。", date: "2025-06-18", time: "09:00 — 10:15", location: "门诊楼 4F 心内科", performance: "未打绩效", status: "待审核", opinion: "—" },
-    { id: 2, specialist: "周亦航", provider: "华东医药服务有限公司", group: "上海二组", target: "复旦大学附属中山医院", targetMeta: "三级甲等 · 呼吸科", visitor: "李医生", product: "吸入用布地奈德混悬液 2ml", category: "跟踪巡访服务", content: "跟进科室产品使用情况，收集医护人员反馈。", date: "2025-06-18", time: "14:20 — 15:00", location: "2号楼呼吸科", performance: "已打绩效", status: "已通过", opinion: "信息完整，审核通过。" },
-    { id: 3, specialist: "林若安", provider: "苏南健康服务中心", group: "江苏三组", target: "苏州市立医院", targetMeta: "三级乙等 · 消化科", visitor: "张主任", product: "奥美拉唑肠溶胶囊 20mg", category: "信息收集和调研", content: "收集院内相关品种覆盖及临床使用情况。", date: "2025-06-17", time: "11:00 — 11:35", location: "本部门诊 3F", performance: "未打绩效", status: "已驳回", opinion: "拜访内容描述不完整，请补充核实。" },
-    { id: 4, specialist: "许知行", provider: "浙江康桥咨询有限公司", group: "浙江一组", target: "浙江大学医学院附属第二医院", targetMeta: "三级甲等 · 神经内科", visitor: "赵医生", product: "银杏叶片 24片", category: "日常拜访", content: "日常回访，了解患者用药反馈。", date: "2025-06-17", time: "15:10 — 16:00", location: "解放路院区", performance: "未打绩效", status: "待审核", opinion: "—" },
-    { id: 5, specialist: "沈星河", provider: "华东医药服务有限公司", group: "上海一组", target: "上海市第六人民医院", targetMeta: "三级甲等 · 骨科", visitor: "顾主任", product: "塞来昔布胶囊 0.2g", category: "学术拜访", content: "沟通骨关节炎疼痛管理临床路径。", date: "2025-06-16", time: "10:30 — 11:20", location: "宜山路院区", performance: "已打绩效", status: "待审核", opinion: "—" },
+    { id: 1, specialist: '陈思远', provider: '华东医药服务有限公司', group: '上海一组', target: '上海市第一人民医院', targetMeta: '三级甲等 · 心内科', visitor: '王主任', product: '瑞舒伐他汀钙片 10mg×7片', category: '学术拜访', content: '介绍最新临床研究进展，与科室沟通患者用药反馈。', date: '2025-06-18', time: '09:00 — 10:15', location: '门诊楼 4F 心内科', performance: '未打绩效', status: '待审核', opinion: '—' },
+    { id: 2, specialist: '周亦航', provider: '华东医药服务有限公司', group: '上海二组', target: '复旦大学附属中山医院', targetMeta: '三级甲等 · 呼吸科', visitor: '李医生', product: '吸入用布地奈德混悬液 2ml', category: '跟踪巡访服务', content: '跟进科室产品使用情况，收集医护人员反馈。', date: '2025-06-18', time: '14:20 — 15:00', location: '2号楼呼吸科', performance: '已打绩效', status: '已通过', opinion: '信息完整，审核通过。' },
+    { id: 3, specialist: '林若安', provider: '苏南健康服务中心', group: '江苏三组', target: '苏州市立医院', targetMeta: '三级乙等 · 消化科', visitor: '张主任', product: '奥美拉唑肠溶胶囊 20mg', category: '信息收集和调研', content: '收集院内相关品种覆盖及临床使用情况。', date: '2025-06-17', time: '11:00 — 11:35', location: '本部门诊 3F', performance: '未打绩效', status: '已驳回', opinion: '拜访内容描述不完整，请补充核实。' },
+    { id: 4, specialist: '许知行', provider: '浙江康桥咨询有限公司', group: '浙江一组', target: '浙江大学医学院附属第二医院', targetMeta: '三级甲等 · 神经内科', visitor: '赵医生', product: '银杏叶片 24片', category: '日常拜访', content: '日常回访，了解患者用药反馈。', date: '2025-06-17', time: '15:10 — 16:00', location: '解放路院区', performance: '未打绩效', status: '待审核', opinion: '—' },
+    { id: 5, specialist: '沈星河', provider: '华东医药服务有限公司', group: '上海一组', target: '上海市第六人民医院', targetMeta: '三级甲等 · 骨科', visitor: '顾主任', product: '塞来昔布胶囊 0.2g', category: '学术拜访', content: '沟通骨关节炎疼痛管理临床路径。', date: '2025-06-16', time: '10:30 — 11:20', location: '宜山路院区', performance: '已打绩效', status: '待审核', opinion: '—' },
   ],
   business: [
-    { id: 1, specialist: "陈思远", provider: "华东医药服务有限公司", group: "上海一组", target: "国药控股上海有限公司", targetMeta: "商业公司", visitor: "刘经理", product: "瑞舒伐他汀钙片 10mg×7片", category: "商务服务", content: "沟通本月产品配送计划及重点区域库存安排。", date: "2025-06-18", time: "09:30 — 10:30", location: "上海市黄浦区龙华东路385号", performance: "未打绩效", status: "待审核", opinion: "—" },
-    { id: 2, specialist: "周亦航", provider: "苏南健康服务中心", group: "江苏二组", target: "上药控股江苏股份有限公司", targetMeta: "商业公司", visitor: "孙主管", product: "吸入用布地奈德混悬液 2ml", category: "商业库存信息收集", content: "核对商业库存及近三个月流向数据。", date: "2025-06-17", time: "14:00 — 14:45", location: "南京市雨花台区软件大道", performance: "已打绩效", status: "已通过", opinion: "已核对拜访信息，审核通过。" },
-    { id: 3, specialist: "许知行", provider: "浙江康桥咨询有限公司", group: "浙江一组", target: "浙江英特药业有限责任公司", targetMeta: "商业公司", visitor: "郑经理", product: "银杏叶片 24片", category: "商业信息收集和调研", content: "调研区域终端覆盖及配送效率。", date: "2025-06-16", time: "11:15 — 12:00", location: "杭州市拱墅区康桥路", performance: "未打绩效", status: "已驳回", opinion: "拜访位置与公司注册地址不一致，请核对。" },
+    { id: 1, specialist: '陈思远', provider: '华东医药服务有限公司', group: '上海一组', target: '国药控股上海有限公司', targetMeta: '商业公司', visitor: '刘经理', product: '瑞舒伐他汀钙片 10mg×7片', category: '商务服务', content: '沟通本月产品配送计划及重点区域库存安排。', date: '2025-06-18', time: '09:30 — 10:30', location: '上海市黄浦区龙华东路385号', performance: '未打绩效', status: '待审核', opinion: '—' },
+    { id: 2, specialist: '周亦航', provider: '苏南健康服务中心', group: '江苏二组', target: '上药控股江苏股份有限公司', targetMeta: '商业公司', visitor: '孙主管', product: '吸入用布地奈德混悬液 2ml', category: '商业库存信息收集', content: '核对商业库存及近三个月流向数据。', date: '2025-06-17', time: '14:00 — 14:45', location: '南京市雨花台区软件大道', performance: '已打绩效', status: '已通过', opinion: '已核对拜访信息，审核通过。' },
+    { id: 3, specialist: '许知行', provider: '浙江康桥咨询有限公司', group: '浙江一组', target: '浙江英特药业有限责任公司', targetMeta: '商业公司', visitor: '郑经理', product: '银杏叶片 24片', category: '商业信息收集和调研', content: '调研区域终端覆盖及配送效率。', date: '2025-06-16', time: '11:15 — 12:00', location: '杭州市拱墅区康桥路', performance: '未打绩效', status: '已驳回', opinion: '拜访位置与公司注册地址不一致，请核对。' },
   ],
   pharmacy: [
-    { id: 1, specialist: "陈思远", provider: "华东医药服务有限公司", group: "上海一组", target: "益丰大药房（静安店）", targetMeta: "连锁药房", visitor: "朱店长", product: "瑞舒伐他汀钙片", category: "日常拜访", content: "了解产品陈列、库存及消费者反馈。", date: "2025-06-18", time: "10:00 — 10:40", location: "上海市静安区", performance: "未打绩效", status: "待审核", opinion: "—", amount: "¥ 2,860.00" },
-    { id: 2, specialist: "周亦航", provider: "苏南健康服务中心", group: "江苏二组", target: "海王星辰（新街口店）", targetMeta: "连锁药房", visitor: "陈药师", product: "吸入用布地奈德混悬液", category: "跟踪巡访", content: "跟进动销情况，收集患者咨询重点。", date: "2025-06-17", time: "15:20 — 16:05", location: "南京市秦淮区", performance: "已打绩效", status: "已通过", opinion: "信息核验无误。", amount: "¥ 1,540.00" },
-    { id: 3, specialist: "林若安", provider: "浙江康桥咨询有限公司", group: "浙江一组", target: "老百姓大药房（西湖店）", targetMeta: "连锁药房", visitor: "王店长", product: "银杏叶片", category: "信息收集", content: "收集竞品陈列与门店库存信息。", date: "2025-06-16", time: "13:00 — 13:30", location: "杭州市西湖区", performance: "未打绩效", status: "已驳回", opinion: "拜访内容缺少有效信息。", amount: "—" },
+    { id: 1, specialist: '陈思远', provider: '华东医药服务有限公司', group: '上海一组', target: '益丰大药房（静安店）', targetMeta: '连锁药房', visitor: '朱店长', product: '瑞舒伐他汀钙片', category: '日常拜访', content: '了解产品陈列、库存及消费者反馈。', date: '2025-06-18', time: '10:00 — 10:40', location: '上海市静安区', performance: '未打绩效', status: '待审核', opinion: '—', amount: '¥ 2,860.00' },
+    { id: 2, specialist: '周亦航', provider: '苏南健康服务中心', group: '江苏二组', target: '海王星辰（新街口店）', targetMeta: '连锁药房', visitor: '陈药师', product: '吸入用布地奈德混悬液', category: '跟踪巡访', content: '跟进动销情况，收集患者咨询重点。', date: '2025-06-17', time: '15:20 — 16:05', location: '南京市秦淮区', performance: '已打绩效', status: '已通过', opinion: '信息核验无误。', amount: '¥ 1,540.00' },
+    { id: 3, specialist: '林若安', provider: '浙江康桥咨询有限公司', group: '浙江一组', target: '老百姓大药房（西湖店）', targetMeta: '连锁药房', visitor: '王店长', product: '银杏叶片', category: '信息收集', content: '收集竞品陈列与门店库存信息。', date: '2025-06-16', time: '13:00 — 13:30', location: '杭州市西湖区', performance: '未打绩效', status: '已驳回', opinion: '拜访内容缺少有效信息。', amount: '—' },
   ],
 };
 
-function Icon({ name, size = 18 }: { name: string; size?: number }) {
-  const paths: Record<string, ReactNode> = {
-    grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
-    visit: <><path d="M8 21h8M12 17v4M6 3h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M9 9h6M12 6v6"/></>,
-    hospital: <><path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16M2 21h20M9 7h3M10.5 5.5v3M8 12h2M14 12h1M8 16h2M14 16h1"/></>,
-    building: <><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3"/></>,
-    shop: <><path d="m3 9 2-5h14l2 5M5 13v8h14v-8M9 21v-5h6v5"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></>,
-    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
-    refresh: <><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9A7 7 0 0 1 18.5 6L20 11M4 13l1.5 5A7 7 0 0 0 17.9 15"/></>,
-    download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>,
-    columns: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></>,
-    filter: <><path d="M4 5h16M7 12h10M10 19h4"/></>,
-    chevron: <path d="m9 18 6-6-6-6"/>,
-    close: <path d="m6 6 12 12M18 6 6 18"/>,
-    check: <path d="m5 12 4 4L19 6"/>,
-    alert: <><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 17h.01"/></>,
-    eye: <><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>,
-    help: <><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.5 2.5 0 1 1 3.4 2.3c-.8.4-1.2.9-1.2 1.7M12 17h.01"/></>,
-    calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></>,
-    map: <><path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3Z"/><path d="M8 3v15M16 6v15"/></>,
-    pin: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,
-    image: <><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 20"/></>,
-    clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
-    mobile: <><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 5h4M11 18h2"/></>,
+const PAGE_SIZE = 10;
+
+function hashLatLng(seed: string): { lat: string; lng: string } {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const lat = (25.1032 + ((h % 180) - 90) / 10000).toFixed(4);
+  const lng = (117.0297 + (((h >> 9) % 180) - 90) / 10000).toFixed(4);
+  return { lat, lng };
+}
+
+function periodOf(time: string) {
+  const [start, end] = time.split(' — ');
+  return { start, end };
+}
+
+function recordNo(visit: Visit) {
+  return `VIS-202506-${String(visit.id).padStart(4, '0')}`;
+}
+
+function specialistAccount(visit: Visit) {
+  return `u${202500 + visit.id}`;
+}
+
+/** 详情弹窗内的页签（与拜访管理页详情弹窗同款交互） */
+function drawerTabStyle(active: boolean): CSSProperties {
+  return {
+    padding: '8px 0',
+    fontSize: 'var(--fs-13)',
+    color: active ? 'var(--color-brand)' : '#667085',
+    border: 'none',
+    borderBottom: active ? '2px solid var(--color-brand)' : '2px solid transparent',
+    background: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+    fontFamily: 'inherit',
+    fontWeight: active ? 600 : 400,
   };
-  return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
 
-function Button({ children, variant = "default", onClick, disabled, icon }: { children: ReactNode; variant?: "default" | "primary" | "danger" | "text"; onClick?: () => void; disabled?: boolean; icon?: string }) {
-  return <button className={`btn btn-${variant}`} onClick={onClick} disabled={disabled}>{icon && <Icon name={icon} size={16} />}<span>{children}</span></button>;
-}
+/** 列表行内操作链接（与拜访管理页同款） */
+const rowLinkStyle: CSSProperties = { border: 'none', background: 'none', padding: 0, color: '#2F6BCE', cursor: 'pointer', fontSize: 'var(--fs-13)' };
 
-function StatusBadge({ value }: { value: AuditState }) {
-  return <span className={`status status-${value}`}>{value === "待审核" && <i />}{value}</span>;
-}
-
-export function VisitAuditWorkbench({ page }: { page: VisitAuditPageKey }) {
-  const [status, setStatus] = useState<"全部" | AuditState>("全部");
-  const [more, setMore] = useState(false);
-  const [selected, setSelected] = useState<number[]>([]);
-  const [detail, setDetail] = useState<Visit | null>(null);
-  const [modal, setModal] = useState<ModalState>(null);
-  const [keyword, setKeyword] = useState("");
-  const [appliedKeyword, setAppliedKeyword] = useState("");
-  const [toast, setToast] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState<"success" | "partial" | null>(null);
-  const config = VISIT_AUDIT_PAGE_CONFIG[page];
-
-  const rows = useMemo(
-    () =>
-      visits[page].filter(
-        (row) =>
-          (status === "全部" || row.status === status) &&
-          (!appliedKeyword || row.target.includes(appliedKeyword)),
-      ),
-    [page, status, appliedKeyword],
+function th(label: string, w?: string | number) {
+  return (
+    <th style={{
+      padding: '10px 12px',
+      textAlign: 'left',
+      fontSize: 'var(--fs-12)',
+      fontWeight: 600,
+      color: '#9CA3AF',
+      textTransform: 'uppercase',
+      letterSpacing: '0.03em',
+      background: '#F9FAFB',
+      borderBottom: '1px solid var(--color-border)',
+      whiteSpace: 'nowrap',
+      width: w,
+    }}>
+      {label}
+    </th>
   );
+}
 
-  const runSearch = () => {
-    setLoading(true);
-    window.setTimeout(() => {
-      setAppliedKeyword(keyword);
-      setLoading(false);
-    }, 450);
-  };
-  const reset = () => {
-    setKeyword("");
-    setAppliedKeyword("");
-    setStatus("全部");
-    setMore(false);
-  };
-  const submitAudit = () => {
-    const isBatch = modal?.type.startsWith("batch");
-    const isReject = modal?.type.includes("reject");
-    setModal(null);
-    setDetail(null);
-    if (isBatch) {
-      setNotice(selected.length > 2 ? "partial" : "success");
-      setSelected([]);
-    }
-    setToast(isReject ? "已驳回该条拜访记录" : "审核已通过");
-    window.setTimeout(() => setToast(""), 2600);
-  };
-  const counts = {
-    全部: visits[page].length,
-    待审核: visits[page].filter((x) => x.status === "待审核").length,
-    已通过: visits[page].filter((x) => x.status === "已通过").length,
-    已驳回: visits[page].filter((x) => x.status === "已驳回").length,
-  };
+/** 拜访签到示意地图（与拜访管理页详情同款画法） */
+function VisitLocationMap({ visit }: { visit: Visit }) {
+  const { lat, lng } = hashLatLng(`${visit.target}-${visit.id}`);
+  const pinX = 268;
+  const pinY = 148;
 
   return (
-    <div className="visit-audit">
-      <div className="page-wrap">
-        <section className="page-heading">
-          <div>
-            <h1>{config.title}</h1>
-            <p>{config.subtitle}</p>
-          </div>
-          <span className="updated">数据更新于 10:24</span>
-        </section>
+    <div style={{
+      position: 'relative',
+      borderRadius: 8,
+      border: '1px solid var(--color-border)',
+      overflow: 'hidden',
+      background: '#F6F8FA',
+    }}>
+      <svg viewBox="0 0 640 360" width="100%" style={{ display: 'block' }} aria-hidden>
+        <rect x="28" y="24" width="148" height="92" rx="6" fill="#E9EDF1" />
+        <rect x="196" y="18" width="118" height="74" rx="6" fill="#EEF1F4" />
+        <rect x="332" y="32" width="96" height="86" rx="6" fill="#E9EDF1" />
+        <rect x="28" y="136" width="86" height="70" rx="6" fill="#EEF1F4" />
+        <rect x="340" y="176" width="132" height="88" rx="6" fill="#E9EDF1" />
+        <rect x="496" y="168" width="112" height="76" rx="6" fill="#EEF1F4" />
+        <rect x="196" y="248" width="124" height="72" rx="6" fill="#E9EDF1" />
+        <rect x="470" y="36" width="132" height="82" rx="8" fill="#E6F5ED" />
+        <rect x="36" y="248" width="176" height="72" rx="14" fill="#EBF2FE" />
+        <line x1="0" y1="228" x2="640" y2="118" stroke="#FFFFFF" strokeWidth="18" strokeLinecap="round" />
+        <line x1="120" y1="0" x2="120" y2="360" stroke="#FFFFFF" strokeWidth="10" />
+        <line x1="0" y1="120" x2="640" y2="120" stroke="#FFFFFF" strokeWidth="8" />
+        <line x1="0" y1="210" x2="640" y2="210" stroke="#FFFFFF" strokeWidth="8" />
+        <line x1="320" y1="0" x2="320" y2="360" stroke="#FFFFFF" strokeWidth="8" />
+        <line x1="480" y1="0" x2="480" y2="360" stroke="#FFFFFF" strokeWidth="8" />
+        <line x1="0" y1="300" x2="640" y2="300" stroke="#FFFFFF" strokeWidth="8" />
+        <circle className="visit-audit-pin-pulse" cx={pinX} cy={pinY} r="28" fill="var(--color-brand)" />
+        <circle cx={pinX} cy={pinY} r="7" fill="var(--color-brand)" stroke="#FFFFFF" strokeWidth="2" />
+      </svg>
+      <MapPin
+        size={18}
+        color="var(--color-brand)"
+        aria-hidden
+        style={{
+          position: 'absolute',
+          left: `${(pinX / 640) * 100}%`,
+          top: `${(pinY / 360) * 100}%`,
+          transform: 'translate(-50%, calc(-100% - 10px))',
+          pointerEvents: 'none',
+        }}
+      />
+      <div style={{
+        position: 'absolute',
+        left: `${((pinX + 36) / 640) * 100}%`,
+        top: `${((pinY - 52) / 360) * 100}%`,
+        width: 248,
+        maxWidth: '52%',
+        background: '#FFFFFF',
+        border: '1px solid var(--color-border)',
+        borderRadius: 8,
+        padding: 12,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+      }}>
+        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginBottom: 4 }}>打卡位置</div>
+        <div style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', lineHeight: 1.5, marginBottom: 8 }}>
+          {visit.location}
+        </div>
+        <div style={{ fontSize: 'var(--fs-12)', color: '#667085', fontFamily: "'JetBrains Mono', monospace", marginBottom: 4 }}>
+          {visit.date} {periodOf(visit.time).start}
+        </div>
+        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>
+          N{lat}° E{lng}°
+        </div>
+      </div>
+      <div style={{
+        position: 'absolute',
+        right: 10,
+        bottom: 8,
+        fontSize: 'var(--fs-11)',
+        color: '#9CA3AF',
+        pointerEvents: 'none',
+      }}>
+        示意地图
+      </div>
+      <style>{`
+        .visit-audit-pin-pulse { opacity: 0.15; }
+        @keyframes visitAuditPinPulse {
+          0% { opacity: 0.15; }
+          70% { opacity: 0; }
+          100% { opacity: 0; }
+        }
+        @media (prefers-reduced-motion: no-preference) {
+          .visit-audit-pin-pulse { animation: visitAuditPinPulse 2.2s ease-out infinite; }
+        }
+      `}</style>
+    </div>
+  );
+}
 
-        <section className="status-tabs">
-          {(Object.keys(counts) as Array<keyof typeof counts>).map((item) => (
-            <button
-              key={item}
-              className={status === item ? "active" : ""}
-              onClick={() => {
-                setStatus(item);
-                setSelected([]);
-              }}
-            >
-              {item}
-              <span>{counts[item]}</span>
-            </button>
-          ))}
-        </section>
+export function VisitAuditWorkbench({ page, addToast }: VisitAuditWorkbenchProps) {
+  const config = VISIT_AUDIT_PAGE_CONFIG[page];
+  const source = visits[page];
 
-        <section className="filter-panel">
-          <div className="filter-grid">
-            <Field label="服务提供方"><SelectLike placeholder="请选择服务提供方" /></Field>
-            <Field label="工作组"><SelectLike placeholder="请选择工作组" /></Field>
-            <Field label={config.target}>
-              <div className="input-wrap">
-                <Icon name="search" size={15} />
-                <input
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  placeholder={page === "pharmacy" ? "请输入药房名称" : `请输入${config.target}`}
-                />
-              </div>
-            </Field>
-            <Field label={config.date}>
-              <div className="date-range"><span>开始日期</span><b>—</b><span>结束日期</span><Icon name="calendar" size={15} /></div>
-            </Field>
-            <Field label="审核状态"><SelectLike placeholder="全部状态" /></Field>
-          </div>
-          {more && (
-            <div className="filter-grid more-grid">
-              <Field label="品种名称"><SelectLike placeholder="请选择品种" /></Field>
-              <Field label="绩效状态"><SelectLike placeholder="全部绩效状态" /></Field>
-              {page !== "pharmacy" && <Field label="拜访类别"><SelectLike placeholder="请选择拜访类别" /></Field>}
-              {page === "hospital" && <Field label="医院等级"><SelectLike placeholder="请选择医院等级" /></Field>}
-              <Field label="开始时间是否为整点"><SelectLike placeholder="全部" /></Field>
-              <Field label="结束时间是否为整点"><SelectLike placeholder="全部" /></Field>
-            </div>
-          )}
-          <div className="filter-actions">
-            <button className="more-toggle" onClick={() => setMore(!more)}>
-              <Icon name="filter" size={16} />{more ? "收起筛选" : "更多筛选"}<span className={more ? "up" : ""}>⌄</span>
-            </button>
-            <div>
-              <Button icon="refresh" onClick={reset}>重置</Button>
-              <Button variant="primary" icon="search" onClick={runSearch}>搜索</Button>
-            </div>
-          </div>
-        </section>
+  const [statusTab, setStatusTab] = useState<StatusTab>('全部');
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [pageNum, setPageNum] = useState(1);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [drawerRecord, setDrawerRecord] = useState<Visit | null>(null);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>('拜访详情');
+  const [approveTarget, setApproveTarget] = useState<null | { batch: boolean; count?: number }>(null);
+  const [rejectTarget, setRejectTarget] = useState<null | { batch: boolean; count?: number }>(null);
+  const [rejectComment, setRejectComment] = useState('');
+  const [apptOpen, setApptOpen] = useState(false);
 
-        {appliedKeyword && (
-          <div className="active-filters">
-            <span>已生效条件</span>
-            <button>
-              {config.target}：{appliedKeyword}
-              <span
-                onClick={() => {
-                  setAppliedKeyword("");
-                  setKeyword("");
-                }}
-              >
-                ×
-              </span>
-            </button>
-            <button className="clear-filter" onClick={reset}>清除全部</button>
-          </div>
-        )}
+  const counts = useMemo(() => ({
+    全部: source.length,
+    待审核: source.filter(x => x.status === '待审核').length,
+    已通过: source.filter(x => x.status === '已通过').length,
+    已驳回: source.filter(x => x.status === '已驳回').length,
+  }), [source]);
 
-        <section className="table-card">
-          {selected.length > 0 && page !== "pharmacy" ? (
-            <div className="batch-bar">
-              <div>
-                <span className="batch-check"><Icon name="check" size={14} /></span>
-                已选择 <strong>{selected.length}</strong> 条记录 <em>仅选择本页</em>
-              </div>
-              <div>
-                <Button variant="primary" icon="check" onClick={() => setModal({ type: "batch-approve", count: selected.length })}>批量审核通过</Button>
-                <Button variant="danger" onClick={() => setModal({ type: "batch-reject", count: selected.length })}>批量审核驳回</Button>
-                <button className="text-action" onClick={() => setSelected([])}>清空选择</button>
-              </div>
-            </div>
-          ) : (
-            <div className="table-toolbar">
-              <div>共 <strong>{rows.length}</strong> 条记录 <span>数据范围：当前权限</span></div>
-              <div>
-                {page !== "pharmacy" && <Button icon="download">导出</Button>}
-                <Button icon="columns">列设置</Button>
-              </div>
-            </div>
-          )}
+  const filtered = useMemo(() => {
+    return source.filter(r => {
+      const { start, end } = periodOf(r.time);
+      if (statusTab !== '全部' && r.status !== statusTab) return false;
+      if (filters.provider && r.provider !== filters.provider) return false;
+      if (filters.workGroup && r.group !== filters.workGroup) return false;
+      if (filters.target && !r.target.includes(filters.target)) return false;
+      if (filters.auditStatus && r.status !== filters.auditStatus) return false;
+      if (filters.variety && !r.product.includes(filters.variety)) return false;
+      if (filters.performance && r.performance !== filters.performance) return false;
+      if (filters.category && r.category !== filters.category) return false;
+      if (filters.hospitalGrade && !r.targetMeta.includes(filters.hospitalGrade)) return false;
+      if (filters.startOnTime && (start.endsWith(':00') ? '是' : '否') !== filters.startOnTime) return false;
+      if (filters.endOnTime && (end.endsWith(':00') ? '是' : '否') !== filters.endOnTime) return false;
+      if (filters.startDate && r.date < filters.startDate) return false;
+      if (filters.endDate && r.date > filters.endDate) return false;
+      return true;
+    });
+  }, [source, statusTab, filters]);
 
-          <div className="table-scroll">
-            {loading ? <LoadingState /> : rows.length === 0 ? <EmptyState onReset={reset} /> : (
-              <table>
+  const statusCounts = useMemo(() => {
+    const c: Record<AuditState, number> = { 待审核: 0, 已通过: 0, 已驳回: 0 };
+    filtered.forEach(r => { c[r.status] += 1; });
+    return c;
+  }, [filtered]);
+
+  const pageData = filtered.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
+
+  const uniqueOptions = (values: string[]) =>
+    Array.from(new Set(values)).map(v => ({ value: v, label: v }));
+
+  const filterFields = [
+    { id: 'provider', label: '服务提供方', type: 'select' as const, options: uniqueOptions(source.map(r => r.provider)) },
+    { id: 'workGroup', label: '工作组', type: 'select' as const, options: uniqueOptions(source.map(r => r.group)) },
+    { id: 'target', label: config.target, type: 'text' as const, placeholder: page === 'pharmacy' ? '搜索药房名称' : `搜索${config.target}` },
+    { id: 'startDate', label: config.date, type: 'date' as const },
+    { id: 'endDate', label: '结束日期', type: 'date' as const },
+    { id: 'auditStatus', label: '审核状态', type: 'select' as const, options: [
+      { value: '待审核', label: '待审核' },
+      { value: '已通过', label: '已通过' },
+      { value: '已驳回', label: '已驳回' },
+    ]},
+    { id: 'variety', label: '品种名称', type: 'select' as const, options: uniqueOptions(source.map(r => r.product)) },
+    { id: 'performance', label: '绩效状态', type: 'select' as const, options: [
+      { value: '已打绩效', label: '已打绩效' },
+      { value: '未打绩效', label: '未打绩效' },
+    ]},
+    ...(page !== 'pharmacy' ? [{ id: 'category', label: '拜访类别', type: 'select' as const, options: uniqueOptions(source.map(r => r.category)) }] : []),
+    ...(page === 'hospital' ? [{ id: 'hospitalGrade', label: '医院等级', type: 'select' as const, options: [
+      { value: '三级甲等', label: '三级甲等' },
+      { value: '三级乙等', label: '三级乙等' },
+    ] }] : []),
+    { id: 'startOnTime', label: '开始时间是否为整点', type: 'select' as const, options: [{ value: '是', label: '是' }, { value: '否', label: '否' }] },
+    { id: 'endOnTime', label: '结束时间是否为整点', type: 'select' as const, options: [{ value: '是', label: '是' }, { value: '否', label: '否' }] },
+  ];
+
+  function handleFilterChange(id: string, val: string) {
+    setFilters(prev => ({ ...prev, [id]: val }));
+  }
+  function handleReset() {
+    setFilters({});
+    setStatusTab('全部');
+    setPageNum(1);
+    setSelected([]);
+  }
+  function toggleRow(id: number) {
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+  function toggleAll() {
+    if (selected.length === pageData.length) setSelected([]);
+    else setSelected(pageData.map(r => r.id));
+  }
+
+  function openDrawer(record: Visit) {
+    setDrawerRecord(record);
+    setDrawerTab('拜访详情');
+  }
+  function closeDrawer() {
+    setDrawerRecord(null);
+    setDrawerTab('拜访详情');
+  }
+
+  function submitApprove() {
+    const batch = approveTarget?.batch;
+    addToast({
+      type: 'success',
+      title: batch ? `批量审核通过 ${approveTarget?.count ?? 0} 条` : '审核已通过',
+      description: batch
+        ? '二级审核已完成且结果生效，操作已写入操作日志'
+        : `${drawerRecord ? recordNo(drawerRecord) : '该记录'} 二级审核完成，操作已写入操作日志`,
+    });
+    setApproveTarget(null);
+    closeDrawer();
+  }
+
+  function submitReject() {
+    const batch = rejectTarget?.batch;
+    if (!rejectComment.trim()) return;
+    addToast({
+      type: 'warning',
+      title: batch ? `批量审核驳回 ${rejectTarget?.count ?? 0} 条` : '已驳回该条拜访记录',
+      description: `审核意见：${rejectComment.trim()}`,
+    });
+    setRejectTarget(null);
+    setRejectComment('');
+    closeDrawer();
+  }
+
+  const statsNode = (
+    <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 'var(--fs-13)' }}>
+      <span style={{ color: '#667085' }}>共 <strong style={{ color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace" }}>{filtered.length}</strong> 条</span>
+      {(['待审核', '已通过', '已驳回'] as AuditState[]).map(s => (
+        <span key={s} style={{ color: '#667085', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <StatusTag status={s} size="sm" />
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#374151' }}>{statusCounts[s]}</span>
+        </span>
+      ))}
+    </div>
+  );
+
+  const hasBatch = page !== 'pharmacy' && selected.length > 0;
+  const extraActions = (
+    <>
+      <Button variant="outline" size="sm" icon={<Download size={13} />}>导出</Button>
+      {hasBatch && (
+        <>
+          <span style={{ fontSize: 'var(--fs-13)', color: '#667085', padding: '0 4px' }}>已选 {selected.length} 条（仅本页）</span>
+          <Button variant="secondary" size="sm" icon={<CheckCircle size={13} />} onClick={() => setApproveTarget({ batch: true, count: selected.length })}>批量审核通过</Button>
+          <Button variant="secondary" size="sm" icon={<XCircle size={13} />} style={{ color: '#C73A3A' }} onClick={() => setRejectTarget({ batch: true, count: selected.length })}>批量审核驳回</Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected([])}>清空选择</Button>
+        </>
+      )}
+    </>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <PageHeader
+        title={config.title}
+        description={config.subtitle}
+        updatedAt="10:24"
+        tabs={[
+          { id: '全部', label: '全部', count: counts['全部'] },
+          { id: '待审核', label: '待审核', count: counts['待审核'] },
+          { id: '已通过', label: '已通过', count: counts['已通过'] },
+          { id: '已驳回', label: '已驳回', count: counts['已驳回'] },
+        ]}
+        activeTab={statusTab}
+        onTabChange={t => { setStatusTab(t as StatusTab); setPageNum(1); setSelected([]); }}
+      />
+
+      <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        <FilterBar
+          fields={filterFields}
+          values={filters}
+          onChange={handleFilterChange}
+          onSearch={() => setPageNum(1)}
+          onReset={handleReset}
+          stats={statsNode}
+          extraActions={extraActions}
+          collapsedCount={5}
+        />
+
+        <div style={{
+          background: '#FFFFFF',
+          border: '1px solid var(--color-border)',
+          borderRadius: '8px',
+          overflow: 'hidden',
+        }}>
+          <div style={{ overflowX: 'auto' }}>
+            {pageData.length === 0 ? (
+              <EmptyState
+                title="没有符合条件的拜访记录"
+                description="尝试调整筛选条件或清除当前筛选。"
+                action={{ label: '重置筛选', onClick: handleReset }}
+              />
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
                 <thead>
                   <tr>
-                    {page !== "pharmacy" && (
-                      <th className="check-col">
+                    {page !== 'pharmacy' && (
+                      <th style={{
+                        padding: '10px 12px',
+                        background: '#F9FAFB',
+                        borderBottom: '1px solid var(--color-border)',
+                        width: 40,
+                      }}>
                         <input
                           type="checkbox"
-                          checked={selected.length === rows.length && rows.length > 0}
-                          onChange={(e) => setSelected(e.target.checked ? rows.map((x) => x.id) : [])}
+                          checked={selected.length === pageData.length && pageData.length > 0}
+                          onChange={toggleAll}
+                          style={{ cursor: 'pointer', accentColor: 'var(--color-brand)' }}
                         />
                       </th>
                     )}
-                    <th>序号</th>
-                    <th>服务专员</th>
-                    <th>服务提供方 / 工作组</th>
-                    <th>{page === "hospital" ? "医院 / 科室" : page === "business" ? "被拜访商业公司" : "被拜访药房"}</th>
-                    <th>被拜访人</th>
-                    <th>拜访品种及规格</th>
-                    <th>拜访日期 / 时段</th>
-                    {page === "pharmacy" && <th>金额</th>}
-                    <th>绩效状态</th>
-                    <th>审核状态</th>
-                    <th>审核意见</th>
-                    <th className="action-col">操作</th>
+                    {th('序号', 50)}
+                    {th('服务专员')}
+                    {th('服务提供方 / 工作组')}
+                    {th(page === 'hospital' ? '医院 / 科室' : page === 'business' ? '被拜访商业公司' : '被拜访药房')}
+                    {th('被拜访人')}
+                    {th('拜访品种及规格')}
+                    {th('拜访日期 / 时段', 150)}
+                    {page === 'pharmacy' && th('金额', 110)}
+                    {th('绩效状态')}
+                    {th('审核状态')}
+                    {th('审核意见')}
+                    {th('操作', 130)}
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      {page !== "pharmacy" && (
-                        <td className="check-col">
+                  {pageData.map((record, idx) => (
+                    <tr
+                      key={record.id}
+                      style={{
+                        background: selected.includes(record.id) ? '#F0FAF7' : idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
+                        borderBottom: '1px solid #F3F4F6',
+                      }}
+                      onMouseEnter={e => { if (!selected.includes(record.id)) (e.currentTarget as HTMLTableRowElement).style.background = '#F9FAFB'; }}
+                      onMouseLeave={e => { if (!selected.includes(record.id)) (e.currentTarget as HTMLTableRowElement).style.background = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA'; }}
+                    >
+                      {page !== 'pharmacy' && (
+                        <td style={{ padding: '10px 12px' }}>
                           <input
                             type="checkbox"
-                            checked={selected.includes(row.id)}
-                            onChange={(e) => setSelected(e.target.checked ? [...selected, row.id] : selected.filter((x) => x !== row.id))}
+                            checked={selected.includes(record.id)}
+                            onChange={() => toggleRow(record.id)}
+                            style={{ cursor: 'pointer', accentColor: 'var(--color-brand)' }}
                           />
                         </td>
                       )}
-                      <td className="sequence">{String(row.id).padStart(2, "0")}</td>
-                      <td><strong className="cell-title">{row.specialist}</strong><span className="cell-sub">u{202500 + row.id}</span></td>
-                      <td><span className="cell-main max-provider">{row.provider}</span><span className="cell-sub">{row.group}</span></td>
-                      <td><strong className="cell-title max-target">{row.target}</strong><span className="cell-sub">{row.targetMeta}</span></td>
-                      <td>{row.visitor}</td>
-                      <td><span className="cell-main max-product">{row.product}</span><span className="cell-sub">{row.category}</span></td>
-                      <td><span className="cell-main">{row.date}</span><span className="cell-sub">{row.time}</span></td>
-                      {page === "pharmacy" && <td>{row.amount}</td>}
-                      <td><span className={`performance ${row.performance === "已打绩效" ? "done" : ""}`}>{row.performance}</span></td>
-                      <td><StatusBadge value={row.status} /></td>
-                      <td><span className="opinion" title={row.opinion}>{row.opinion}</span></td>
-                      <td className="action-col">
-                        <div className="row-actions">
-                          <button onClick={() => setDetail(row)}>{page === "pharmacy" ? "查看详情" : "查看"}</button>
-                          {row.status === "待审核" && (
+                      <td style={{ padding: '10px 12px', fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>
+                        {(pageNum - 1) * PAGE_SIZE + idx + 1}
+                      </td>
+                      <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-text-1)' }}>{record.specialist}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
+                          {specialistAccount(record)}
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 12px', maxWidth: 160 }}>
+                        <div style={{ fontSize: 'var(--fs-13)', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.provider}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{record.group}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', maxWidth: 180 }}>
+                        <div style={{ fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.target}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{record.targetMeta}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#374151', whiteSpace: 'nowrap' }}>{record.visitor}</td>
+                      <td style={{ padding: '10px 12px', maxWidth: 170 }}>
+                        <div style={{ fontSize: 'var(--fs-13)', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={record.product}>{record.product}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>{record.category}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>{record.date}</div>
+                        <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", marginTop: 2 }}>{record.time}</div>
+                      </td>
+                      {page === 'pharmacy' && (
+                        <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                          {record.amount ?? '—'}
+                        </td>
+                      )}
+                      <td style={{ padding: '10px 12px' }}>
+                        <StatusTag status={record.performance} size="sm" />
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <StatusTag status={record.status} size="sm" />
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: 'var(--fs-13)', color: '#667085', maxWidth: 170 }}>
+                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={record.opinion}>
+                          {record.opinion}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', whiteSpace: 'nowrap' }}>
+                          <button type="button" onClick={() => openDrawer(record)} style={rowLinkStyle}>查看</button>
+                          {record.status === '待审核' && (
                             <>
-                              <button className="approve" onClick={() => setModal({ type: "approve" })}>通过</button>
-                              <button className="reject" onClick={() => setModal({ type: "reject" })}>驳回</button>
+                              <span style={{ color: '#E5E7EB' }}>｜</span>
+                              <button type="button" onClick={() => setApproveTarget({ batch: false })} style={rowLinkStyle}>通过</button>
+                              <span style={{ color: '#E5E7EB' }}>｜</span>
+                              <button type="button" onClick={() => { setRejectComment(''); setRejectTarget({ batch: false }); }} style={rowLinkStyle}>驳回</button>
                             </>
                           )}
                         </div>
@@ -331,448 +559,399 @@ export function VisitAuditWorkbench({ page }: { page: VisitAuditPageKey }) {
               </table>
             )}
           </div>
-          {!loading && rows.length > 0 && (
-            <div className="pagination">
-              <span>共 {rows.length} 条</span>
-              <button disabled>‹</button>
-              <button className="current">1</button>
-              <button disabled>›</button>
-              <span>20 条/页</span>
+
+          {filtered.length > 0 && (
+            <div style={{ padding: '0 16px', borderTop: '1px solid #F3F4F6' }}>
+              <Pagination page={pageNum} pageSize={PAGE_SIZE} total={filtered.length} onChange={setPageNum} />
             </div>
           )}
-        </section>
-        <p className="scope-note">审核状态与可操作权限以实际业务规则为准；“整点”仅为记录信息，不代表异常。</p>
+        </div>
+
+        <p style={{ margin: '12px 4px 0', fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
+          审核状态与可操作权限以实际业务规则为准；“整点”仅为记录信息，不代表异常。
+        </p>
       </div>
 
-      {detail && (
-        <DetailDrawer
-          visit={detail}
-          page={page}
-          onClose={() => setDetail(null)}
-          onApprove={() => setModal({ type: "approve" })}
-          onReject={() => setModal({ type: "reject" })}
-        />
-      )}
-      {modal && <AuditModal state={modal} onClose={() => setModal(null)} onSubmit={submitAudit} />}
-      {notice && <ResultModal type={notice} onClose={() => setNotice(null)} />}
-      {toast && (
-        <div className="toast">
-          <span><Icon name="check" size={15} /></span>{toast}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}</label>;
-}
-
-function SelectLike({ placeholder }: { placeholder: string }) {
-  return <button className="select-like"><span>{placeholder}</span><span>⌄</span></button>;
-}
-
-function LoadingState() {
-  return (
-    <div className="loading-state">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <div className="skeleton-row" key={i}><i /><i /><i /><i /><i /></div>
-      ))}
-      <p><span className="spinner" />正在加载拜访记录...</p>
-    </div>
-  );
-}
-
-function EmptyState({ onReset }: { onReset: () => void }) {
-  return (
-    <div className="empty-state">
-      <div className="empty-illustration"><Icon name="search" size={30} /></div>
-      <strong>没有找到符合条件的记录</strong>
-      <p>请尝试调整筛选条件或清除当前筛选</p>
-      <Button onClick={onReset}>重置筛选条件</Button>
-    </div>
-  );
-}
-
-function DetailDrawer({
-  visit,
-  page,
-  onClose,
-  onApprove,
-  onReject,
-}: {
-  visit: Visit;
-  page: VisitAuditPageKey;
-  onClose: () => void;
-  onApprove: () => void;
-  onReject: () => void;
-}) {
-  const [tab, setTab] = useState<"detail" | "log">("detail");
-  const [showAppointment, setShowAppointment] = useState(false);
-  const isAcademicVisit = visit.category === "学术拜访";
-  const photos = [
-    { src: "https://images.unsplash.com/photo-1759045313316-0ed8915057fe?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=600", label: "拜访场所外景" },
-    { src: "https://images.unsplash.com/photo-1689048494522-d61159872e51?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=600", label: "现场定位环境" },
-    { src: "https://images.unsplash.com/photo-1631462199549-becc852f4b64?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=600", label: "拜访凭证照片" },
-  ];
-  const sections = [
-    {
-      title: "拜访对象信息",
-      items: [
-        ["服务专员", visit.specialist],
-        ["服务提供方", visit.provider],
-        ["工作组", visit.group],
-        [page === "hospital" ? "拜访医院" : page === "business" ? "拜访公司" : "拜访药房", visit.target],
-        [page === "hospital" ? "医院等级 / 科室" : "对象类型", visit.targetMeta],
-        ["被拜访人", visit.visitor],
-      ],
-    },
-    {
-      title: "拜访内容",
-      items: [
-        ["拜访类别", visit.category],
-        ["品种及规格", visit.product],
-        ["拜访内容", visit.content],
-        ...(page === "business" ? [["拜访位置", visit.location]] : []),
-        ...(page === "pharmacy" ? [["金额", visit.amount || "—"]] : []),
-      ],
-    },
-    {
-      title: "时间信息",
-      items: [
-        ["拜访日期", visit.date],
-        ["拜访时段", visit.time],
-        ["开始时间是否为整点", visit.time.includes(":00") ? "是" : "否"],
-        ["结束时间是否为整点", visit.time.endsWith(":00") ? "是" : "否"],
-      ],
-    },
-    {
-      title: "审核信息",
-      items: [
-        ["审核状态", visit.status],
-        ["审核意见", visit.opinion],
-        ["绩效状态", visit.performance],
-      ],
-    },
-  ];
-  return (
-    <div className="overlay drawer-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <aside className="drawer">
-        <div className="drawer-head">
-          <div>
-            <span className="drawer-eyebrow">拜访记录详情</span>
-            <h2>{visit.target}</h2>
-            <p>记录编号：VIS-202506-{String(visit.id).padStart(4, "0")}</p>
-          </div>
-          <button className="icon-button" onClick={onClose}><Icon name="close" /></button>
-        </div>
-        <div className="drawer-status">
-          <div>
-            <StatusBadge value={visit.status} />
-            {visit.status === "待审核" && <span className="review-level">当前：二级审核</span>}
-          </div>
-          <span>提交于 {visit.date} 17:24</span>
-        </div>
-        <div className="drawer-tabs">
-          <button className={tab === "detail" ? "active" : ""} onClick={() => setTab("detail")}>拜访详情</button>
-          <button className={tab === "log" ? "active" : ""} onClick={() => setTab("log")}>审核日志 <span>3</span></button>
-        </div>
-        <div className="drawer-body">
-          {tab === "detail" ? (
+      {/* 详情弹窗 */}
+      <DetailDrawer
+        open={!!drawerRecord}
+        title={drawerRecord ? `拜访记录 · ${recordNo(drawerRecord)}` : ''}
+        subtitle={drawerRecord ? `${config.title} · ${drawerRecord.target}` : ''}
+        width={720}
+        onClose={closeDrawer}
+        footer={
+          drawerRecord ? (
             <>
-              {sections.slice(0, 3).map((section) => (
-                <section key={section.title}>
-                  <h3>{section.title}</h3>
-                  <div className="detail-grid">
-                    {section.items.map(([key, value]) => (
-                      <div className={key === "拜访内容" || key === "品种及规格" ? "wide" : ""} key={key}>
-                        <span>{key}</span>
-                        <p>{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ))}
-              {isAcademicVisit && (
-                <section>
-                  <h3>预约凭证 <span className="academic-only">学术拜访必需</span></h3>
-                  <div className="appointment-proof">
-                    <div className="appointment-proof-head">
-                      <span className="appointment-app-icon"><Icon name="mobile" size={19} /></span>
-                      <div><strong>APP 预约凭证</strong><p>凭证编号：APT-20250618-0086</p></div>
-                      <button className="appointment-badge" onClick={() => setShowAppointment(true)}>
-                        <span><Icon name="check" size={12} /></span>已确认 · 查看时间线 <b>›</b>
-                      </button>
-                    </div>
-                    <div className="appointment-fields">
-                      <div><span>预约对象</span><strong>{visit.visitor}</strong></div>
-                      <div><span>预约时间</span><strong>{visit.date} 09:00</strong></div>
-                      <div><span>计划拜访时段</span><strong>{visit.time}</strong></div>
-                      <div><span>预约来源</span><strong>服务专员 APP</strong></div>
-                    </div>
-                    <div className="appointment-hint">
-                      <Icon name="alert" size={14} />
-                      <span>PC 端仅展示预约信息，预约与确认动作均在服务专员 APP 内完成。</span>
-                    </div>
-                  </div>
-                </section>
+              <Button variant="outline" size="md" onClick={closeDrawer}>关闭</Button>
+              {drawerRecord.status === '待审核' && (
+                <>
+                  <Button variant="danger" size="md" icon={<XCircle size={14} />} onClick={() => { setRejectComment(''); setRejectTarget({ batch: false }); }}>驳回</Button>
+                  <Button variant="primary" size="md" icon={<CheckCircle size={14} />} onClick={() => setApproveTarget({ batch: false })}>通过</Button>
+                </>
               )}
-              <section>
-                <h3>地图定位</h3>
-                <div className="location-card">
-                  <div className="map-canvas">
-                    <div className="map-road road-one" /><div className="map-road road-two" /><div className="map-road road-three" />
-                    <span className="map-block block-a" /><span className="map-block block-b" /><span className="map-block block-c" /><span className="map-block block-d" />
-                    <div className="map-pin"><Icon name="pin" size={25} /><i /></div>
-                    <span className="map-label">拜访签到点</span><span className="map-water">河滨绿地</span>
-                    <div className="map-zoom"><button>＋</button><button>−</button></div>
-                  </div>
-                  <div className="location-meta">
-                    <span className="location-icon"><Icon name="map" size={17} /></span>
-                    <div><strong>{visit.location}</strong><p>定位精度 18 米 · 签到位置与拜访对象相距 86 米</p></div>
-                    <span className="distance-ok">范围内</span>
-                  </div>
-                </div>
-              </section>
-              <section>
-                <h3>照片附件 <span className="section-count">3 张</span></h3>
-                <div className="photo-grid">
-                  {photos.map((photo, index) => (
-                    <button className="photo-item" key={photo.src}>
-                      <img src={photo.src} alt={photo.label} />
-                      <span><Icon name="image" size={13} />{photo.label}</span>
-                      <i>{index + 1} / 3</i>
-                    </button>
-                  ))}
-                </div>
-                <p className="photo-note">照片仅用于审核核验，拍摄时间与原始文件信息均已保留</p>
-              </section>
-              {sections.slice(3).map((section) => (
-                <section key={section.title}>
-                  <h3>{section.title}</h3>
-                  <div className="detail-grid">
-                    {section.items.map(([key, value]) => (
-                      <div className={key === "审核意见" ? "wide" : ""} key={key}>
-                        <span>{key}</span>
-                        <p>{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ))}
             </>
-          ) : (
-            <AuditLog visit={visit} />
-          )}
-        </div>
-        <div className="drawer-foot">
+          ) : null
+        }
+      >
+        {drawerRecord && (
           <div>
-            <button className="previous">‹ 上一条</button>
-            <button className="next">下一条 ›</button>
-          </div>
-          {visit.status === "待审核" && (
-            <div>
-              <Button variant="danger" onClick={onReject}>驳回</Button>
-              <Button variant="primary" onClick={onApprove}>通过</Button>
+            <div style={{
+              display: 'flex',
+              gap: 20,
+              borderBottom: '1px solid var(--color-border)',
+              marginBottom: 16,
+            }}>
+              <button type="button" onClick={() => setDrawerTab('拜访详情')} style={drawerTabStyle(drawerTab === '拜访详情')}>拜访详情</button>
+              <button type="button" onClick={() => setDrawerTab('审核日志')} style={drawerTabStyle(drawerTab === '审核日志')}>审核日志</button>
             </div>
-          )}
+
+            {drawerTab === '拜访详情' && (
+              <>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 14px',
+                  background: '#F9FAFB',
+                  borderRadius: '8px',
+                  marginBottom: 20,
+                  border: '1px solid var(--color-border)',
+                }}>
+                  <StatusTag status={drawerRecord.status} />
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>·</span>
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>绩效状态：</span>
+                  <StatusTag status={drawerRecord.performance} size="sm" />
+                  <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginLeft: 'auto', fontFamily: "'JetBrains Mono', monospace" }}>
+                    提交于 {drawerRecord.date} 17:24
+                  </span>
+                </div>
+
+                {drawerRecord.status === '已驳回' && (
+                  <div style={{
+                    padding: '10px 14px',
+                    background: '#FEECEC',
+                    border: '1px solid #FECACA',
+                    borderRadius: '6px',
+                    marginBottom: 16,
+                    fontSize: 'var(--fs-13)',
+                    color: '#C73A3A',
+                    display: 'flex',
+                    gap: 8,
+                  }}>
+                    <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <strong>驳回意见：</strong>{drawerRecord.opinion === '—' ? '见审核日志' : drawerRecord.opinion}
+                    </div>
+                  </div>
+                )}
+
+                <FieldGroup title="拜访对象信息">
+                  <FieldItem
+                    label="服务专员"
+                    value={
+                      <span>
+                        {drawerRecord.specialist}{' '}
+                        <span style={{ color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)' }}>
+                          {specialistAccount(drawerRecord)}
+                        </span>
+                      </span>
+                    }
+                  />
+                  <FieldItem label="服务提供方" value={drawerRecord.provider} />
+                  <FieldItem label="工作组" value={drawerRecord.group} />
+                  <FieldItem label={config.target} value={drawerRecord.target} />
+                  <FieldItem label={page === 'hospital' ? '医院等级 / 科室' : '对象类型'} value={drawerRecord.targetMeta} />
+                  <FieldItem label="被拜访人" value={drawerRecord.visitor} />
+                </FieldGroup>
+
+                <FieldGroup title="拜访内容">
+                  <FieldItem label="拜访类别" value={drawerRecord.category} />
+                  <FieldItem label="品种及规格" value={drawerRecord.product} />
+                  <FieldItem label="拜访内容" value={drawerRecord.content} span />
+                  <FieldItem label="拜访位置" value={drawerRecord.location} span />
+                  {page === 'pharmacy' && <FieldItem label="金额" value={drawerRecord.amount ?? '—'} />}
+                </FieldGroup>
+
+                <FieldGroup title="时间信息">
+                  <FieldItem label={config.date} value={<span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{drawerRecord.date}</span>} />
+                  <FieldItem label="拜访时段" value={<span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{drawerRecord.time}</span>} />
+                  <FieldItem label="开始时间是否为整点" value={periodOf(drawerRecord.time).start.endsWith(':00') ? '是' : '否'} />
+                  <FieldItem label="结束时间是否为整点" value={periodOf(drawerRecord.time).end.endsWith(':00') ? '是' : '否'} />
+                </FieldGroup>
+
+                {drawerRecord.category === '学术拜访' && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{
+                      fontSize: 'var(--fs-12)',
+                      fontWeight: 600,
+                      color: '#9CA3AF',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      marginBottom: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}>
+                      <span>预约凭证</span>
+                      <Tag label="学术拜访必需" color="brand" />
+                      <span style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
+                    </div>
+                    <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#F9FAFB', borderBottom: '1px solid var(--color-border)' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', flexShrink: 0 }}>
+                          <Smartphone size={16} />
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>APP 预约凭证</div>
+                          <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>凭证编号：APT-20250618-0086</div>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => setApptOpen(true)}>查看时间线</Button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', padding: '12px 14px' }}>
+                        {([
+                          ['预约对象', drawerRecord.visitor],
+                          ['预约时间', `${drawerRecord.date} ${periodOf(drawerRecord.time).start}`],
+                          ['计划拜访时段', drawerRecord.time],
+                          ['预约来源', '服务专员 APP'],
+                        ] as [string, string][]).map(([k, v]) => (
+                          <div key={k}>
+                            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', marginBottom: 2 }}>{k}</div>
+                            <div style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)' }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ padding: '8px 14px', background: 'var(--color-brand-subtle)', color: 'var(--color-brand)', fontSize: 'var(--fs-12)', display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <Info size={13} style={{ flexShrink: 0 }} />
+                        PC 端仅展示预约信息，预约与确认动作均在服务专员 APP 内完成。
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <FieldGroup title="地图定位">
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <VisitLocationMap visit={drawerRecord} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                      <span style={{ fontSize: 'var(--fs-13)', fontWeight: 500, color: 'var(--color-text-1)' }}>{drawerRecord.location}</span>
+                      <span style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>定位精度 18 米 · 签到位置与拜访对象相距 86 米</span>
+                      <Tag label="范围内" color="success" />
+                    </div>
+                  </div>
+                </FieldGroup>
+
+                <FieldGroup title={`照片附件（3 张）`}>
+                  {([
+                    { src: 'https://images.unsplash.com/photo-1759045313316-0ed8915057fe?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=600', label: '拜访场所外景' },
+                    { src: 'https://images.unsplash.com/photo-1689048494522-d61159872e51?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=600', label: '现场定位环境' },
+                    { src: 'https://images.unsplash.com/photo-1631462199549-becc852f4b64?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=600', label: '拜访凭证照片' },
+                  ]).map(photo => (
+                    <div key={photo.src}>
+                      <img
+                        src={photo.src}
+                        alt={photo.label}
+                        style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--color-border)', display: 'block' }}
+                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: 'var(--fs-12)', color: '#667085' }}>
+                        <Camera size={12} style={{ flexShrink: 0 }} />
+                        {photo.label}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
+                    照片仅用于审核核验，拍摄时间与原始文件信息均已保留。
+                  </div>
+                </FieldGroup>
+
+                <FieldGroup title="审核信息">
+                  <FieldItem label="审核状态" value={<StatusTag status={drawerRecord.status} />} />
+                  <FieldItem label="绩效状态" value={<StatusTag status={drawerRecord.performance} />} />
+                  <FieldItem label="审核意见" value={drawerRecord.opinion} span />
+                </FieldGroup>
+              </>
+            )}
+
+            {drawerTab === '审核日志' && (
+              <AuditLogPanel visit={drawerRecord} />
+            )}
+          </div>
+        )}
+      </DetailDrawer>
+
+      {/* 预约时间线（学术拜访凭证） */}
+      {drawerRecord && apptOpen && (
+        <Modal
+          open
+          title="预约时间线"
+          titleNote={`APT-20250618-0086 · ${drawerRecord.target}`}
+          width={560}
+          onClose={() => setApptOpen(false)}
+          footer={<Button variant="primary" size="md" onClick={() => setApptOpen(false)}>关闭</Button>}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--color-success-bg)', borderRadius: 8, marginBottom: 16 }}>
+            <CheckCircle size={15} color="var(--color-success-fg)" />
+            <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-success-fg)' }}>预约已确认</span>
+            <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>预约时间与本次拜访记录匹配</span>
+            <span style={{ marginLeft: 'auto' }}><Tag label="凭证有效" color="success" /></span>
+          </div>
+          <Timeline events={[
+            { id: 'apt-1', type: '创建', operator: `服务专员 · ${drawerRecord.specialist}`, time: '2025-06-16 14:32', detail: `在 APP 发起学术拜访预约（时段 ${drawerRecord.date} ${drawerRecord.time}）` },
+            { id: 'apt-2', type: '核验', operator: `${drawerRecord.visitor} · APP 预约确认`, time: '2025-06-16 16:08', detail: '预约对象已确认本次拜访预约' },
+            { id: 'apt-3', type: '核验', operator: '签到核验', time: `${drawerRecord.date} 08:56`, detail: `已在预约地点附近完成签到，距离目标位置 86 米（${drawerRecord.location}）` },
+            { id: 'apt-4', type: '提交', operator: `服务专员 · ${drawerRecord.specialist}`, time: `${drawerRecord.date} 17:24`, detail: '预约凭证已自动关联到本次学术拜访记录，进入企业审核流程' },
+          ]} />
+          <div style={{ marginTop: 16, padding: '10px 14px', background: '#FEF3E2', border: '1px solid #FDE68A', borderRadius: 6, fontSize: 'var(--fs-12)', color: '#C77A16', display: 'flex', gap: 8 }}>
+            <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div><strong>只读凭证：</strong>预约信息不可在 PC 端修改。若信息有误，请联系服务专员在 APP 端处理。</div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 审核通过确认 */}
+      <ConfirmDialog
+        open={approveTarget !== null}
+        title={approveTarget?.batch ? `批量审核通过 ${approveTarget.count} 条` : '确认二级审核通过？'}
+        description={approveTarget?.batch
+          ? `本次将在二级审核节点处理已选择的 ${approveTarget.count} 条记录，范围为当前页。提交前系统将校验一级审核状态与操作权限。`
+          : '该记录已通过一级审核。请确认已完成最终核对，通过后二级审核完成且结果正式生效。'
+        }
+        impact="操作将写入操作日志，并通知服务专员审核结果。"
+        confirmLabel="确认通过"
+        variant="warning"
+        onConfirm={submitApprove}
+        onCancel={() => setApproveTarget(null)}
+      />
+
+      {/* 审核驳回（需填写审核意见） */}
+      <Modal
+        open={rejectTarget !== null}
+        title={rejectTarget?.batch ? `批量审核驳回 ${rejectTarget.count} 条` : '二级审核驳回'}
+        width={480}
+        onClose={() => { setRejectTarget(null); setRejectComment(''); }}
+        footer={
+          <>
+            <Button variant="outline" size="md" onClick={() => { setRejectTarget(null); setRejectComment(''); }}>取消</Button>
+            <Button variant="danger" size="md" disabled={!rejectComment.trim()} onClick={submitReject}>确认驳回</Button>
+          </>
+        }
+      >
+        <p style={{ margin: '0 0 14px', fontSize: 'var(--fs-13)', color: '#667085', lineHeight: 1.6 }}>
+          {rejectTarget?.batch
+            ? `将对选中的 ${rejectTarget.count} 条记录执行二级审核驳回，审核意见将应用于全部选中记录。`
+            : '该记录已通过一级审核。请填写审核意见，驳回后审核流程将结束并通知服务专员。'
+          }
+        </p>
+        <textarea
+          value={rejectComment}
+          maxLength={200}
+          onChange={e => setRejectComment(e.target.value)}
+          placeholder={rejectTarget?.batch ? '请输入统一审核意见，该意见将应用于全部选中记录' : '请输入审核意见'}
+          style={{
+            width: '100%',
+            minHeight: 80,
+            padding: '8px 10px',
+            fontSize: 'var(--fs-13)',
+            color: 'var(--color-text-1)',
+            background: '#FFFFFF',
+            border: '1px solid var(--color-border)',
+            borderRadius: '6px',
+            outline: 'none',
+            resize: 'vertical',
+            fontFamily: 'inherit',
+            lineHeight: 1.6,
+          }}
+        />
+        <div style={{ textAlign: 'right', fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
+          {rejectComment.length} / 200
         </div>
-      </aside>
-      {showAppointment && <AppointmentTimeline visit={visit} onClose={() => setShowAppointment(false)} />}
+      </Modal>
     </div>
   );
 }
 
-function AppointmentTimeline({ visit, onClose }: { visit: Visit; onClose: () => void }) {
-  return (
-    <div className="appointment-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="appointment-modal">
-        <div className="appointment-modal-head">
-          <div><span>APP 预约凭证</span><h2>预约时间线</h2><p>APT-20250618-0086 · {visit.target}</p></div>
-          <button className="icon-button" onClick={onClose}><Icon name="close" /></button>
-        </div>
-        <div className="appointment-state">
-          <span className="appointment-app-icon"><Icon name="mobile" size={19} /></span>
-          <div><strong>预约已确认</strong><p>预约时间与本次拜访记录匹配</p></div>
-          <span className="proof-verified"><Icon name="check" size={12} />凭证有效</span>
-        </div>
-        <div className="appointment-timeline">
-          <div className="appointment-event complete">
-            <span className="event-dot"><Icon name="check" size={13} /></span>
-            <div>
-              <header><strong>预约已创建</strong><time>2025-06-16 14:32</time></header>
-              <p>服务专员 {visit.specialist} 在 APP 发起学术拜访预约</p>
-              <small>预约时段：{visit.date} {visit.time}</small>
-            </div>
-          </div>
-          <div className="appointment-event complete">
-            <span className="event-dot"><Icon name="check" size={13} /></span>
-            <div>
-              <header><strong>预约对象已确认</strong><time>2025-06-16 16:08</time></header>
-              <p>{visit.visitor} 已确认本次拜访预约</p>
-              <small>确认渠道：APP 预约确认</small>
-            </div>
-          </div>
-          <div className="appointment-event complete">
-            <span className="event-dot"><Icon name="pin" size={13} /></span>
-            <div>
-              <header><strong>按预约到访并签到</strong><time>{visit.date} 08:56</time></header>
-              <p>已在预约地点附近完成签到，距离目标位置 86 米</p>
-              <small>签到地点：{visit.location}</small>
-            </div>
-          </div>
-          <div className="appointment-event current">
-            <span className="event-dot"><Icon name="visit" size={13} /></span>
-            <div>
-              <header><strong>拜访记录已提交</strong><time>{visit.date} 17:24</time></header>
-              <p>预约凭证已自动关联到本次学术拜访记录</p>
-              <small>当前进入企业审核流程</small>
-            </div>
-          </div>
-        </div>
-        <div className="appointment-readonly">
-          <Icon name="alert" size={15} />
-          <p><strong>只读凭证</strong><br />此页面用于审核核验，预约信息不可在 PC 端修改。若信息有误，请联系服务专员在 APP 端处理。</p>
-        </div>
-        <div className="appointment-modal-foot"><Button variant="primary" onClick={onClose}>关闭</Button></div>
-      </div>
-    </div>
-  );
-}
+/** 审核日志：两级审核进度 + 审核记录时间线 + 规则说明 */
+function AuditLogPanel({ visit }: { visit: Visit }) {
+  const finished = visit.status !== '待审核';
+  const rejected = visit.status === '已驳回';
 
-function AuditLog({ visit }: { visit: Visit }) {
-  const finished = visit.status !== "待审核";
+  const routeNodes = [
+    { key: 'lv1', title: '一级审核', sub: '区域审核员', state: 'complete' as const },
+    { key: 'lv2', title: '二级审核', sub: '企业审核管理员', state: finished ? ('complete' as const) : ('current' as const) },
+    { key: 'done', title: '审核完成', sub: '结果生效', state: finished ? ('complete' as const) : ('pending' as const) },
+  ];
+  const nodeStyle = {
+    complete: { bg: '#E6F5ED', fg: '#248A5A', line: '#248A5A' },
+    current: { bg: 'var(--color-brand-subtle)', fg: 'var(--color-brand)', line: '#E5E7EB' },
+    pending: { bg: '#F3F4F6', fg: '#9CA3AF', line: '#E5E7EB' },
+  } as const;
+
   return (
-    <div className="audit-log">
-      <div className="audit-summary">
-        <div><span>审核流程</span><strong>两级审核</strong></div>
-        <div><span>当前节点</span><strong className={finished ? "complete-text" : "current-text"}>{finished ? "流程已结束" : "二级审核"}</strong></div>
-        <div><span>整体状态</span><StatusBadge value={visit.status} /></div>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 20 }}>
+        {routeNodes.map((node, i) => {
+          const s = nodeStyle[node.state];
+          return (
+            <div key={node.key} style={{ display: 'flex', flex: i < routeNodes.length - 1 ? 1 : '0 0 auto', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 64 }}>
+                <span style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 28, height: 28, borderRadius: '50%',
+                  background: s.bg, color: s.fg, fontSize: 'var(--fs-12)', fontWeight: 600, flexShrink: 0,
+                }}>
+                  {node.state === 'complete' ? '✓' : i + 1}
+                </span>
+                <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--color-text-1)' }}>{node.title}</div>
+                <div style={{ fontSize: 'var(--fs-11)', color: '#9CA3AF', whiteSpace: 'nowrap' }}>{node.sub}</div>
+              </div>
+              {i < routeNodes.length - 1 && (
+                <span style={{ flex: 1, height: 2, background: s.line, marginTop: 13, margin: '13px 8px 0' }} />
+              )}
+            </div>
+          );
+        })}
       </div>
-      <div className="audit-route">
-        <div className="route-node complete"><span><Icon name="check" size={14} /></span><div><strong>一级审核</strong><small>区域审核员</small></div></div>
-        <i className="route-line complete" />
-        <div className={`route-node ${finished ? "complete" : "current"}`}>
-          <span>{finished ? <Icon name="check" size={14} /> : "2"}</span>
-          <div><strong>二级审核</strong><small>企业审核管理员</small></div>
-        </div>
-        <i className={`route-line ${finished ? "complete" : ""}`} />
-        <div className={`route-node ${finished ? "complete" : "pending"}`}>
-          <span>{finished ? <Icon name="check" size={14} /> : "✓"}</span>
-          <div><strong>审核完成</strong><small>结果生效</small></div>
-        </div>
-      </div>
+
       {!finished && (
-        <div className="current-node-callout">
-          <span><Icon name="clock" size={17} /></span>
-          <div><strong>等待二级审核</strong><p>一级审核已通过，当前记录需要由企业审核管理员完成最终审核。</p></div>
+        <div style={{ padding: '10px 14px', background: '#F9FAFB', border: '1px solid var(--color-border)', borderRadius: 6, marginBottom: 16, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <Clock size={15} color="var(--color-brand)" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 'var(--fs-13)', color: '#374151' }}>
+            <strong>等待二级审核：</strong>一级审核已通过，当前记录需要由企业审核管理员完成最终审核。
+          </div>
         </div>
       )}
-      <section className="log-section">
-        <h3>审核记录</h3>
-        <div className="timeline">
-          {finished && (
-            <div className={`timeline-item ${visit.status === "已驳回" ? "rejected" : "approved"}`}>
-              <span className="timeline-dot">{visit.status === "已驳回" ? "×" : <Icon name="check" size={13} />}</span>
-              <div className="timeline-card">
-                <div><strong>二级审核 · {visit.status}</strong><time>{visit.date} 18:06</time></div>
-                <p>操作人：企业审核管理员 · 赵明</p>
-                <blockquote>{visit.opinion}</blockquote>
-              </div>
-            </div>
-          )}
-          <div className="timeline-item approved">
-            <span className="timeline-dot"><Icon name="check" size={13} /></span>
-            <div className="timeline-card">
-              <div><strong>一级审核 · 已通过</strong><time>{visit.date} 17:48</time></div>
-              <p>操作人：区域审核员 · 李雯</p>
-              <blockquote>拜访对象、时间及现场信息核验一致，同意提交二级审核。</blockquote>
-            </div>
-          </div>
-          <div className="timeline-item submitted">
-            <span className="timeline-dot"><Icon name="clock" size={13} /></span>
-            <div className="timeline-card">
-              <div><strong>提交审核</strong><time>{visit.date} 17:24</time></div>
-              <p>提交人：服务专员 · {visit.specialist}</p>
-              <blockquote>记录已提交，进入一级审核。</blockquote>
-            </div>
-          </div>
-        </div>
-      </section>
-      <div className="audit-rule-note">
-        <Icon name="alert" size={16} />
-        <p><strong>审核规则说明</strong><br />一级审核通过后进入二级审核；二级审核通过后记录最终生效。任一节点驳回，流程结束并通知提交人。</p>
-      </div>
-    </div>
-  );
-}
 
-function AuditModal({
-  state,
-  onClose,
-  onSubmit,
-}: {
-  state: NonNullable<ModalState>;
-  onClose: () => void;
-  onSubmit: () => void;
-}) {
-  const reject = state.type.includes("reject");
-  const batch = state.type.startsWith("batch");
-  return (
-    <div className="overlay modal-overlay">
-      <div className="modal">
-        <div className={`modal-icon ${reject ? "warning" : ""}`}><Icon name={reject ? "alert" : "check"} size={24} /></div>
-        <div className="modal-copy">
-          <h2>{batch ? `批量二级审核${reject ? "驳回" : "通过"}` : reject ? "二级审核驳回" : "确认二级审核通过？"}</h2>
-          <p>
-            {batch ? (
-              <>本次将在二级审核节点处理已选择的 <strong>{state.count}</strong> 条记录，范围为当前页。提交前系统将校验一级审核状态与操作权限。</>
-            ) : reject ? (
-              "该记录已通过一级审核。请填写二级审核意见，驳回后审核流程将结束。"
-            ) : (
-              "该记录已通过一级审核。请确认已完成最终核对，通过后二级审核完成且结果正式生效。"
-            )}
-          </p>
+      <FieldGroup title="审核记录">
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Timeline events={[
+            ...(finished ? [{
+              id: 'log-lv2',
+              type: (rejected ? '审核驳回' : '审核通过') as '审核驳回' | '审核通过',
+              operator: '企业审核管理员 · 赵明',
+              role: '二级审核',
+              time: `${visit.date} 18:06`,
+              comment: visit.opinion === '—' ? undefined : visit.opinion,
+            }] : []),
+            {
+              id: 'log-lv1',
+              type: '审核通过' as const,
+              operator: '区域审核员 · 李雯',
+              role: '一级审核',
+              time: `${visit.date} 17:48`,
+              comment: '拜访对象、时间及现场信息核验一致，同意提交二级审核。',
+            },
+            {
+              id: 'log-submit',
+              type: '提交' as const,
+              operator: `服务专员 · ${visit.specialist}`,
+              time: `${visit.date} 17:24`,
+              detail: '记录已提交，进入一级审核。',
+            },
+          ]} />
         </div>
-        {(reject || batch) && reject && (
-          <label className="opinion-input">
-            <span>审核意见 <em>是否必填以业务规则为准</em></span>
-            <textarea placeholder={batch ? "请输入统一审核意见，该意见将应用于全部选中记录" : "请输入审核意见"} />
-            <small>0 / 200</small>
-          </label>
-        )}
-        {batch && (
-          <div className="batch-scope">
-            <span><Icon name="alert" size={16} /></span>
-            <div><strong>选择范围：仅当前页</strong><p>不包含其他分页中符合筛选条件的记录</p></div>
-          </div>
-        )}
-        <div className="modal-actions">
-          <Button onClick={onClose}>取消</Button>
-          <Button variant={reject ? "danger" : "primary"} onClick={onSubmit}>{reject ? "确认驳回" : "确认通过"}</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
+      </FieldGroup>
 
-function ResultModal({ type, onClose }: { type: "success" | "partial"; onClose: () => void }) {
-  const partial = type === "partial";
-  return (
-    <div className="overlay modal-overlay">
-      <div className="modal result-modal">
-        <div className={`result-mark ${partial ? "partial" : ""}`}><Icon name={partial ? "alert" : "check"} size={30} /></div>
-        <h2>{partial ? "批量审核已完成，部分记录处理失败" : "批量审核完成"}</h2>
-        <p>{partial ? "记录状态可能已发生变化，请查看失败原因后刷新或重新选择。" : "所选拜访记录已全部审核通过。"}</p>
-        <div className="result-stats">
-          <div><strong>{partial ? "2" : "3"}</strong><span>成功</span></div>
-          <i />
-          <div className={partial ? "failed" : ""}><strong>{partial ? "1" : "0"}</strong><span>失败</span></div>
-        </div>
-        {partial && (
-          <div className="failure-detail"><span>VIS-202506-0004</span><p>记录状态已更新，当前不可审核</p></div>
-        )}
-        <div className="modal-actions"><Button variant="primary" onClick={onClose}>我知道了</Button></div>
+      <div style={{ padding: '10px 14px', background: '#FEF3E2', border: '1px solid #FDE68A', borderRadius: 6, fontSize: 'var(--fs-12)', color: '#C77A16', display: 'flex', gap: 8 }}>
+        <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div><strong>审核规则说明：</strong>一级审核通过后进入二级审核；二级审核通过后记录最终生效。任一节点驳回，流程结束并通知提交人。</div>
       </div>
     </div>
   );

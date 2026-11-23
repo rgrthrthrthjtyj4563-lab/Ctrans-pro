@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>任务执行 · 状态页签原型</title>
+<style>
+  /* ── 设计 token：与 src/index.css 默认（teal）主题对齐 ── */
+  :root {
+    --brand:        #176B5B;
+    --brand-hover:  #0f5044;
+    --brand-subtle: #E8F4F1;
+    --success-fg:   #248A5A;
+    --success-bg:   #E6F5ED;
+    --warning-fg:   #C77A16;
+    --warning-bg:   #FEF3E2;
+    --danger-fg:    #C73A3A;
+    --danger-bg:    #FEECEC;
+    --canvas:       #F5F7F8;
+    --surface:      #FFFFFF;
+    --border:       #E5E7EB;
+    --border-strong:#D1D5DB;
+    --stripe:       #F9FAFB;
+    --text-1: #1F2937;
+    --text-2: #667085;
+    --text-3: #9CA3AF;
+    --fs-12: 12px;
+    --fs-13: 13px;
+    --fs-14: 14px;
+    --fs-16: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: var(--canvas);
+    color: var(--text-1);
+    font-size: var(--fs-13);
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  /* ── 页面骨架：PageHeader + 内容区 ── */
+  .page-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .page-header h1 { font-size: var(--fs-16); font-weight: 650; letter-spacing: .01em; }
+  .page-header p { font-size: var(--fs-12); color: var(--text-2); margin-top: 4px; }
+  .content { padding: 16px 32px 32px; max-width: 1360px; margin: 0 auto; }
+
+  /* ── 按钮口径对齐 Button.tsx ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    height: 32px; padding: 0 12px; border-radius: 6px;
+    font-size: var(--fs-12); font-weight: 500; cursor: pointer;
+    font-family: inherit; white-space: nowrap; transition: all .15s ease;
+  }
+  .btn svg { flex-shrink: 0; }
+  .btn-primary { background: var(--brand); color: #fff; border: 1px solid var(--brand); }
+  .btn-primary:hover { background: var(--brand-hover); }
+  .btn-outline { background: transparent; color: var(--text-1); border: 1px solid var(--border-strong); }
+  .btn-outline:hover { background: var(--stripe); }
+  .btn-ghost { background: transparent; color: var(--text-1); border: 1px solid transparent; }
+  .btn-ghost:hover { background: var(--stripe); }
+  .btn-md { height: 36px; padding: 0 16px; font-size: var(--fs-13); }
+  .row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* ── 筛选栏（保留其余条件，移除「任务状态」下拉） ── */
+  .filter-bar {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 14px;
+    display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end;
+  }
+  .f-item { display: flex; flex-direction: column; gap: 5px; }
+  .f-item label { font-size: var(--fs-12); color: var(--text-2); font-weight: 500; }
+  .f-item select, .f-item input {
+    height: 34px; min-width: 150px; padding: 0 10px; font-size: var(--fs-12);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text-1);
+    background: var(--surface); font-family: inherit; outline: none;
+  }
+  .f-item select:focus, .f-item input:focus { border-color: var(--brand); }
+  .f-actions { display: flex; gap: 8px; }
+
+  /* ════════════════════════════════════════════════════════
+     状态页签 · 三种样式（右上角切换预览）
+     ════════════════════════════════════════════════════════ */
+  .tabs-zone { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+  .style-switch {
+    display: inline-flex; align-items: center; gap: 0;
+    background: var(--surface); border: 1px dashed var(--border-strong); border-radius: 8px;
+    padding: 4px; flex-shrink: 0;
+  }
+  .style-switch .sw-label { font-size: 11px; color: var(--text-3); padding: 0 8px 0 10px; white-space: nowrap; }
+  .style-switch button {
+    border: none; background: transparent; cursor: pointer;
+    font-size: 11px; color: var(--text-2); padding: 5px 10px; border-radius: 6px;
+    font-family: inherit; white-space: nowrap;
+  }
+  .style-switch button.on { background: var(--brand-subtle); color: var(--brand); font-weight: 650; }
+
+  .status-tabs { display: flex; align-items: center; }
+  .st-tab {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: none; background: transparent; cursor: pointer; font-family: inherit;
+    font-size: var(--fs-13); color: var(--text-2);
+    transition: color .15s ease, background .15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .st-tab:hover { color: var(--text-1); }
+  .st-count {
+    font-size: var(--fs-12); font-weight: 600; line-height: 1;
+    padding: 3px 8px; border-radius: 999px;
+    background: var(--tone-bg); color: var(--tone);
+    font-variant-numeric: tabular-nums;
+  }
+  .st-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); flex-shrink: 0; }
+  .st-tab[hidden-dot] .st-dot { display: none; }
+
+  /* 状态色映射：计数徽标 / 彩点 / 激活态共用 */
+  .st-tab[data-tone="warning"] { --tone: var(--warning-fg); --tone-bg: var(--warning-bg); }
+  .st-tab[data-tone="brand"]   { --tone: var(--brand);       --tone-bg: var(--brand-subtle); }
+  .st-tab[data-tone="success"] { --tone: var(--success-fg);  --tone-bg: var(--success-bg); }
+  .st-tab[data-tone="neutral"] { --tone: #475467;            --tone-bg: #F2F4F7; }
+
+  /* ── 方案 A：下划线页签 ── */
+  .status-tabs[data-variant="a"] { gap: 28px; width: 100%; border-bottom: 1px solid var(--border); }
+  .status-tabs[data-variant="a"] .st-tab {
+    padding: 9px 2px 10px; position: relative; margin-bottom: -1px;
+  }
+  .status-tabs[data-variant="a"] .st-tab.is-active {
+    color: var(--tone); font-weight: 650;
+    box-shadow: inset 0 -2px 0 0 var(--tone);
+  }
+
+  /* ── 方案 B：胶囊分段 ── */
+  .status-tabs[data-variant="b"] {
+    display: inline-flex; gap: 2px; padding: 3px;
+    background: var(--canvas); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .status-tabs[data-variant="b"] .st-tab { padding: 7px 14px; border-radius: 6px; }
+  .status-tabs[data-variant="b"] .st-tab.is-active {
+    background: var(--surface); color: var(--tone); font-weight: 650;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.12);
+  }
+  .status-tabs[data-variant="b"] .st-dot { display: none; }
+
+  /* ── 方案 C：状态彩点卡片 ── */
+  .status-tabs[data-variant="c"] { gap: 8px; }
+  .status-tabs[data-variant="c"] .st-tab {
+    padding: 8px 14px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text-1);
+  }
+  .status-tabs[data-variant="c"] .st-tab:hover { border-color: var(--border-strong); }
+  .status-tabs[data-variant="c"] .st-tab.is-active {
+    background: var(--tone-bg); border-color: var(--tone); color: var(--tone); font-weight: 650;
+  }
+
+  /* ── 状态标签（对齐 StatusTag.Tag） ── */
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: var(--fs-12); font-weight: 500; white-space: nowrap;
+  }
+  .tag-brand   { background: var(--brand-subtle); color: var(--brand); }
+  .tag-warning { background: var(--warning-bg); color: var(--warning-fg); }
+  .tag-success { background: var(--success-bg); color: var(--success-fg); }
+  .tag-default { background: #F3F4F6; color: #374151; }
+  .tag-danger  { background: var(--danger-bg); color: var(--danger-fg); }
+
+  /* 待审核报告角标（对齐 .report-pending-icon） */
+  .bell-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: var(--warning-bg); color: var(--warning-fg);
+    border-radius: 999px; padding: 2px 8px; font-size: var(--fs-12); font-weight: 650;
+    cursor: help;
+  }
+
+  /* ── 表格 ── */
+  .table-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; min-width: 1340px; }
+  th {
+    padding: 10px 12px; text-align: left;
+    font-size: var(--fs-12); font-weight: 600; color: var(--text-3);
+    background: var(--stripe); border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 12px; font-size: var(--fs-13); color: var(--text-1);
+    border-bottom: 1px solid #F3F4F6; vertical-align: top;
+  }
+  tbody tr { transition: background .12s ease; }
+  tbody tr:hover { background: var(--stripe); }
+  tbody tr:last-child td { border-bottom: none; }
+  .nowrap { white-space: nowrap; }
+  .status-cell { display: flex; align-items: center; gap: 6px; }
+
+  /* ── 空态 ── */
+  .empty {
+    padding: 48px 0 56px; text-align: center; color: var(--text-2);
+  }
+  .empty .empty-icon {
+    width: 44px; height: 44px; margin: 0 auto 12px; border-radius: 50%;
+    background: var(--stripe); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; color: var(--text-3);
+  }
+  .empty .empty-title { font-size: var(--fs-14); font-weight: 600; color: var(--text-1); margin-bottom: 6px; }
+  .empty .empty-desc { font-size: var(--fs-12); color: var(--text-3); }
+
+  /* ── 分页 ── */
+  .pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 2px 0;
+  }
+  .pagination .pg-total { font-size: var(--fs-12); color: var(--text-2); }
+  .pg-btns { display: flex; gap: 6px; }
+  .pg-btn {
+    height: 28px; min-width: 28px; padding: 0 8px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: var(--fs-12); color: var(--text-2); cursor: pointer; font-family: inherit;
+  }
+  .pg-btn.cur { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+  .pg-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── 交互说明条 ── */
+  .note {
+    background: var(--brand-subtle); border: 1px solid #CBDFD9; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 14px;
+    font-size: var(--fs-12); color: #14554A; line-height: 1.8;
+  }
+  .note b { font-weight: 650; }
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <div>
+    <h1>任务执行</h1>
+    <p>药厂创建发包任务，服务商确认后执行；任务金额按统一价目表及比例自动计算。</p>
+  </div>
+  <button class="btn btn-primary btn-md">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    创建任务
+  </button>
+</header>
+
+<main class="content">
+
+  <div class="note">
+    <b>交互说明</b>：① 原「任务状态」下拉筛选升级为页签，默认落在「全部」；② 页签实时显示各状态任务数，与表格联动；③ 其余筛选条件（对账状态 / 品种 / 服务商 / 时间段）与页签叠加生效；④ 分页随页签重置到第 1 页；⑤ 右上角可切换三种页签样式预览，选定后落到 React 实现。
+  </div>
+
+  <!-- 筛选栏：移除任务状态下拉 -->
+  <div class="filter-bar">
+    <div class="f-item">
+      <label>对账状态</label>
+      <select><option>全部</option><option>未发起</option><option>对账中</option><option>已结算</option></select>
+    </div>
+    <div class="f-item">
+      <label>品种</label>
+      <select><option>全部</option><option>阿托伐他汀钙片(20mg)</option><option>二甲双胍缓释片(500mg)</option><option>奥美拉唑肠溶胶囊(20mg)</option></select>
+    </div>
+    <div class="f-item">
+      <label>服务提供方</label>
+      <select><option>全部</option><option>智联科技有限公司</option><option>东方恒业推广有限公司</option><option>康晟云服科技有限公司</option></select>
+    </div>
+    <div class="f-item">
+      <label>开始时间</label><input type="date" value="2026-01-01">
+    </div>
+    <div class="f-item">
+      <label>结束时间</label><input type="date" value="2026-12-31">
+    </div>
+    <div class="f-actions">
+      <button class="btn btn-primary">查询</button>
+      <button class="btn btn-outline">重置</button>
+    </div>
+  </div>
+
+  <!-- 页签区 + 样式切换器 -->
+  <div class="tabs-zone">
+    <div class="status-tabs" id="tabs" data-variant="a" role="tablist" aria-label="按任务状态筛选">
+      <button class="st-tab is-active" data-status="all" data-tone="brand" role="tab" aria-selected="true">
+        <span class="st-dot"></span>全部任务<span class="st-count">8</span>
+      </button>
+      <button class="st-tab" data-status="待确认" data-tone="warning" role="tab" aria-selected="false">
+        <span class="st-dot"></span>待确认<span class="st-count">2</span>
+      </button>
+      <button class="st-tab" data-status="执行中" data-tone="brand" role="tab" aria-selected="false">
+        <span class="st-dot"></span>执行中<span class="st-count">3</span>
+      </button>
+      <button class="st-tab" data-status="已结算" data-tone="success" role="tab" aria-selected="false">
+        <span class="st-dot"></span>已结算<span class="st-count">2</span>
+      </button>
+      <button class="st-tab" data-status="已撤销" data-tone="neutral" role="tab" aria-selected="false">
+        <span class="st-dot"></span>已撤销<span class="st-count">1</span>
+      </button>
+    </div>
+    <div class="style-switch" title="仅原型预览用">
+      <span class="sw-label">页签样式</span>
+      <button data-v="a" class="on">A · 下划线</button>
+      <button data-v="b">B · 分段</button>
+      <button data-v="c">C · 彩点卡片</button>
+    </div>
+  </div>
+
+  <!-- 表格 -->
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr>
+          <th>药厂名称</th><th>服务提供商名称</th><th>所属品种</th><th>推广金额</th>
+          <th>推广时段</th><th>已结算金额</th><th>剩余可结算金额</th>
+          <th>任务状态</th><th>对账状态</th><th style="width: 230px;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+
+        <!-- 待确认 ×2 -->
+        <tr data-status="待确认">
+          <td>华康制药有限公司</td>
+          <td>智联科技有限公司</td>
+          <td>阿托伐他汀钙片(20mg)</td>
+          <td class="mono" style="font-weight:600">¥120,000.00</td>
+          <td class="nowrap">2026-01-01 ~ 2026-06-30</td>
+          <td class="mono">¥0.00</td>
+          <td class="mono">¥120,000.00</td>
+          <td><div class="status-cell"><span class="tag tag-warning">待确认</span></div></td>
+          <td><span class="tag tag-default">—</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-primary">确认任务</button>
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              查看详情</button>
+          </div></td>
+        </tr>
+        <tr data-status="待确认">
+          <td>华康制药有限公司</td>
+          <td>东方恒业推广有限公司</td>
+          <td>二甲双胍缓释片(500mg)</td>
+          <td class="mono" style="font-weight:600">¥86,400.00</td>
+          <td class="nowrap">2026-02-01 ~ 2026-07-31</td>
+          <td class="mono">¥0.00</td>
+          <td class="mono">¥86,400.00</td>
+          <td><div class="status-cell"><span class="tag tag-warning">待确认</span></div></td>
+          <td><span class="tag tag-default">—</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-primary">确认任务</button>
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              查看详情</button>
+          </div></td>
+        </tr>
+
+        <!-- 执行中 ×3 -->
+        <tr data-status="执行中">
+          <td>华康制药有限公司</td>
+          <td>康晟云服科技有限公司</td>
+          <td>奥美拉唑肠溶胶囊(20mg)</td>
+          <td class="mono" style="font-weight:600">¥256,000.00</td>
+          <td class="nowrap">2026-01-15 ~ 2026-12-31</td>
+          <td class="mono">¥96,000.00</td>
+          <td class="mono">¥160,000.00</td>
+          <td><div class="status-cell">
+            <span class="tag tag-brand">执行中</span>
+            <span class="bell-badge" title="有 3 份报告待审核">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              3</span>
+          </div></td>
+          <td><span class="tag tag-warning">对账中</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-outline">继续拆分</button>
+            <button class="btn btn-primary">上传报告</button>
+            <button class="btn btn-outline">发起结算</button>
+          </div></td>
+        </tr>
+        <tr data-status="执行中">
+          <td>华康制药有限公司</td>
+          <td>永泰汇通推广有限公司</td>
+          <td>氨氯地平片(5mg)</td>
+          <td class="mono" style="font-weight:600">¥150,000.00</td>
+          <td class="nowrap">2026-03-01 ~ 2027-02-28</td>
+          <td class="mono">¥0.00</td>
+          <td class="mono">¥150,000.00</td>
+          <td><div class="status-cell">
+            <span class="tag tag-brand">执行中</span>
+          </div></td>
+          <td><span class="tag tag-default">—</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-primary">上传报告</button>
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              查看详情</button>
+          </div></td>
+        </tr>
+        <tr data-status="执行中">
+          <td>华康制药有限公司</td>
+          <td>智联科技有限公司</td>
+          <td>瑞舒伐他汀钙片(10mg)</td>
+          <td class="mono" style="font-weight:600">¥98,000.00</td>
+          <td class="nowrap">2025-11-01 ~ 2026-10-31</td>
+          <td class="mono">¥42,000.00</td>
+          <td class="mono">¥56,000.00</td>
+          <td><div class="status-cell">
+            <span class="tag tag-brand">执行中</span>
+            <span class="bell-badge" title="有 1 份报告待审核">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              1</span>
+          </div></td>
+          <td><span class="tag tag-default">—</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              查看详情</button>
+          </div></td>
+        </tr>
+
+        <!-- 已结算 ×2 -->
+        <tr data-status="已结算">
+          <td>华康制药有限公司</td>
+          <td>东方恒业推广有限公司</td>
+          <td>辛伐他汀片(20mg)</td>
+          <td class="mono" style="font-weight:600">¥200,000.00</td>
+          <td class="nowrap">2025-06-01 ~ 2026-05-31</td>
+          <td class="mono">¥200,000.00</td>
+          <td class="mono">¥0.00</td>
+          <td><div class="status-cell"><span class="tag tag-success">已通过</span></div></td>
+          <td><span class="tag tag-success">已对账</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              查看详情</button>
+          </div></td>
+        </tr>
+        <tr data-status="已结算">
+          <td>华康制药有限公司</td>
+          <td>康晟云服科技有限公司</td>
+          <td>缬沙坦胶囊(80mg)</td>
+          <td class="mono" style="font-weight:600">¥132,000.00</td>
+          <td class="nowrap">2025-09-01 ~ 2026-08-31</td>
+          <td class="mono">¥132,000.00</td>
+          <td class="mono">¥0.00</td>
+          <td><div class="status-cell"><span class="tag tag-success">已通过</span></div></td>
+          <td><span class="tag tag-success">已对账</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              查看详情</button>
+          </div></td>
+        </tr>
+
+        <!-- 已撤销 ×1 -->
+        <tr data-status="已撤销">
+          <td>华康制药有限公司</td>
+          <td>永泰汇通推广有限公司</td>
+          <td>硝苯地平控释片(30mg)</td>
+          <td class="mono" style="font-weight:600">¥60,000.00</td>
+          <td class="nowrap">2025-12-01 ~ 2026-05-31</td>
+          <td class="mono">¥0.00</td>
+          <td class="mono">¥0.00</td>
+          <td><div class="status-cell"><span class="tag tag-default">已撤销</span></div></td>
+          <td><span class="tag tag-default">—</span></td>
+          <td><div class="row-actions">
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              查看详情</button>
+          </div></td>
+        </tr>
+
+        <!-- 空态占位：JS 切换后某状态无数据时显示 -->
+        <tr id="empty-row" style="display:none">
+          <td colspan="10">
+            <div class="empty">
+              <div class="empty-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+              </div>
+              <div class="empty-title">暂无任务</div>
+              <div class="empty-desc">当前状态下没有符合条件的任务，可切换其他页签或调整筛选条件。</div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination">
+    <span class="pg-total" id="pg-total">共 8 条</span>
+    <div class="pg-btns">
+      <button class="pg-btn" disabled>‹</button>
+      <button class="pg-btn cur">1</button>
+      <button class="pg-btn" disabled>›</button>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  // ── 页签切换：过滤表格行 ──
+  const tabs = document.getElementById('tabs')
+  const rows = [...document.querySelectorAll('#rows tr[data-status]')]
+  const emptyRow = document.getElementById('empty-row')
+  const pgTotal = document.getElementById('pg-total')
+
+  tabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('.st-tab')
+    if (!btn) return
+    tabs.querySelectorAll('.st-tab').forEach(b => {
+      b.classList.toggle('is-active', b === btn)
+      b.setAttribute('aria-selected', b === btn ? 'true' : 'false')
+    })
+    const status = btn.dataset.status
+    let shown = 0
+    rows.forEach(r => {
+      const hit = status === 'all' || r.dataset.status === status
+      r.style.display = hit ? '' : 'none'
+      if (hit) shown++
+    })
+    emptyRow.style.display = shown ? 'none' : ''
+    pgTotal.textContent = `共 ${shown} 条`
+  })
+
+  // ── 样式切换（仅原型预览用） ──
+  const sw = document.querySelector('.style-switch')
+  sw.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-v]')
+    if (!btn) return
+    sw.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn))
+    tabs.dataset.variant = btn.dataset.v
+  })
+
+  // ── 方案 A 下不显示彩点 ──
+  const syncDot = () => {
+    const showDot = tabs.dataset.variant !== 'a'
+    tabs.querySelectorAll('.st-dot').forEach(d => d.parentElement.toggleAttribute('hidden-dot', !showDot))
+  }
+  sw.addEventListener('click', syncDot)
+  syncDot()
+</script>
+</body>
+</html>

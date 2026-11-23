@@ -42,8 +42,8 @@ import {
   CNY_SYMBOL,
   formatCNYUpper,
   RECON_STATUS_OPTIONS,
-  TASK_STATUS_OPTIONS,
   reconStatusDisplay,
+  serviceCategoryLabel,
   taskStatusDisplay,
 } from "../constants"
 import {
@@ -152,6 +152,31 @@ const MAIN_STATUS_COLOR: Record<string, "warning" | "brand" | "danger" | "succes
     已撤销: "default",
   }
 
+// 列表任务状态页签（原型：prototypes/task-execution-status-tabs.html 方案 A）：
+// 替代筛选栏中的任务状态下拉；计数徽标与表格共用同一过滤口径
+const STATUS_TABS: {
+  value: string
+  label: string
+  tone: "brand" | "warning" | "success" | "neutral"
+}[] = [
+  { value: "", label: "全部任务", tone: "brand" },
+  { value: "待确认", label: "待确认", tone: "warning" },
+  { value: "执行中", label: "执行中", tone: "brand" },
+  { value: "已结算", label: "已结算", tone: "success" },
+  { value: "已撤销", label: "已撤销", tone: "neutral" },
+]
+
+// 页签语义色：走全局 token，色彩主题切换不漂移；「已撤销」中性灰无对应 token
+const STATUS_TAB_TONE: Record<
+  "brand" | "warning" | "success" | "neutral",
+  { fg: string; bg: string }
+> = {
+  brand: { fg: "var(--color-brand)", bg: "var(--color-brand-subtle)" },
+  warning: { fg: "var(--color-warning-fg)", bg: "var(--color-warning-bg)" },
+  success: { fg: "var(--color-success-fg)", bg: "var(--color-success-bg)" },
+  neutral: { fg: "#475467", bg: "#F2F4F7" },
+}
+
 // 任务状态 / 对账状态的列展示口径抽到 constants（taskStatusDisplay /
 // reconStatusDisplay），与工作台任务交付概览共用同一份实现。
 
@@ -214,10 +239,14 @@ export function TaskExecution({
 
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [applied, setApplied] = useState<Record<string, string>>({})
+  // 任务状态页签："" = 全部；与筛选栏其余条件叠加生效
+  const [statusTab, setStatusTab] = useState<string>("")
   const [page, setPage] = useState(1)
   const [highlightId, setHighlightId] = useState<string | undefined>(
     navFocus?.taskId,
   )
+  // navFocus 跨页签定位：仅在 taskId 变化的那一拍切页签，tasks 后续更新不回抢用户所选页签
+  const syncedFocusId = useRef<string | undefined>(undefined)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [detail, setDetail] = useState<Task | null>(null)
@@ -256,6 +285,12 @@ export function TaskExecution({
     if (navFocus?.taskId) {
       setHighlightId(navFocus.taskId)
       const t = tasks.find((x) => x.id === navFocus.taskId)
+      if (t && syncedFocusId.current !== navFocus.taskId) {
+        syncedFocusId.current = navFocus.taskId
+        // 定位任务可能不在当前页签内：切到其所属状态页签并回到第 1 页，保证高亮行可见
+        setStatusTab(t.taskStatus)
+        setPage(1)
+      }
       // 直开详情也必须过会话范围（区域/业务范围）：不能通过链接绕过可见性（2026-10-27 §五.2）
       if (t && taskInSessionScope(t)) setDetail(t)
     }
@@ -279,12 +314,12 @@ export function TaskExecution({
     // D3 任务级：任务 regions 命中成员任一省即整单可见，明细不单独过滤
     return inBizScope && regionScope.matchesRow({ regions: t.regions, taskId: t.id })
   }
-  const visible = useMemo(() => {
-    const list = tasks.filter((t) => {
+  // 会话口径 + 除任务状态外的筛选（任务状态改由页签承担）；
+  // 页签计数与表格列表共用这一份清单，保证各页签计数之和 = 「全部任务」总数
+  const scopeFiltered = useMemo(() => {
+    return tasks.filter((t) => {
       // 会话口径：服务商四要素 / 药厂本厂任务（范围失效时恒 false，默认拒绝）
       if (!taskInSessionScope(t)) return false
-      if (applied.taskStatus && t.taskStatus !== applied.taskStatus)
-        return false
       if (applied.reconStatus && t.reconStatus !== applied.reconStatus)
         return false
       if (applied.variety && !t.varieties.includes(applied.variety))
@@ -294,13 +329,26 @@ export function TaskExecution({
       if (applied.endDate && t.startDate > applied.endDate) return false
       return true
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, applied, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope.matchesRow])
+
+  const statusTabCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const t of scopeFiltered)
+      counts[t.taskStatus] = (counts[t.taskStatus] ?? 0) + 1
+    return counts
+  }, [scopeFiltered])
+
+  const visible = useMemo(() => {
+    const list = statusTab
+      ? scopeFiltered.filter((t) => t.taskStatus === statusTab)
+      : scopeFiltered
     // 有待审核报告的任务默认排最前，其余保持原顺序（稳定排序）
     return [
       ...list.filter((t) => pendingReportCount(t) > 0),
       ...list.filter((t) => pendingReportCount(t) === 0),
     ]
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, applied, denied, isProviderSession, isPharmaSession, matchesProviderRow, matchesPharmaRow, regionScope.matchesRow])
+  }, [scopeFiltered, statusTab])
 
   const pageData = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
@@ -538,12 +586,6 @@ export function TaskExecution({
         <FilterBar
           fields={[
             {
-              id: "taskStatus",
-              label: "任务状态",
-              type: "select",
-              options: TASK_STATUS_OPTIONS,
-            },
-            {
               id: "reconStatus",
               label: "对账状态",
               type: "select",
@@ -579,6 +621,69 @@ export function TaskExecution({
             setPage(1)
           }}
         />
+
+        <div
+          role="tablist"
+          aria-label="按任务状态筛选"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 28,
+            borderBottom: "1px solid var(--color-border)",
+            marginBottom: 14,
+          }}
+        >
+          {STATUS_TABS.map((st) => {
+            const active = statusTab === st.value
+            const tone = STATUS_TAB_TONE[st.tone]
+            const count = st.value
+              ? (statusTabCounts[st.value] ?? 0)
+              : scopeFiltered.length
+            return (
+              <button
+                key={st.label}
+                role="tab"
+                type="button"
+                aria-selected={active}
+                onClick={() => {
+                  setStatusTab(st.value)
+                  setPage(1)
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "9px 2px 10px",
+                  marginBottom: -1,
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: "var(--fs-13)",
+                  color: active ? tone.fg : "var(--color-text-2)",
+                  fontWeight: active ? 650 : 500,
+                  boxShadow: active ? `inset 0 -2px 0 0 ${tone.fg}` : "none",
+                }}
+              >
+                {st.label}
+                <span
+                  style={{
+                    fontSize: "var(--fs-12)",
+                    fontWeight: 600,
+                    lineHeight: 1,
+                    padding: "3px 8px",
+                    borderRadius: 999,
+                    background: tone.bg,
+                    color: tone.fg,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
 
         <div
           style={{
@@ -621,7 +726,11 @@ export function TaskExecution({
                   <td colSpan={10}>
                     <EmptyState
                       title="暂无任务"
-                      description="药厂可创建任务；服务商确认后进入执行。"
+                      description={
+                        statusTab
+                          ? "当前状态下没有符合条件的任务，可切换其他页签或调整筛选条件。"
+                          : "药厂可创建任务；服务商确认后进入执行。"
+                      }
                     />
                   </td>
                 </tr>
@@ -2180,6 +2289,16 @@ function TaskDetailV5({
       title: "调研与报告一体化服务 · 分析报告服务",
       category: "分析报告服务",
     },
+    {
+      key: "surveyReport",
+      title: "调研与报告一体化服务 · 调研问卷与分析服务",
+      category: "问卷调研与分析服务",
+    },
+    {
+      key: "dataReport",
+      title: "调研与报告一体化服务 · 数据收集与报表提交服务",
+      category: "数据收集与报表提交服务",
+    },
   ] as const).map((area) => {
     const items = task.serviceItems.filter(
       (item) => item.category === area.category,
@@ -2245,7 +2364,7 @@ function TaskDetailV5({
       quantity,
       completed,
     }
-  })
+  }).filter((area) => area.rows.length > 0)
 
   return (
     <>
@@ -3224,7 +3343,7 @@ function PersonalAllocationDetail({
                         rowSpan={categorySpan}
                         style={{ ...td, verticalAlign: "middle", ...groupEdge }}
                       >
-                        {row.category ?? "市场推广服务"}
+                        {serviceCategoryLabel(row.category ?? "市场推广服务")}
                       </td>
                     )}
                     <td style={{ ...td, ...groupEdge }}>{row.itemName}</td>
@@ -3654,7 +3773,7 @@ function AllocationDetailPreview({
       </div>
       <Section
         title="明细详情"
-        subtitle={`${row.specialist} · ${row.category ?? "市场推广服务"} · ${row.itemName}`}
+        subtitle={`${row.specialist} · ${serviceCategoryLabel(row.category ?? "市场推广服务")} · ${row.itemName}`}
       >
         <div
           style={{
@@ -3664,7 +3783,7 @@ function AllocationDetailPreview({
           }}
         >
           <Info label="服务专员" value={row.specialist} />
-          <Info label="服务类型" value={row.category ?? "市场推广服务"} />
+          <Info label="服务类型" value={serviceCategoryLabel(row.category ?? "市场推广服务")} />
           <Info label="服务项目" value={row.itemName} />
           <Info label="计划量" value={row.workload} />
           <Info
@@ -5085,11 +5204,16 @@ const SETTLE_SUB_CATEGORY: Record<string, string> = {
   药房拜访: "渠道拜访",
   学术推广: "学术活动",
   科室会议: "学术活动",
+  // 推广侧「调查问卷」：计划份数逐级拆包执行（2026-11-20 迭代）
+  调查问卷: "问卷调研",
   临床应用研究报告: "调研报告",
   区域市场分析报告: "调研报告",
   市场分析报告: "调研报告",
   问卷样本量: "问卷调研",
   分析总结: "数据分析",
+  // 数据收集与报表提交服务（示例项目，D03）
+  流向数据收集: "数据收集",
+  月度流向报表: "报表提交",
 }
 
 interface SettleRow {

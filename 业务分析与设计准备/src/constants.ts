@@ -69,18 +69,61 @@ export function formatCNYUpper(n: number): string {
 }
 
 /** 价目类别 = 服务类型（预算计划 / 创建任务 / 结算明细行共用） */
-export const SERVICE_CATEGORIES = ['市场推广服务', '分析报告服务', '问卷调研与分析服务'] as const;
+export const SERVICE_CATEGORIES = [
+  '市场推广服务',
+  '分析报告服务',
+  '问卷调研与分析服务',
+  '数据收集与报表提交服务',
+] as const;
 export type ServiceCategoryValue = (typeof SERVICE_CATEGORIES)[number];
 
-export const SERVICE_CATEGORY_OPTIONS: { value: string; label: string }[] =
-  SERVICE_CATEGORIES.map((c) => ({ value: c, label: c }));
+/** 报告组三类归入「调研与报告一体化服务」展示（2026-11-20 迭代：新增数据收集与报表提交服务） */
+export const REPORT_SERVICE_CATEGORIES: ServiceCategoryValue[] = [
+  '分析报告服务',
+  '问卷调研与分析服务',
+  '数据收集与报表提交服务',
+];
 
-/** 报告组两类归入「调研与报告一体化服务」展示 */
-export const REPORT_SERVICE_CATEGORIES: ServiceCategoryValue[] = ['分析报告服务', '问卷调研与分析服务'];
+/** 报告组在界面上的分组标题（金额汇总 / 弹窗页签区的所属组） */
+export const REPORT_GROUP_TITLE = '调研与报告一体化服务';
+
+/** 类别页面显示名：存储标识不变，问卷类统一展示「调研问卷与分析服务」 */
+const SERVICE_CATEGORY_LABELS: Record<ServiceCategoryValue, string> = {
+  市场推广服务: '市场推广服务',
+  分析报告服务: '分析报告服务',
+  问卷调研与分析服务: '调研问卷与分析服务',
+  数据收集与报表提交服务: '数据收集与报表提交服务',
+};
+
+export function serviceCategoryLabel(category: string): string {
+  return SERVICE_CATEGORY_LABELS[category as ServiceCategoryValue] ?? category;
+}
 
 export function serviceCategoryGroup(category: string): '推广' | '报告' {
   return category === '市场推广服务' ? '推广' : '报告';
 }
+
+/** 服务类别完整名（含所属组），用于列头提示等需要无歧义名称的场合 */
+export function serviceCategoryFullName(category: string): string {
+  return serviceCategoryGroup(category) === '报告'
+    ? `${REPORT_GROUP_TITLE} · ${serviceCategoryLabel(category)}`
+    : serviceCategoryLabel(category);
+}
+
+/** 步骤②计划金额列的短列名；完整名见列头提示（title） */
+export const SERVICE_CATEGORY_SHORT: Record<ServiceCategoryValue, string> = {
+  市场推广服务: '推广计划金额',
+  分析报告服务: '分析报告',
+  问卷调研与分析服务: '问卷调研',
+  数据收集与报表提交服务: '数据收集与报表',
+};
+
+export function serviceCategoryShort(category: string): string {
+  return SERVICE_CATEGORY_SHORT[category as ServiceCategoryValue] ?? category;
+}
+
+export const SERVICE_CATEGORY_OPTIONS: { value: string; label: string }[] =
+  SERVICE_CATEGORIES.map((c) => ({ value: c, label: serviceCategoryLabel(c) }));
 
 export const MONTHS_1_12 = Array.from({ length: 12 }, (_, i) => i + 1);
 
