@@ -8,7 +8,7 @@
  *
  * 2026-09-15 整改拍板：无申请/审核/驳回/补正；一个租户一个主企业码（无别名
  * 码、无重发激活提醒）；状态机四态（待激活/正常/已暂停/已终止）；状态操作
- * 收敛到详情头部；详情不设选项卡，套餐/主体/管理员三卡平铺。
+ * 收敛到详情头部；详情内容卡按「套餐与开通 / 主体资料 / 首位管理员」选项卡切换。
  *
  * 数据全部来自运行时注册表（mock，localStorage 演示），生产环境由服务端与
  * 数据库完成（见 tenantRegistry.ts 头注）。页面可见性由角色页面权限收敛：
@@ -1200,6 +1200,12 @@ function TenantDetailDrawer({
   const [pkgChoice, setPkgChoice] = useState("");
   const [pkgErr, setPkgErr] = useState<string | null>(null);
 
+  // 详情内容卡片选项卡
+  const [detailTab, setDetailTab] = useState<"package" | "profile" | "admin">("package");
+  useEffect(() => {
+    setDetailTab("package");
+  }, [tenantId]);
+
   if (!tenant) return null;
   const p = tenant.profile;
   const pkg = packageOfTenant(tenant.id);
@@ -1316,9 +1322,37 @@ function TenantDetailDrawer({
           </div>
         </div>
 
+        {/* 内容选项卡：套餐与开通 / 主体资料 / 首位管理员 */}
+        <div className="tm-tabs" role="tablist" aria-label="租户详情内容分区">
+          {([
+            ["package", "套餐与开通"],
+            ["profile", "主体资料"],
+            ["admin", "首位管理员"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              id={`tm-detail-tab-${key}`}
+              type="button"
+              role="tab"
+              aria-selected={detailTab === key}
+              aria-controls={`tm-detail-panel-${key}`}
+              className={detailTab === key ? "tm-tab tm-tab--active" : "tm-tab"}
+              onClick={() => setDetailTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div>
-            {/* 卡 1：套餐与开通（动作在卡头右侧） */}
-            <section className="tm-sec">
+          {/* 选项卡 1：套餐与开通（动作在卡头右侧） */}
+          {detailTab === "package" && (
+            <section
+              id="tm-detail-panel-package"
+              role="tabpanel"
+              aria-labelledby="tm-detail-tab-package"
+              className="tm-sec"
+            >
               <div className="tm-sec-head">
                 <h4 className="tm-sec-title">套餐与开通</h4>
                 {tenant.status !== "terminated" && (
@@ -1350,9 +1384,16 @@ function TenantDetailDrawer({
                 </dd>
               </dl>
             </section>
+          )}
 
-            {/* 卡 2：主体资料（工商登记信息，只读） */}
-            <section className="tm-sec">
+          {/* 选项卡 2：主体资料（工商登记信息，只读） */}
+          {detailTab === "profile" && (
+            <section
+              id="tm-detail-panel-profile"
+              role="tabpanel"
+              aria-labelledby="tm-detail-tab-profile"
+              className="tm-sec"
+            >
               <div className="tm-sec-head">
                 <h4 className="tm-sec-title">主体资料</h4>
                 <span className="tm-sub" style={{ marginTop: 0 }}>创建后只读</span>
@@ -1379,9 +1420,16 @@ function TenantDetailDrawer({
                 {p.remark && (<><dt>备注</dt><dd>{p.remark}</dd></>)}
               </dl>
             </section>
+          )}
 
-            {/* 卡 3：首位管理员（动作在卡头右侧） */}
-            <section className="tm-sec">
+          {/* 选项卡 3：首位管理员（动作在卡头右侧） */}
+          {detailTab === "admin" && (
+            <section
+              id="tm-detail-panel-admin"
+              role="tabpanel"
+              aria-labelledby="tm-detail-tab-admin"
+              className="tm-sec"
+            >
               <div className="tm-sec-head">
                 <h4 className="tm-sec-title">首位管理员</h4>
                 {tenant.status === "pending_activation" && (
@@ -1405,14 +1453,15 @@ function TenantDetailDrawer({
                 </div>
               )}
             </section>
+          )}
 
-            {tenant.status === "terminated" && (
-              <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 12 }}>
-                <Ban size={14} aria-hidden />
-                <span>该租户已终止：只读查看，不能恢复；主企业码 {tenant.primaryCode} 永久保留且不得分配给其他企业。</span>
-              </div>
-            )}
-          </div>
+          {tenant.status === "terminated" && (
+            <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 12 }}>
+              <Ban size={14} aria-hidden />
+              <span>该租户已终止：只读查看，不能恢复；主企业码 {tenant.primaryCode} 永久保留且不得分配给其他企业。</span>
+            </div>
+          )}
+        </div>
       </Modal>
 
       {/* 更换套餐（即时生效，写审计） */}
