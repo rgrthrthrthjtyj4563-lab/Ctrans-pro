@@ -19,6 +19,7 @@ import {
   Package,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   Trash2,
@@ -225,16 +226,20 @@ export function TenantPackageManagement({ addToast }: { addToast: (msg: { type: 
               </button>
             )}
           </div>
-          <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="筛选套餐状态">
+          <select data-active={fStatus ? "true" : "false"} value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="筛选套餐状态">
             <option value="">全部状态</option>
             <option value="enabled">启用</option>
             <option value="disabled">停用</option>
           </select>
           {hasAnyFilter && (
-            <button type="button" className="tm-ghost-btn" onClick={() => { setSearch(""); setFStatus(""); }}>
+            <button type="button" className="tm-filterbar-reset" onClick={() => { setSearch(""); setFStatus(""); }}>
+              <RotateCcw size={13} aria-hidden />
               重置
             </button>
           )}
+          <span className="tm-filterbar-count">
+            共 <strong className="font-mono-nums">{packages.length}</strong> 个
+          </span>
         </div>
 
         {packages.length === 0 ? (

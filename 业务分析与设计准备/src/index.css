@@ -415,60 +415,59 @@ body {
 .tm-danger-btn:focus-visible,
 .tm-field:focus-visible,
 .tm-tabs .tm-tab:focus-visible,
-.tm-stat-card:focus-visible,
 .tm-name-btn:focus-visible,
 .tm-row-btn:focus-visible,
 .tm-icon-btn:focus-visible,
 .tm-typecard:focus-visible,
+.tm-filterbar select:focus-visible,
+.tm-filterbar-reset:focus-visible,
 .tm-codeblock .tm-ghost-btn:focus-visible {
   outline: 2px solid rgba(47, 107, 206, 0.65);
   outline-offset: 2px;
 }
 
-.tm-stat-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-  transition: border-color 150ms ease, background 150ms ease;
-}
-.tm-stat-card:hover { border-color: var(--color-brand, #2F6BCE); }
-
+/* 列表筛选栏：一行极简工具条（白底卡片，控件统一 32px 高，与系统审计日志筛选栏同规格）。
+   搜索框定宽不铺满、下拉紧随其后；「全部」态为占位灰，选中后转正文色；右侧为重置与结果计数。 */
 .tm-filterbar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-}
-.tm-filterbar select {
-  height: 36px;
-  padding: 0 8px;
+  padding: 12px 14px;
+  background: #FFFFFF;
   border: 1px solid var(--color-border);
   border-radius: 8px;
+}
+.tm-filterbar select {
+  min-width: 112px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
   background: #FFFFFF;
   font-family: inherit;
   font-size: var(--fs-13);
-  color: var(--color-text-1);
+  color: #6B7280;
+  cursor: pointer;
+  transition: border-color 150ms ease;
 }
+.tm-filterbar select[data-active="true"] { color: var(--color-text-1); font-weight: 500; }
+.tm-filterbar select:hover { border-color: var(--color-border-strong, #D1D5DB); }
 .tm-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1 1 260px;
-  min-width: 200px;
-  height: 36px;
-  padding: 0 12px;
+  flex: 0 1 320px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #FFFFFF;
   color: #6B7280;
+  transition: border-color 150ms ease;
 }
+.tm-search:hover { border-color: var(--color-border-strong, #D1D5DB); }
 .tm-search:focus-within { border-color: var(--color-brand, #2F6BCE); }
 .tm-search input {
   flex: 1;
@@ -488,6 +487,30 @@ body {
   cursor: pointer;
   color: #9CA3AF;
 }
+.tm-filterbar-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: #FFFFFF;
+  color: #4B5563;
+  font-family: inherit;
+  font-size: var(--fs-13);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease;
+}
+.tm-filterbar-reset:hover { background: #F9FAFB; color: var(--color-text-1); }
+.tm-filterbar-count {
+  margin-left: auto;
+  font-size: var(--fs-12);
+  color: #667085;
+  white-space: nowrap;
+}
+.tm-filterbar-count strong { color: var(--color-text-1); font-weight: 600; }
 
 .tm-table th {
   padding: 10px 12px;
@@ -708,16 +731,18 @@ body {
   color: #9CA3AF; font-size: var(--fs-13); line-height: 1.7; background: #FAFAFA;
 }
 
-/* 窄屏：卡片列表替代表格（列表区 <1024 由组件切换），抽屉内容自适应 */
+/* 窄屏：卡片列表替代表格（列表区 <1024 由组件切换），抽屉内容自适应；筛选栏搜索框占满一行 */
 @media (max-width: 640px) {
   .tm-confirm-grid { grid-template-columns: 1fr; column-gap: 0; }
   .tm-confirm-grid dt { padding-bottom: 0; border-bottom: none; }
   .tm-confirm-grid dd { padding-top: 2px; }
   .tm-detail-head { flex-direction: column; }
+  .tm-filterbar .tm-search { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tm-primary-btn, .tm-ghost-btn, .tm-danger-btn, .tm-stat-card { transition: none !important; }
+  .tm-primary-btn, .tm-ghost-btn, .tm-danger-btn,
+  .tm-filterbar select, .tm-search, .tm-filterbar-reset { transition: none !important; }
 }
 
 /* ─── 合作药厂与服务范围授权（pps-） ─────────────────────────────────────── */

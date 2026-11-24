@@ -199,10 +199,10 @@ export function setTenantPackageStatus(id: string, status: "enabled" | "disabled
   return { ok: true, pack: next }
 }
 
-/** 当前绑定该套餐的租户数（删除保护用；含待激活/正常/已暂停，不含已终止） */
+/** 当前绑定该套餐的租户数（删除保护用，含全部在册租户） */
 export function boundTenantCount(id: string): number {
   return getTenantRegistrySnapshot().tenants.filter(
-    (t) => t.status !== "terminated" && resolvePackageIdOf(t.packageId) === id,
+    (t) => resolvePackageIdOf(t.packageId) === id,
   ).length
 }
 

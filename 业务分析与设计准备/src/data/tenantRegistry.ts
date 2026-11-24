@@ -2,14 +2,22 @@
  * 租户注册中心（软件服务方侧 · 运行时注册表，2026-09-15 深度审核整改版）。
  *
  * 职责：贝医系统管理员「直接创建租户（原子建租：生成全局唯一主企业码 + 首位管理员
- * 待激活 + 预置授权）→ 管理员首次登录激活 → 租户生命周期（待激活/正常/
- * 已暂停/已终止）」的全部 mock 数据与业务规则。药厂与服务商共用同一套机制，
- * 仅以 type 区分扩展字段与默认管理员角色；企业码不带任何业务语义。
+ * 待激活 + 预置授权）→ 管理员首次登录激活 → 租户生命周期（正常 ⇄ 已暂停）」的
+ * 全部 mock 数据与业务规则。药厂与服务商共用同一套机制，仅以 type 区分扩展字段
+ * 与默认管理员角色；企业码不带任何业务语义。
  *
  * 2026-09-15 整改拍板（见《多租户平台企业码与服务商可见范围-深度审核与解决
  * 方案 0915》）：软件服务方直接创建、不套申请—审核—补正流程；一个租户只有一个
- * 主企业码（无别名码全链路）；无「重发激活提醒」（首次登录本身即激活触发点）；
- * 状态机收敛为四态；暂停/恢复/终止一律要求原因码 + 说明并写审计。
+ * 主企业码（无别名码全链路）。
+ *
+ * 2026-11-24 按《租户管理需求文档（研发精简版）》对齐：
+ * - 状态收敛为 正常 / 已暂停 两态，创建即正常，首位管理员可直接登录（不再有
+ *   「待激活 → 首登激活租户」联动）；暂停 / 恢复操作原因必填（非空校验），
+ *   标准原因码保留为快捷选项、配合必填说明写入审计。
+ * - 主企业码：全局唯一、生成后不可修改，可查看与一键复制且复制不留痕；移除
+ *   撞码重试日志、重复提交幂等回执与主码退役（retired）流转等冗余规则。
+ * - 终止操作取消（「终止后 3–5 年清除数据」改业务侧人工处理，是否保留独立
+ *   终止入口待与老总确认，见文档标黄项）。
  *
  * 生产口径（原型注释，勿当真实能力）：本文件的全部状态保存在内存 +
  * localStorage 演示；真实系统由服务端与数据库完成——主码唯一性用 DB 唯一
@@ -25,15 +33,8 @@ import { ENTERPRISE_CODES } from "../auth/authProfiles"
 
 export type TenantType = "pharma" | "provider"
 
-/** 租户生命周期（四态：待激活 → 正常 ⇄ 已暂停 → 已终止） */
-export type TenantLifecycleStatus =
-  | "pending_activation"
-  | "active"
-  | "suspended"
-  | "terminated"
-
-/** 主企业码生命周期：active = 可解析；retired = 终止后永久保留、不得重新分配 */
-export type CodeLifecycle = "active" | "retired"
+/** 租户生命周期（两态：创建即正常，正常 ⇄ 已暂停） */
+export type TenantLifecycleStatus = "active" | "suspended"
 
 /** 企业主体资料（通用字段 + 按类型的扩展字段；软件服务方留档与基础校验用，非审核流） */
 export interface TenantSubjectProfile {
@@ -73,10 +74,8 @@ export interface TenantAdminDesignee {
 export interface CodeRecord {
   code: string
   enterpriseId: string
-  lifecycle: CodeLifecycle
   createdAt: string
   createdBy: string
-  note?: string
 }
 
 export interface TenantRecord {
@@ -104,7 +103,7 @@ export interface TenantRecord {
   }
   status: TenantLifecycleStatus
   statusChangedAt: string
-  /** 最近一次状态操作的原因码与说明（暂停/恢复/终止均必填，写审计） */
+  /** 最近一次状态操作的原因码与说明（暂停/恢复均必填，写审计） */
   statusReasonCode?: string
   statusNote?: string
   /** 绑定的租户套餐 id（2026-09-18 移植套餐模型）；缺省回落默认套餐（tenantPackages 解析） */
@@ -128,7 +127,7 @@ export interface TenantAuditLine {
 }
 
 interface TenantRegistryState {
-  version: 4
+  version: 5
   tenants: TenantRecord[]
   codes: CodeRecord[]
   /**
@@ -149,10 +148,6 @@ interface TenantRegistryState {
   deletedOrgIds: string[]
   /** 租户侧操作流水（详情页「操作日志」页签展示；全局审计另走操作日志页） */
   activityLog: TenantAuditLine[]
-  /** 幂等键（type+uscc）→ 已执行的建租结果（连续点击/刷新重放不重复建租） */
-  createIdempotency: Record<string, { tenantId: string; requestId: string }>
-  /** 发码冲突重演开关：首次运行时生成触发一次可演示的冲突重试 */
-  collisionDemoDone: boolean
 }
 
 // ─── 常量 ────────────────────────────────────────────────────────────────────
@@ -161,7 +156,7 @@ interface TenantRegistryState {
 const CODE_CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const CODE_LENGTH = 8
 
-/** 租户暂停标准原因（暂停/恢复/终止均要求原因码 + 说明，方案 §3.4） */
+/** 租户状态操作标准原因（暂停/恢复各一组，供弹窗快捷选择；需求文档 §2.1 要求原因必填） */
 export const SUSPEND_REASON_OPTIONS = [
   { code: "CONTRACT_HOLD", label: "合作协议暂停" },
   { code: "RISK_INVESTIGATION", label: "涉合规风险调查" },
@@ -176,20 +171,40 @@ export const RESUME_REASON_OPTIONS = [
   { code: "OWNER_REQUEST", label: "企业主动申请恢复" },
 ] as const
 
-export const TERMINATE_REASON_OPTIONS = [
-  { code: "OPENING_VOIDED", label: "开户作废（未激活）" },
-  { code: "CONTRACT_ENDED", label: "合作协议终止" },
-  { code: "SUBJECT_DEREGISTERED", label: "企业主体注销" },
-  { code: "RISK_CONFIRMED", label: "合规风险坐实清退" },
-  { code: "OWNER_REQUEST", label: "企业主动停用系统" },
-] as const
+/**
+ * 旧数据原因码兜底映射（仅用于展示存量记录里不在上两组选项中的历史码，
+ * 如终止时代遗留的 OPENING_VOIDED 等）
+ */
+const LEGACY_REASON_LABEL: Record<string, string> = {
+  CONTRACT_HOLD: "合作协议暂停",
+  RISK_INVESTIGATION: "涉合规风险调查",
+  ARREARS: "费用欠缴",
+  OWNER_REQUEST: "企业主动申请",
+  CONTRACT_RESUMED: "合作协议恢复",
+  INVESTIGATION_CLEARED: "风险调查结论无碍",
+  ARREARS_CLEARED: "费用欠缴已结清",
+}
+
+export function legacyReasonLabel(code: string): string {
+  return LEGACY_REASON_LABEL[code] ?? code
+}
 
 export const TENANT_STATUS_LABEL: Record<TenantLifecycleStatus, string> = {
-  pending_activation: "待激活",
   active: "正常",
   suspended: "已暂停",
-  terminated: "已终止",
 }
+
+/**
+ * 已下线操作的原因码（2026-11-24 需求文档 §2.2 / §5.5）：ENT_CODE_COPIED =
+ * 复制企业码不留痕；ENT_CODE_COLLISION_RETRIED = 撞码重试日志取消；
+ * TENANT_TERMINATED = 终止操作已取消。读取历史流水时统一过滤，旧版本地
+ * 数据升级时一并清除。
+ */
+export const RETIRED_AUDIT_REASONS: ReadonlySet<string> = new Set([
+  "ENT_CODE_COPIED",
+  "ENT_CODE_COLLISION_RETRIED",
+  "TENANT_TERMINATED",
+])
 
 export const TENANT_TYPE_LABEL: Record<TenantType, string> = {
   pharma: "药厂",
@@ -206,15 +221,16 @@ const ADMIN_ROLE_BY_TYPE: Record<TenantType, { roleId: string; roleLabel: string
 
 // v3：2026-09-15 收敛版（软件服务方唯一角色/演示登录租户并入种子）；旧数据直接作废重建种子
 // v4：2026-10-27 组织域持久化（部门 CRUD / 管理区域 / 成员身份进 registry）；v3 数据原地升级、不作废
-const STORAGE_KEY = "baiyee-tenant-registry-v4"
-const LEGACY_STORAGE_KEY_V3 = "baiyee-tenant-registry-v3"
+// v5：2026-11-24 租户状态收敛为两态；v3/v4 数据原地升级（见 upgradeLifecycle）、不作废
+const STORAGE_KEY = "baiyee-tenant-registry-v5"
+const LEGACY_STORAGE_KEYS = ["baiyee-tenant-registry-v4", "baiyee-tenant-registry-v3"] as const
 
 function buildSeedState(): TenantRegistryState {
   return {
-    version: 4,
+    version: 5,
     // 演示种子：① 演示登录用药厂/服务商（与登录页企业码同一份登记，软件服务方必须可查）
-    //          ② 运行时租户覆盖四态可验证路径（正常/待激活/已暂停/已终止）
-    // 正常（朗盛）· 待激活药厂（云杏）· 待激活服务商（泰合）· 已暂停（启辰）· 已终止（泽江）
+    //          ② 运行时租户覆盖两态可验证路径（正常/已暂停）
+    // 正常（朗盛）· 首位管理员待首登激活的药厂（云杏）/服务商（泰合）· 已暂停（启辰）
     tenants: [
       // ── 演示登录租户：与登录页企业码（authProfiles.ENTERPRISE_CODES）同一编号空间，
       //    系统管理后台「租户管理」必须能查到全部演示登录用租户（登录与软件服务方共用本登记数据）
@@ -325,7 +341,7 @@ function buildSeedState(): TenantRegistryState {
         createdAt: "2026-05-01 09:00",
         createdBy: "王敏",
       },
-      // ── 运行时租户：覆盖四态可验证路径
+      // ── 运行时租户：覆盖两态可验证路径
       {
         id: "tenant-langseng",
         type: "pharma",
@@ -393,7 +409,7 @@ function buildSeedState(): TenantRegistryState {
           roleId: "role-pharma-admin",
           memberStatus: "pending_activation",
         },
-        status: "pending_activation",
+        status: "active",
         statusChangedAt: "2026-09-11 11:05",
         createdAt: "2026-09-11 11:05",
         createdBy: "王敏",
@@ -414,7 +430,7 @@ function buildSeedState(): TenantRegistryState {
           contactName: "骆佳",
           contactPhone: "13809120119",
           licenseAttachment: "",
-          remark: "服务商待激活演示路径",
+          remark: "服务商首位管理员待首登激活演示路径",
           bizOwner: "骆佳",
           complianceOwner: "丁一鸣",
         },
@@ -427,7 +443,7 @@ function buildSeedState(): TenantRegistryState {
           roleId: "role-provider-admin",
           memberStatus: "pending_activation",
         },
-        status: "pending_activation",
+        status: "active",
         statusChangedAt: "2026-09-12 10:20",
         createdAt: "2026-09-12 10:20",
         createdBy: "王敏",
@@ -468,55 +484,18 @@ function buildSeedState(): TenantRegistryState {
         createdAt: "2026-08-18 14:20",
         createdBy: "王敏",
       },
-      {
-        id: "tenant-legacy-zejiang",
-        type: "pharma",
-        legalName: "泽江药业（已终止合作）",
-        shortName: "泽江药业",
-        uscc: "91320400MA0WJ3HT6F",
-        enterpriseOrgId: "org-rt-zejiang",
-        primaryCode: "7KQ2VXBM",
-        profile: {
-          legalName: "泽江药业（已终止合作）",
-          shortName: "泽江药业",
-          uscc: "91320400MA0WJ3HT6F",
-          address: "江苏省常州市新北区汉江路 168 号",
-          contactName: "邵峰",
-          contactPhone: "13809120118",
-          licenseAttachment: "营业执照-泽江药业.pdf（模拟附件）",
-        },
-        initialAdmin: {
-          userId: "u-rt-shaofeng",
-          name: "邵峰",
-          phone: "13809120118",
-          department: "行政部",
-          roleLabel: "企业管理员",
-          roleId: "role-pharma-admin",
-          memberStatus: "active",
-          activatedAt: "2025-02-10 10:00",
-        },
-        status: "terminated",
-        statusChangedAt: "2026-06-30 18:00",
-        statusReasonCode: "CONTRACT_ENDED",
-        statusNote: "合作协议到期未续约，终止合作",
-        createdAt: "2025-01-20 09:00",
-        createdBy: "王敏",
-      },
     ],
     codes: [
-      { code: "N4PJ2XKM", enterpriseId: "org-rt-langseng", lifecycle: "active", createdAt: "2026-09-01 15:30", createdBy: "王敏" },
-      { code: "R8NV3KQ2", enterpriseId: "org-rt-yunxing", lifecycle: "active", createdAt: "2026-09-11 11:05", createdBy: "王敏" },
-      { code: "C5RJ8W2N", enterpriseId: "org-rt-taihe", lifecycle: "active", createdAt: "2026-09-12 10:20", createdBy: "王敏" },
-      { code: "H4TW9MXP", enterpriseId: "org-rt-qichen", lifecycle: "active", createdAt: "2026-08-18 14:20", createdBy: "王敏" },
-      // 已终止租户的主码：retired，永久保留、不得重新分配
-      { code: "7KQ2VXBM", enterpriseId: "org-rt-zejiang", lifecycle: "retired", createdAt: "2025-01-20 09:00", createdBy: "王敏", note: "租户已终止，主码永久停用" },
+      { code: "N4PJ2XKM", enterpriseId: "org-rt-langseng", createdAt: "2026-09-01 15:30", createdBy: "王敏" },
+      { code: "R8NV3KQ2", enterpriseId: "org-rt-yunxing", createdAt: "2026-09-11 11:05", createdBy: "王敏" },
+      { code: "C5RJ8W2N", enterpriseId: "org-rt-taihe", createdAt: "2026-09-12 10:20", createdBy: "王敏" },
+      { code: "H4TW9MXP", enterpriseId: "org-rt-qichen", createdAt: "2026-08-18 14:20", createdBy: "王敏" },
     ],
     orgs: [
       { id: "org-rt-langseng", name: "朗盛生物制药有限公司", type: "pharma" },
       { id: "org-rt-yunxing", name: "云杏生物医药有限公司", type: "pharma" },
       { id: "org-rt-taihe", name: "泰合医学推广有限公司", type: "provider" },
       { id: "org-rt-qichen", name: "启辰推广服务有限公司", type: "provider" },
-      { id: "org-rt-zejiang", name: "泽江药业（已终止合作）", type: "pharma" },
     ],
     users: [
       {
@@ -564,18 +543,6 @@ function buildSeedState(): TenantRegistryState {
         accountStatus: "enabled",
         createdAt: "2026-08-18 14:20",
         lastLoginAt: "2026-09-09 17:41",
-      },
-      {
-        id: "u-rt-shaofeng",
-        name: "邵峰",
-        account: "rt-shaofeng",
-        phone: "13809120118",
-        email: "shaofeng@zejiangpharma.com",
-        orgId: "org-rt-zejiang",
-        orgName: "泽江药业（已终止合作）",
-        accountStatus: "disabled",
-        createdAt: "2025-01-20 09:00",
-        lastLoginAt: "2026-06-29 15:02",
       },
     ],
     assignments: [
@@ -635,31 +602,11 @@ function buildSeedState(): TenantRegistryState {
         status: "active",
         reason: "租户创建 · 首位管理员预置授权",
       },
-      {
-        id: "g-rt-05",
-        tenantId: "org-rt-zejiang",
-        userId: "u-rt-shaofeng",
-        roleId: "role-pharma-admin",
-        scopeOrgId: "org-rt-zejiang",
-        scopeOrgName: "泽江药业（已终止合作）",
-        scope: "PHARMA",
-        effectiveFrom: "2025-01-20",
-        effectiveTo: "2026-06-30",
-        grantedBy: "王敏",
-        grantedAt: "2025-01-20 09:00",
-        status: "revoked",
-        revokedBy: "王敏",
-        revokedAt: "2026-06-30 18:00",
-        reason: "租户终止，授权回收",
-      },
     ],
     activityLog: [
       { id: nextId("tl"), at: "2026-09-02 09:40", actor: "冯楠", reasonCode: "TENANT_ACTIVATED", targetTenant: "朗盛生物", code: "N4PJ2XKM" },
       { id: nextId("tl"), at: "2026-09-10 10:00", actor: "王敏", reasonCode: "TENANT_SUSPENDED", targetTenant: "启辰推广", code: "H4TW9MXP", detail: "合作协议暂停：待续签后恢复" },
-      { id: nextId("tl"), at: "2026-06-30 18:00", actor: "王敏", reasonCode: "TENANT_TERMINATED", targetTenant: "泽江药业", code: "7KQ2VXBM", detail: "合作协议终止：企业码永久停用，历史记录保留" },
     ],
-    createIdempotency: {},
-    collisionDemoDone: false,
     memberships: [],
     deletedOrgIds: [],
   }
@@ -668,26 +615,89 @@ function buildSeedState(): TenantRegistryState {
 let state: TenantRegistryState = loadState()
 const listeners = new Set<() => void>()
 
+/** 可被原地升级的旧版数据（v3 / v4）：租户状态仍是旧四态取值，并带已下线的幂等/撞码演示字段 */
+type LegacyRegistryState = Omit<TenantRegistryState, "version" | "tenants" | "memberships" | "deletedOrgIds"> & {
+  version: number
+  tenants: (Omit<TenantRecord, "status"> & { status: string })[]
+  memberships?: TenantMembership[]
+  deletedOrgIds?: string[]
+  createIdempotency?: Record<string, { tenantId: string; requestId: string }>
+  collisionDemoDone?: boolean
+}
+
+/**
+ * v3/v4 → v5 原地升级（2026-11-24 状态收敛）：待激活租户转为正常；已终止租户在两态
+ * 模型下无处安放，连同其企业根下的组织、用户、授权、企业码与流水一并移除；已下线
+ * 操作（复制企业码 / 终止）的流水清除。组织、成员身份等其他数据原样保留。
+ */
+function upgradeLifecycle(legacy: LegacyRegistryState): TenantRegistryState {
+  const droppedTenants = legacy.tenants.filter((t) => t.status === "terminated")
+  const droppedNames = new Set(droppedTenants.map((t) => t.shortName))
+  const droppedCodes = new Set(droppedTenants.map((t) => t.primaryCode))
+  const droppedOrgIds = new Set(droppedTenants.map((t) => t.enterpriseOrgId))
+  // 企业根下新建的部门随租户一并移除（按 parentId 逐层下钻，不依赖数组顺序）
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const org of legacy.orgs) {
+      if (!droppedOrgIds.has(org.id) && org.parentId && droppedOrgIds.has(org.parentId)) {
+        droppedOrgIds.add(org.id)
+        grew = true
+      }
+    }
+  }
+  // 剥离旧版已下线字段（幂等回执 / 撞码演示开关），企业码记录同步去掉 lifecycle
+  const { createIdempotency: _idem, collisionDemoDone: _demo, ...rest } = legacy
+  return {
+    ...rest,
+    version: 5,
+    tenants: legacy.tenants
+      .filter((t) => t.status !== "terminated")
+      .map((t) => (t.status === "pending_activation" ? { ...t, status: "active" } : t)) as TenantRecord[],
+    codes: legacy.codes
+      .filter((c) => !droppedOrgIds.has(c.enterpriseId))
+      .map(({ code, enterpriseId, createdAt, createdBy }) => ({ code, enterpriseId, createdAt, createdBy })),
+    orgs: legacy.orgs.filter((o) => !droppedOrgIds.has(o.id)),
+    users: legacy.users.filter((u) => !droppedOrgIds.has(u.orgId)),
+    assignments: legacy.assignments.filter((a) => !droppedOrgIds.has(a.tenantId) && !droppedOrgIds.has(a.scopeOrgId)),
+    activityLog: legacy.activityLog.filter(
+      (l) =>
+        !RETIRED_AUDIT_REASONS.has(l.reasonCode) &&
+        !droppedNames.has(l.targetTenant) &&
+        !(l.code !== undefined && droppedCodes.has(l.code)),
+    ),
+    memberships: (legacy.memberships ?? []).filter((m) => !droppedOrgIds.has(m.tenantId)),
+    deletedOrgIds: legacy.deletedOrgIds ?? [],
+  }
+}
+
 function loadState(): TenantRegistryState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as TenantRegistryState
-      if (parsed?.version === 4 && Array.isArray(parsed.tenants)) {
+      if (parsed?.version === 5 && Array.isArray(parsed.tenants)) {
+        // 同日早版 v5 数据可能带已下线字段（幂等/撞码演示）与已下线流水：读取时统一净化
+        const { createIdempotency: _idem, collisionDemoDone: _demo, ...rest } = parsed as TenantRegistryState & {
+          createIdempotency?: unknown
+          collisionDemoDone?: unknown
+        }
         return {
-          ...parsed,
+          ...rest,
+          activityLog: rest.activityLog.filter((l) => !RETIRED_AUDIT_REASONS.has(l.reasonCode)),
           memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [],
           deletedOrgIds: Array.isArray(parsed.deletedOrgIds) ? parsed.deletedOrgIds : [],
         }
       }
       return buildSeedState()
     }
-    // v3 → v4 原地升级：组织 / 用户 / 授权 / 流水全部保留，仅补 memberships 空表
-    const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY_V3)
-    if (legacy) {
-      const parsed = JSON.parse(legacy) as Omit<TenantRegistryState, "version" | "memberships" | "deletedOrgIds"> & { version: number }
-      if (parsed?.version === 3 && Array.isArray(parsed.tenants)) {
-        const upgraded: TenantRegistryState = { ...parsed, version: 4, memberships: [], deletedOrgIds: [] }
+    // v3 / v4 → v5 原地升级：组织 / 用户 / 授权 / 流水全部保留，仅收敛租户状态
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const legacyRaw = window.localStorage.getItem(key)
+      if (!legacyRaw) continue
+      const parsed = JSON.parse(legacyRaw) as LegacyRegistryState
+      if ((parsed?.version === 4 || parsed?.version === 3) && Array.isArray(parsed.tenants)) {
+        const upgraded = upgradeLifecycle(parsed)
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(upgraded))
         return upgraded
       }
@@ -785,12 +795,11 @@ export function allAssignments(): RoleAssignment[] {
   return [...seedAssignments, ...state.assignments]
 }
 
-/** 全量主企业码（含种子 + 运行时全部生命周期状态；唯一性命名空间，无别名） */
+/** 全量主企业码（种子 + 运行时；唯一性命名空间，无别名） */
 export function allCodeRecords(): CodeRecord[] {
   const seedMapped: CodeRecord[] = ENTERPRISE_CODES.map((e) => ({
     code: e.code,
     enterpriseId: e.enterpriseId,
-    lifecycle: e.enabled ? "active" : "retired",
     createdAt: "2026-01-01 09:00",
     createdBy: "系统预置",
   }))
@@ -801,41 +810,39 @@ export interface ResolvedEnterprise {
   enterpriseId: string
   enterpriseName: string
   code: string
-  lifecycle: CodeLifecycle
-  tenantStatus: TenantLifecycleStatus | "seed"
 }
 
 /**
- * 企业码解析（登录第一步消费）：仅 lifecycle=active 且租户未暂停/终止时可解析；
- * 其余一律返回 null，由调用方给统一失败文案（不暴露暂停原因）。
+ * 企业码解析（登录第一步消费）：仅未暂停租户可解析；其余一律返回 null，
+ * 由调用方给统一失败文案（不暴露暂停原因）。
  */
 export function resolveEnterpriseByCode(rawCode: string): ResolvedEnterprise | null {
   const code = rawCode.trim().toUpperCase()
   if (!code) return null
   const hit = allCodeRecords().find((c) => c.code.toUpperCase() === code)
-  if (!hit || hit.lifecycle !== "active") return null
+  if (!hit) return null
   const tenant = state.tenants.find((t) => t.enterpriseOrgId === hit.enterpriseId)
-  if (tenant && (tenant.status === "suspended" || tenant.status === "terminated")) return null
+  if (tenant && tenant.status === "suspended") return null
   const org = allOrgs().find((o) => o.id === hit.enterpriseId)
   if (!org) return null
   return {
     enterpriseId: org.id,
     enterpriseName: org.name,
     code: hit.code,
-    lifecycle: hit.lifecycle,
-    tenantStatus: tenant?.status ?? "seed",
   }
 }
 
-/** 运行时企业级成员状态（首位管理员待激活在租户记录上，不在种子 AuthProfile） */
-export function runtimeMemberStatus(userId: string, enterpriseId: string): "pending_activation" | "frozen" | undefined {
+/** 运行时企业级成员状态：首位管理员首次登录前为待激活（记在租户记录上，不在种子 AuthProfile） */
+export function runtimeMemberStatus(userId: string, enterpriseId: string): "pending_activation" | undefined {
   const tenant = state.tenants.find((t) => t.enterpriseOrgId === enterpriseId)
   if (!tenant || tenant.initialAdmin.userId !== userId) return undefined
-  if (tenant.status === "terminated") return "frozen"
   return tenant.initialAdmin.memberStatus === "pending_activation" ? "pending_activation" : undefined
 }
 
-/** 管理员激活联动：成员转正常 + 租户 pending_activation → active */
+/**
+ * 管理员首登激活：仅把首位管理员成员身份转为正常（租户创建即正常，状态不再联动）。
+ * 原因码沿用 TENANT_ACTIVATED，以兼容已落盘的历史流水。
+ */
 export function completeRuntimeActivation(userId: string, enterpriseId: string): boolean {
   const tenant = state.tenants.find((t) => t.enterpriseOrgId === enterpriseId)
   if (!tenant || tenant.initialAdmin.userId !== userId) return false
@@ -843,12 +850,7 @@ export function completeRuntimeActivation(userId: string, enterpriseId: string):
   commit({
     tenants: state.tenants.map((t) =>
       t.id === tenant.id
-        ? {
-            ...t,
-            initialAdmin: { ...t.initialAdmin, memberStatus: "active", activatedAt: nowStamp() },
-            status: "active",
-            statusChangedAt: nowStamp(),
-          }
+        ? { ...t, initialAdmin: { ...t.initialAdmin, memberStatus: "active", activatedAt: nowStamp() } }
         : t,
     ),
     activityLog: [
@@ -859,11 +861,11 @@ export function completeRuntimeActivation(userId: string, enterpriseId: string):
   return true
 }
 
-/** 登录链路校验用：租户是否允许日常登录（暂停/终止禁止新登录） */
+/** 登录链路校验用：租户是否允许日常登录（已暂停禁止新登录） */
 export function tenantLoginAllowed(enterpriseId: string): boolean {
   const tenant = state.tenants.find((t) => t.enterpriseOrgId === enterpriseId)
   if (!tenant) return true
-  return tenant.status !== "suspended" && tenant.status !== "terminated"
+  return tenant.status !== "suspended"
 }
 
 // ─── 主企业码生成（全局唯一 + 冲突重试；生产为 DB 唯一约束 + 事务） ──────────
@@ -882,23 +884,14 @@ function isCodeTaken(code: string): boolean {
 }
 
 /**
- * 生成全局唯一主企业码：按全量命名空间（种子 + 运行时，含 retired）查重、
- * 冲突自动重试且冲突码不展示给用户。每个演示周期首次生成时注入一次确定性
- * 冲突（先产出与退役码 7KQ2VXBM 相同的码）以演示 ENT_CODE_COLLISION_RETRIED
- * 审计与重试路径；生产由数据库唯一约束 + 事务保证。
+ * 生成全局唯一主企业码：按全量命名空间（种子 + 运行时）查重、冲突自动重试，
+ * 冲突码不外显、重试过程不留痕（2026-11-24 需求文档 §2.2）；生产由数据库
+ * 唯一约束 + 事务保证。
  */
-export function generateUniqueCode(): { code: string; collisions: number } {
-  let collisions = 0
+export function generateUniqueCode(): string {
   let code = randomCode()
-  if (!state.collisionDemoDone) {
-    code = "7KQ2VXBM"
-    commit({ collisionDemoDone: true })
-  }
-  while (isCodeTaken(code)) {
-    collisions += 1
-    code = randomCode()
-  }
-  return { code, collisions }
+  while (isCodeTaken(code)) code = randomCode()
+  return code
 }
 
 // ─── 业务操作（全部返回审计流水，由调用方写入全局操作日志） ─────────────────
@@ -927,47 +920,33 @@ export interface CreateTenantInput {
 export interface CreateTenantOutcome {
   ok: boolean
   error?: string
-  /** 幂等重放时 replayed=true，不重复建租/发码 */
-  replayed: boolean
   tenant?: TenantRecord
-  collisions: number
   audits: TenantAuditLine[]
 }
 
 /** 该租户当前可登录的活跃成员数（状态操作审计里的受影响范围口径） */
 function activeMemberCount(tenant: TenantRecord): number {
-  if (tenant.status === "terminated") return 0
   return tenant.initialAdmin.memberStatus === "active" ? 1 : 0
 }
 
 /**
  * 直接创建租户（软件服务方侧主数据开户，无申请/审核流）：
  * 格式与重复主体校验由向导完成 → 原子创建企业根组织 + 全局唯一主码 +
- * 首位管理员待激活成员与预置授权 → 租户 pending_activation → 全程审计。
- * 幂等键绑定 type+uscc：连续点击、刷新后重放均返回同一租户。
+ * 首位管理员（可直接登录）与预置授权 → 租户即「正常」→ 全程审计。
  */
 export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
   const uscc = input.profile.uscc.trim().toUpperCase()
   if (state.tenants.some((t) => t.uscc.toUpperCase() === uscc)) {
-    const idemKey = `${input.type}:${uscc}`
-    const replay = state.createIdempotency[idemKey]
-    if (replay) {
-      const existing = state.tenants.find((t) => t.id === replay.tenantId)
-      if (existing && existing.uscc.toUpperCase() === uscc) {
-        return { ok: true, replayed: true, tenant: existing, collisions: 0, audits: [] }
-      }
-    }
-    return { ok: false, error: "该企业主体已存在租户，请先查看现有记录", replayed: false, collisions: 0, audits: [] }
+    return { ok: false, error: "该企业主体已存在租户，请先查看现有记录", audits: [] }
   }
 
   const adminRole = ADMIN_ROLE_BY_TYPE[input.type]
   const stamp = nowStamp()
-  const idemKey = `${input.type}:${uscc}`
 
-  // 1) 生成全局唯一主码（冲突自动重试，冲突码不外显）
-  const { code, collisions } = generateUniqueCode()
+  // 1) 生成全局唯一主码（冲突自动重试，冲突码不外显、不留痕）
+  const code = generateUniqueCode()
 
-  // 2) 原子创建：企业根 + 主码 + 首位管理员（用户 + 待激活状态 + 预置授权）+ 租户
+  // 2) 原子创建：企业根 + 主码 + 首位管理员（用户 + 预置授权）+ 租户
   const enterpriseOrgId = `org-rt-${nextId("en").toLowerCase()}`
   const userId = `u-rt-${nextId("ua").toLowerCase()}`
   const tenantId = `tenant-${nextId("tn").toLowerCase()}`
@@ -1017,9 +996,10 @@ export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
       department: input.admin.department,
       roleLabel: adminRole.roleLabel,
       roleId: adminRole.roleId,
-      memberStatus: "pending_activation",
+      memberStatus: "active",
+      activatedAt: stamp,
     },
-    status: "pending_activation",
+    status: "active",
     statusChangedAt: stamp,
     packageId: input.packageId,
     expireAt: input.expireAt || undefined,
@@ -1027,12 +1007,11 @@ export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
     createdAt: stamp,
     createdBy: input.actor,
   }
-  const codeRecord: CodeRecord = { code, enterpriseId: enterpriseOrgId, lifecycle: "active", createdAt: stamp, createdBy: input.actor }
+  const codeRecord: CodeRecord = { code, enterpriseId: enterpriseOrgId, createdAt: stamp, createdBy: input.actor }
   const shortName = input.profile.shortName
   const audits: TenantAuditLine[] = [
     audit("TENANT_CREATED", shortName, input.actor, { code }),
     audit("ENT_CODE_PRIMARY_GENERATED", shortName, input.actor, { code }),
-    ...(collisions > 0 ? [audit("ENT_CODE_COLLISION_RETRIED", shortName, input.actor, { code, detail: `冲突重试 ${collisions} 次后生成唯一码` })] : []),
     audit("INITIAL_ADMIN_CREATED", shortName, input.actor, { detail: `${input.admin.name} · ${maskPhoneLocal(input.admin.phone)}` }),
     audit("TENANT_PACKAGE_BOUND", shortName, input.actor, {
       detail: `${input.packageId ? "绑定套餐" : "按默认套餐开通"}${input.expireAt ? ` · 有效期至 ${input.expireAt}` : " · 永久有效"}${input.userQuota != null && input.userQuota >= 0 ? ` · 用户限额 ${input.userQuota}` : ""}`,
@@ -1045,24 +1024,17 @@ export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
     orgs: [...state.orgs, org],
     users: [...state.users, user],
     assignments: [...state.assignments, assignment],
-    createIdempotency: { ...state.createIdempotency, [idemKey]: { tenantId, requestId: nextId("req") } },
     activityLog: [...audits.slice().reverse(), ...state.activityLog],
   })
-  return { ok: true, replayed: false, tenant, collisions, audits }
+  return { ok: true, tenant, audits }
 }
 
-// ─── 企业码复制审计（主码只读：仅复制与查看，无编辑/重生成/别名） ────────────
+// ─── 租户生命周期（暂停 / 恢复，原因码 + 必填说明写审计） ────────────────────
 
-/** 企业码复制审计（复制动作本身在页面完成，这里只落审计） */
-export function auditCodeCopy(code: string, actor: string): TenantAuditLine {
-  const tenant = state.tenants.find((t) => t.primaryCode === code)
-  const line = audit("ENT_CODE_COPIED", tenant?.shortName ?? "种子租户", actor, { code })
-  commit({ activityLog: [line, ...state.activityLog] })
-  return line
-}
-
-// ─── 租户生命周期（暂停/恢复/终止均要求原因码 + 说明，写审计） ────────────────
-
+/**
+ * 暂停租户（2026-11-24 需求文档 §2.1：操作原因必填、非空校验；标准原因码
+ * 为快捷选项，与说明一并写入审计）。暂停后全员禁止新登录，可恢复。
+ */
 export function suspendTenant(tenantId: string, reasonCode: string, note: string, actor: string): OpResult {
   const tenant = state.tenants.find((t) => t.id === tenantId)
   if (!tenant || tenant.status !== "active") return { ok: false, error: "仅正常状态租户可暂停", audits: [] }
@@ -1074,14 +1046,17 @@ export function suspendTenant(tenantId: string, reasonCode: string, note: string
   })
   commit({
     tenants: state.tenants.map((t) =>
-      t.id === tenantId ? { ...t, status: "suspended", statusChangedAt: nowStamp(), statusReasonCode: reasonCode, statusNote: note } : t,
+      t.id === tenantId
+        ? { ...t, status: "suspended", statusChangedAt: nowStamp(), statusReasonCode: reasonCode, statusNote: note }
+        : t,
     ),
-    // 暂停：主码解析随租户状态阻断（lifecycle 保持 active，由 resolveEnterpriseByCode 判定）
+    // 暂停：主码解析随租户状态阻断（由 resolveEnterpriseByCode 判定）
     activityLog: [line, ...state.activityLog],
   })
   return { ok: true, audits: [line] }
 }
 
+/** 恢复租户（操作原因必填）：恢复后主码立即恢复登录解析，权限按当前状态重算 */
 export function resumeTenant(tenantId: string, reasonCode: string, note: string, actor: string): OpResult {
   const tenant = state.tenants.find((t) => t.id === tenantId)
   if (!tenant || tenant.status !== "suspended") return { ok: false, error: "仅已暂停租户可恢复", audits: [] }
@@ -1091,117 +1066,17 @@ export function resumeTenant(tenantId: string, reasonCode: string, note: string,
     detail: `${reasonLabel}${note ? `：${note}` : ""} · 恢复后按成员、角色与业务授权当前状态重新计算权限`,
   })
   commit({
-    tenants: state.tenants.map((t) => t.id === tenantId ? { ...t, status: "active", statusChangedAt: nowStamp(), statusReasonCode: reasonCode, statusNote: note } : t),
-    activityLog: [line, ...state.activityLog],
-  })
-  return { ok: true, audits: [line] }
-}
-
-export function terminateTenant(tenantId: string, reasonCode: string, note: string, actor: string): OpResult {
-  const tenant = state.tenants.find((t) => t.id === tenantId)
-  // 待激活（开户作废）、正常（解约/清退直接终止）、已暂停均可终止；已终止不可重复操作
-  if (!tenant || tenant.status === "terminated") {
-    return { ok: false, error: "仅非终止状态租户可终止", audits: [] }
-  }
-  const reasonLabel = TERMINATE_REASON_OPTIONS.find((r) => r.code === reasonCode)?.label ?? reasonCode
-  const affected = tenant.status === "active" ? activeMemberCount(tenant) : 0
-  const impactNote =
-    tenant.status === "pending_activation"
-      ? "待激活邀请一并失效 · 主企业码永久停用（retired）"
-      : affected > 0
-        ? `受影响：${affected} 名活跃成员禁止登录 · 主企业码永久停用（retired），历史记录保留`
-        : "主企业码永久停用（retired），历史记录保留"
-  const line = audit("TENANT_TERMINATED", tenant.shortName, actor, {
-    code: tenant.primaryCode,
-    detail: `${reasonLabel}${note ? `：${note}` : ""} · ${impactNote}`,
-  })
-  commit({
-    tenants: state.tenants.map((t) => t.id === tenantId ? { ...t, status: "terminated", statusChangedAt: nowStamp(), statusReasonCode: reasonCode, statusNote: note } : t),
-    // 终止：主码 → retired，永久保留且不得重新分配
-    codes: state.codes.map((c) => (c.enterpriseId === tenant.enterpriseOrgId ? { ...c, lifecycle: "retired" } : c)),
-    activityLog: [line, ...state.activityLog],
-  })
-  return { ok: true, audits: [line] }
-}
-
-// ─── 首位管理员运维 ──────────────────────────────────────────────────────────
-
-/** 变更首位管理员：旧邀请失效（回收预置授权），新管理员得到新的待激活关系 */
-export function changeInitialAdmin(tenantId: string, admin: TenantAdminDesignee, reason: string, actor: string): OpResult {
-  const tenant = state.tenants.find((t) => t.id === tenantId)
-  if (!tenant || tenant.status !== "pending_activation") return { ok: false, error: "仅待激活租户可变更首位管理员", audits: [] }
-  if (admin.phone === tenant.initialAdmin.phone) return { ok: false, error: "新管理员手机号与当前一致", audits: [] }
-  // 登录账号（企业内唯一）：不得与本企业任何在册账号冲突——旧管理员虽将停用，
-  // 其账号记录仍保留（历史授权可查），允许重名会造成密码登录定位歧义
-  const adminAccount = ACCOUNT_PATTERN.test(admin.account?.trim() ?? "")
-    ? (admin.account as string).trim()
-    : defaultRuntimeAccount(admin.phone)
-  if (isAccountTakenInWorkspace(adminAccount, tenant.enterpriseOrgId)) {
-    return { ok: false, error: "该登录账号在本企业已存在，请更换", audits: [] }
-  }
-  const stamp = nowStamp()
-  const adminRole = ADMIN_ROLE_BY_TYPE[tenant.type]
-  const newUserId = `u-rt-${nextId("ua").toLowerCase()}`
-  const lines = [
-    audit("INITIAL_ADMIN_CHANGED", tenant.shortName, actor, {
-      detail: `${tenant.initialAdmin.name} → ${admin.name} · ${maskPhoneLocal(admin.phone)}（旧邀请失效）${reason ? ` · 原因：${reason}` : ""}`,
-    }),
-  ]
-  commit({
     tenants: state.tenants.map((t) =>
       t.id === tenantId
-        ? {
-            ...t,
-            initialAdmin: {
-              userId: newUserId,
-              name: admin.name,
-              phone: admin.phone,
-              department: admin.department,
-              roleLabel: adminRole.roleLabel,
-              roleId: adminRole.roleId,
-              memberStatus: "pending_activation",
-            },
-          }
+        ? { ...t, status: "active", statusChangedAt: nowStamp(), statusReasonCode: reasonCode, statusNote: note }
         : t,
     ),
-    // 旧管理员：授权回收 + 账号停用（邀请失效）；新管理员建档 + 待激活授权
-    users: [
-      ...state.users.map((u) => (u.id === tenant.initialAdmin.userId ? { ...u, accountStatus: "disabled" as const } : u)),
-      {
-        id: newUserId,
-        name: admin.name,
-        account: adminAccount,
-        phone: admin.phone,
-        email: "",
-        orgId: tenant.enterpriseOrgId,
-        orgName: tenant.legalName,
-        accountStatus: "enabled" as const,
-        createdAt: stamp,
-      },
-    ],
-    assignments: [
-      ...state.assignments.map((a) => (a.userId === tenant.initialAdmin.userId && a.scopeOrgId === tenant.enterpriseOrgId && a.status === "active"
-        ? { ...a, status: "revoked" as const, revokedBy: actor, revokedAt: stamp, reason: "变更首位管理员，旧邀请失效" }
-        : a)),
-      {
-        id: nextId("g"),
-        tenantId: tenant.enterpriseOrgId,
-        userId: newUserId,
-        roleId: adminRole.roleId,
-        scopeOrgId: tenant.enterpriseOrgId,
-        scopeOrgName: tenant.legalName,
-        scope: tenant.type === "pharma" ? ("PHARMA" as const) : ("PROVIDER" as const),
-        effectiveFrom: stamp.slice(0, 10),
-        grantedBy: actor,
-        grantedAt: stamp,
-        status: "active" as const,
-        reason: "变更首位管理员 · 新待激活授权",
-      },
-    ],
-    activityLog: [...lines, ...state.activityLog],
+    activityLog: [line, ...state.activityLog],
   })
-  return { ok: true, audits: lines }
+  return { ok: true, audits: [line] }
 }
+
+// ─── 查重 ────────────────────────────────────────────────────────────────────
 
 /** 统一社会信用代码查重（向导实时校验用） */
 export function isUsccTaken(uscc: string): boolean {
@@ -1217,7 +1092,7 @@ export function isUsccTaken(uscc: string): boolean {
  */
 export function changeTenantPackage(tenantId: string, packageId: string, packageLabel: string, actor: string): OpResult {
   const tenant = state.tenants.find((t) => t.id === tenantId)
-  if (!tenant || tenant.status === "terminated") return { ok: false, error: "已终止租户不可更换套餐", audits: [] }
+  if (!tenant) return { ok: false, error: "租户不存在", audits: [] }
   const line = audit("TENANT_PACKAGE_CHANGED", tenant.shortName, actor, {
     detail: `套餐换绑为「${packageLabel}」，即时生效`,
   })
@@ -1254,7 +1129,7 @@ export function tenantUserCount(enterpriseOrgId: string): number {
  */
 export function tenantQuotaInfo(enterpriseOrgId: string): { quota: number | null; used: number } {
   const tenant = state.tenants.find((t) => t.enterpriseOrgId === enterpriseOrgId)
-  if (!tenant || tenant.status === "terminated") return { quota: null, used: 0 }
+  if (!tenant) return { quota: null, used: 0 }
   const quota = tenant.userQuota
   if (quota == null || quota < 0) return { quota: null, used: 0 }
   return { quota, used: tenantUserCount(enterpriseOrgId) }

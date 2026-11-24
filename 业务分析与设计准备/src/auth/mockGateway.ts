@@ -1284,7 +1284,7 @@ export const authGateway: AuthGateway = {
     const ws = workspaceId
       ? { realm: realmOfWorkspace(workspaceId) ?? ("TENANT" as const), workspaceId }
       : workspaceOfUser(user.id)
-    // 租户暂停/终止：与短信路径同口径，按企业码停用统一文案拒绝
+    // 租户已暂停：与短信路径同口径，按企业码停用统一文案拒绝
     if (ws.realm === "TENANT" && !tenantLoginAllowed(ws.workspaceId)) {
       return failWith(
         "password",
@@ -1324,7 +1324,7 @@ export const authGateway: AuthGateway = {
       })
       if (completeRuntimeActivation(user.id, ws.workspaceId)) {
         pushAuthAudit({
-          action: "租户激活",
+          action: "首位管理员激活",
           outcome: "成功",
           actorLabel: user.account,
           reason: "TENANT_ACTIVATED",
@@ -1473,7 +1473,7 @@ export const authGateway: AuthGateway = {
     }
     // 验证码校验成功 → 此后才做成员/账号状态判定与披露（防枚举口径）
     smsTickets.delete(key)
-    // 租户暂停/终止：已有票据在暂停瞬间失效，按统一企业码停用口径拒绝
+    // 租户已暂停：已有票据在暂停瞬间失效，按统一企业码停用口径拒绝
     if (realm === "TENANT" && !tenantLoginAllowed(enterpriseId)) {
       return failWith(
         "sms",
@@ -1525,7 +1525,7 @@ export const authGateway: AuthGateway = {
       })
       if (completeRuntimeActivation(user.id, enterpriseId)) {
         pushAuthAudit({
-          action: "租户激活",
+          action: "首位管理员激活",
           outcome: "成功",
           actorLabel: user.account,
           reason: "TENANT_ACTIVATED",

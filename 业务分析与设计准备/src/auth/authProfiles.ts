@@ -117,7 +117,7 @@ export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
   // ── 软件服务方（贝医） ──
   { userId: "u-wangmin", account: "wangmin", name: "王敏", roleName: "贝医系统管理员", orgName: "系统服务部", group: "platform", tags: ["直入租户管理", "免角色确认"], enterpriseCode: "M8QT3ZRN", phone: "13901350101", scene: "软件服务方唯一预置角色：认证成功直接进入租户管理（2026-09-18 起系统管理后台无工作台首页，无角色确认页），管理租户/租户套餐/菜单/合作监管/系统审计" },
   // 软件服务方运行时建租户的待激活管理员（种子租户：云杏生物/泰合医学推广；「恢复演示数据」可复位重演）
-  { userId: "u-rt-zhouting", account: "rt-zhouting", name: "周婷", roleName: "企业管理员", orgName: "云杏生物医药有限公司", group: "platform", tags: ["软件服务方开户·首登激活", "药厂租户"], enterpriseCode: "R8NV3KQ2", phone: "13809120116", scene: "待激活药厂管理员：验证码通过即激活并提示「账号已激活，欢迎加入」，单角色直入药厂工作台，租户转「正常」（配套王敏的建租户动作；服务商租户同类场景同理）" },
+  { userId: "u-rt-zhouting", account: "rt-zhouting", name: "周婷", roleName: "企业管理员", orgName: "云杏生物医药有限公司", group: "platform", tags: ["软件服务方开户·首登激活", "药厂租户"], enterpriseCode: "R8NV3KQ2", phone: "13809120116", scene: "待激活药厂管理员：验证码通过即激活并提示「账号已激活，欢迎加入」，单角色直入药厂工作台（配套王敏的建租户动作；服务商租户同类场景同理）" },
   // ── 药厂侧（百益制药） ──
   { userId: "u-shenyue", account: "shenyue", name: "沈悦", roleName: "企业管理员", orgName: "信息技术部", group: "pharma", tags: ["组织/用户/角色授权主线"], enterpriseCode: "E9K4P7X2", phone: "13901350121", scene: "药厂企业管理主线：本药厂组织架构、用户、角色与数据范围（唯一授权入口）" },
   { userId: "u-lihang", account: "lihang", name: "李航", roleName: "企业管理员 + 药厂区域销售经理", orgName: "西北大区", group: "pharma", tags: ["多角色权限合并"], enterpriseCode: "E9K4P7X2", phone: "13901350102", scene: "同企业多角色自动合并：登录不选角色，直接获得「企业管理员」+「药厂区域销售经理」权限并集（顶栏身份行显示双角色并集 · 企业，如「企业管理员 + 药厂区域销售经理 · 百益制药」）" },

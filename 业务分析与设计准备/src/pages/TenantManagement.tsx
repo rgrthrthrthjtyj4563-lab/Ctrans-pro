@@ -2,13 +2,17 @@
  * 租户管理（软件服务方侧 · 2026-09-15 深度审核整改版）。
  *
  * 贝医系统管理员的开户闭环（直接创建、无申请审核流）：
- * 新建药厂/服务商（三步向导：类型 → 企业资料 → 首位管理员）→ 确认创建即
- * 原子建租（自动生成全局唯一主企业码 + 首位管理员待激活）→ 管理员首次登录
- * 激活联动 → 租户暂停/恢复/终止（一律原因码 + 说明 + 审计）。
+ * 新建药厂/服务商（四步向导：类型 → 企业资料 → 套餐与开通限制 → 首位管理员）→
+ * 确认创建即原子建租（自动生成全局唯一主企业码 + 首位管理员待激活）→ 管理员
+ * 首次登录激活其成员身份 → 租户暂停/恢复（一律原因码 + 说明 + 审计）。
  *
  * 2026-09-15 整改拍板：无申请/审核/驳回/补正；一个租户一个主企业码（无别名
- * 码、无重发激活提醒）；状态机四态（待激活/正常/已暂停/已终止）；状态操作
- * 收敛到详情头部；详情内容卡按「套餐与开通 / 主体资料 / 管理员信息」选项卡切换。
+ * 码、无重发激活提醒）；状态操作收敛到详情头部；详情内容卡按「套餐与开通 /
+ * 主体资料 / 管理员信息 / 操作日志」选项卡切换。
+ *
+ * 2026-11-24 状态收敛：租户仅保留正常 / 已暂停两态，创建即正常；待激活、已终止
+ * 两类状态及激活、终止操作取消。同轮调整：列表去掉状态统计卡片；复制企业码
+ * 不写操作日志；新建向导的企业名称 / 信用代码 / 注册地址改为纯手动录入。
  *
  * 数据全部来自运行时注册表（mock，localStorage 演示），生产环境由服务端与
  * 数据库完成（见 tenantRegistry.ts 头注）。页面可见性由角色页面权限收敛：
@@ -25,7 +29,6 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  Ban,
   Building2,
   Check,
   CheckCircle2,
@@ -38,11 +41,10 @@ import {
   PlayCircle,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
-  UserCog,
   X,
-  XCircle,
 } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import { Modal } from "../components/Modal";
@@ -53,21 +55,17 @@ import {
   getTenantRegistrySnapshot,
   subscribeTenantRegistry,
   createTenant,
-  auditCodeCopy,
   suspendTenant,
   resumeTenant,
-  terminateTenant,
-  changeInitialAdmin,
   changeTenantPackage,
   tenantExpired,
   isUsccTaken,
   resetTenantRegistry,
   ACCOUNT_PATTERN,
   defaultRuntimeAccount,
-  isAccountTakenInWorkspace,
+  legacyReasonLabel,
   SUSPEND_REASON_OPTIONS,
   RESUME_REASON_OPTIONS,
-  TERMINATE_REASON_OPTIONS,
   TENANT_STATUS_LABEL,
   TENANT_TYPE_LABEL,
   type TenantAdminDesignee,
@@ -89,25 +87,24 @@ const PAGE_SIZE = 8;
 const AUDIT_ACTION_LABEL: Record<string, string> = {
   TENANT_CREATED: "正式租户创建",
   ENT_CODE_PRIMARY_GENERATED: "主企业码生成",
-  ENT_CODE_COLLISION_RETRIED: "企业码冲突重试",
-  ENT_CODE_COPIED: "企业码复制",
   INITIAL_ADMIN_CREATED: "首位管理员创建",
-  INITIAL_ADMIN_CHANGED: "首位管理员变更",
   TENANT_PACKAGE_BOUND: "租户套餐绑定",
   TENANT_PACKAGE_CHANGED: "租户套餐换绑",
-  TENANT_ACTIVATED: "租户激活",
+  // 原因码沿用历史取值；租户创建即正常，首登只激活首位管理员的成员身份
+  TENANT_ACTIVATED: "首位管理员激活",
   TENANT_SUSPENDED: "租户暂停",
   TENANT_REACTIVATED: "租户恢复",
-  TENANT_TERMINATED: "租户终止",
 };
 
-/** 状态原因码 → 文案（暂停/恢复/终止共用查询） */
+/** 详情「操作日志」收录口径：仅租户状态变更（创建 / 暂停 / 恢复），其余操作只进全局操作日志 */
+const STATUS_LOG_REASONS: ReadonlySet<string> = new Set(["TENANT_CREATED", "TENANT_SUSPENDED", "TENANT_REACTIVATED"]);
+
+/** 状态原因码 → 文案（现行暂停/恢复标准选项；不在选项中的历史码走旧映射兜底） */
 function statusReasonLabel(code: string): string {
   return (
     SUSPEND_REASON_OPTIONS.find((o) => o.code === code)?.label ??
     RESUME_REASON_OPTIONS.find((o) => o.code === code)?.label ??
-    TERMINATE_REASON_OPTIONS.find((o) => o.code === code)?.label ??
-    code
+    legacyReasonLabel(code)
   );
 }
 
@@ -152,10 +149,8 @@ function useIsCompact(): boolean {
 
 function StatusPill({ status }: { status: TenantRecord["status"] }) {
   const map: Record<TenantRecord["status"], { bg: string; fg: string; icon: ReactNode }> = {
-    pending_activation: { bg: "#E0F2FE", fg: "#0369A1", icon: <UserCog size={12} /> },
     active: { bg: "#DCFCE7", fg: "#15803D", icon: <CheckCircle2 size={12} /> },
     suspended: { bg: "#FEF3E2", fg: "#B45309", icon: <PauseCircle size={12} /> },
-    terminated: { bg: "#F3F4F6", fg: "#6B7280", icon: <Ban size={12} /> },
   };
   const s = map[status];
   return (
@@ -279,15 +274,12 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
 
   const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const stats = useMemo(() => {
-    const list: { key: TenantRecord["status"] | "total"; label: string; value: number; color: string; bg: string }[] = [
-      { key: "pending_activation", label: "待激活", value: tenants.filter((t) => t.status === "pending_activation").length, color: "#0369A1", bg: "#E0F2FE" },
-      { key: "active", label: "正常", value: tenants.filter((t) => t.status === "active").length, color: "#15803D", bg: "#DCFCE7" },
-      { key: "suspended", label: "已暂停", value: tenants.filter((t) => t.status === "suspended").length, color: "#B45309", bg: "#FEF3E2" },
-      { key: "terminated", label: "已终止", value: tenants.filter((t) => t.status === "terminated").length, color: "#6B7280", bg: "#F3F4F6" },
-    ];
-    return list;
-  }, [tenants]);
+  const resetFilters = () => {
+    setSearchInput("");
+    setFType("");
+    setFStatus("");
+    setPage(1);
+  };
 
   /** 注册表操作 → 全局操作日志（标准原因码） */
   const flushAudits = useCallback(
@@ -315,7 +307,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <PageHeader
         title="租户管理"
-        description="软件服务方开户闭环：直接创建药厂/服务商租户（自动生成全局唯一主企业码与待激活首位管理员）、管理员激活联动与租户生命周期管理。"
+        description="软件服务方开户闭环：直接创建药厂/服务商租户（一次完成开户并生成全局唯一主企业码，创建即正常生效、首位管理员可直接登录），支持套餐换绑与暂停/恢复生命周期管理。"
         actions={
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -343,30 +335,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
       />
 
       <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
-        {/* 状态统计（可点击筛选；「正常」由首位管理员首次登录激活获得，不能直接创建） */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 16 }}>
-          {stats.map((s) => {
-            const active = fStatus === s.key;
-            return (
-              <button
-                key={s.key}
-                type="button"
-                className="tm-stat-card"
-                aria-pressed={active}
-                style={{ background: active ? s.bg : "#FFFFFF", borderColor: active ? s.color : "var(--color-border)" }}
-                onClick={() => {
-                  setPage(1);
-                  setFStatus((v) => (v === s.key ? "" : (s.key as string)));
-                }}
-              >
-                <span style={{ fontSize: "var(--fs-12)", color: "#6B7280" }}>{s.label}</span>
-                <span style={{ fontSize: "var(--fs-22)", fontWeight: 700, color: s.color }}>{s.value}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 搜索 + 筛选 */}
+        {/* 搜索 + 筛选：一行极简工具条，控件统一 32px 高；「全部」态为占位灰 */}
         <div className="tm-filterbar" style={{ marginBottom: 12 }}>
           <div className="tm-search">
             <Search size={14} aria-hidden />
@@ -382,23 +351,25 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
               </button>
             )}
           </div>
-          <select value={fType} onChange={(e) => { setFType(e.target.value); setPage(1) }} aria-label="筛选租户类型">
+          <select data-active={fType ? "true" : "false"} value={fType} onChange={(e) => { setFType(e.target.value); setPage(1) }} aria-label="筛选租户类型">
             <option value="">全部类型</option>
             <option value="pharma">药厂</option>
             <option value="provider">服务提供商</option>
           </select>
-          <select value={fStatus} onChange={(e) => { setFStatus(e.target.value); setPage(1) }} aria-label="筛选租户状态">
+          <select data-active={fStatus ? "true" : "false"} value={fStatus} onChange={(e) => { setFStatus(e.target.value); setPage(1) }} aria-label="筛选租户状态">
             <option value="">全部状态</option>
-            <option value="pending_activation">待激活</option>
             <option value="active">正常</option>
             <option value="suspended">已暂停</option>
-            <option value="terminated">已终止</option>
           </select>
           {hasAnyFilter && (
-            <button type="button" className="tm-ghost-btn" onClick={() => { setSearchInput(""); setFType(""); setFStatus(""); setPage(1) }}>
+            <button type="button" className="tm-filterbar-reset" onClick={resetFilters}>
+              <RotateCcw size={13} aria-hidden />
               重置
             </button>
           )}
+          <span className="tm-filterbar-count">
+            共 <strong className="font-mono-nums">{filtered.length}</strong> 家
+          </span>
         </div>
 
         {/* 列表：桌面表格 / 窄屏卡片（不压扁、不裁切） */}
@@ -416,7 +387,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
                 title="没有符合筛选条件的租户"
                 description="调整搜索词或筛选条件后重试。"
                 action={
-                  <button type="button" className="tm-ghost-btn" onClick={() => { setSearchInput(""); setFType(""); setFStatus(""); setPage(1) }}>
+                  <button type="button" className="tm-ghost-btn" onClick={resetFilters}>
                     清除全部筛选
                   </button>
                 }
@@ -455,7 +426,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
             <table className="tm-table" style={{ width: "100%", borderCollapse: "collapse", minWidth: 1160 }}>
               <thead>
                 <tr>
-                  {["企业名称", "类型", "统一社会信用代码", "主企业码", "套餐与开通", "租户状态", "创建时间", "操作"].map((h) => (
+                  {["企业法定名称", "类型", "统一社会信用代码", "主企业码", "套餐与有效期", "租户状态", "创建时间", "操作"].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -540,44 +511,8 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
 
 const PHARMA_CATEGORIES = ["化学药品制剂", "中药与天然药", "生物制品", "原料药", "药械组合"];
 
-// ─── 工商信息自动带出（演示模拟） ────────────────────────────────────────────
-// 生产环境应在服务端对接企查查/天眼查等工商数据 API，按企业名称查询工商
-// 登记信息（统一社会信用代码 + 注册地址）；演示原型用本地模拟：优先命中已建
-// 租户的登记数据，否则按名称哈希生成一组稳定的演示数据，让「输入企业名称 →
-// 自动带出信用代码与注册地址」可走通。
-
-const LOOKUP_REGIONS = [
-  "江苏省南京市江宁区", "浙江省杭州市滨江区", "上海市浦东新区张江高科技园区",
-  "北京市北京经济技术开发区", "广东省广州市黄埔区科学城", "四川省成都市高新区",
-];
-const LOOKUP_ROADS = ["科学园乾德路", "生物医药园创新大道", "生命科学园康泰路", "产业新城聚合路", "医药产业园研新路"];
-/** 模拟信用代码字符集（统一社会信用代码字符表，不含 I/O/S/V/Z） */
-const SIM_USCC_CHARS = "0123456789ABCDEFGHJKLMNPQRTUWXY";
-
-interface EnterpriseRegistryRecord { uscc: string; address: string }
-
-/** 模拟工商库按名称查询登记信息；名称过短视为查询不到 */
-function lookupEnterpriseRecord(key: string): EnterpriseRegistryRecord | null {
-  const k = key.trim();
-  if (k.length < 4) return null;
-  const hit = getTenantRegistrySnapshot().tenants.find(
-    (t) => t.legalName.includes(k),
-  );
-  if (hit) return { uscc: hit.uscc, address: hit.profile.address };
-  let h = 0;
-  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0;
-  const address = `${LOOKUP_REGIONS[h % LOOKUP_REGIONS.length]}${LOOKUP_ROADS[(h >>> 3) % LOOKUP_ROADS.length]}${(h % 188) + 1} 号`;
-  // 91 开头的 18 位模拟信用代码；若与已建租户撞号则顺移种子重生成
-  let seed = h;
-  let uscc = "";
-  do {
-    uscc = `91${Array.from({ length: 16 }, () => {
-      seed = (seed * 1103515245 + 12345) >>> 0;
-      return SIM_USCC_CHARS[seed % SIM_USCC_CHARS.length];
-    }).join("")}`;
-  } while (isUsccTaken(uscc));
-  return { uscc, address };
-}
+// 2026-11-24：取消「按企业名称查询工商登记信息」的带出逻辑（原为演示模拟企查查），
+// 企业法定名称 / 统一社会信用代码 / 企业注册地址一律手动录入。
 
 interface WizardForm {
   type: TenantType
@@ -632,38 +567,13 @@ function TenantWizard({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [created, setCreated] = useState<{ tenant: TenantRecord; replayed: boolean } | null>(null);
+  const [created, setCreated] = useState<{ tenant: TenantRecord } | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
   // 脏检查：向导打开后任何输入即视为有未保存内容
   const [dirty, setDirty] = useState(false);
   const set = (patch: Partial<WizardForm>) => {
     setForm((f) => ({ ...f, ...patch }));
     setDirty(true);
-  };
-
-  // 工商登记信息自动带出（演示模拟企查查）：法定名称失焦即查，也可点「查询」；带出信用代码 + 注册地址
-  const [addrLookup, setAddrLookup] = useState<{ status: "idle" | "searching" | "found" | "notfound"; key: string }>({ status: "idle", key: "" });
-  const addrTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (addrTimer.current !== null) window.clearTimeout(addrTimer.current) }, []);
-  const runAddressLookup = (rawKey: string) => {
-    const key = rawKey.trim();
-    if (addrTimer.current !== null) window.clearTimeout(addrTimer.current);
-    if (!key) { setAddrLookup({ status: "idle", key: "" }); return; }
-    setAddrLookup({ status: "searching", key });
-    addrTimer.current = window.setTimeout(() => {
-      const rec = lookupEnterpriseRecord(key);
-      setAddrLookup({ status: rec ? "found" : "notfound", key });
-      if (rec) {
-        set({ uscc: rec.uscc, address: rec.address });
-        setErrors((e) => {
-          if (!e.address && !e.uscc) return e;
-          const rest = { ...e };
-          delete rest.address;
-          delete rest.uscc;
-          return rest;
-        });
-      }
-    }, 650);
   };
 
   const steps = ["选择企业类型", "填写企业资料", "套餐与开通限制", "指定首位管理员"];
@@ -746,7 +656,7 @@ function TenantWizard({
         return;
       }
       flushAudits(result.audits);
-      setCreated({ tenant: result.tenant, replayed: result.replayed });
+      setCreated({ tenant: result.tenant });
     } catch {
       addToast({ type: "error", title: "暂时无法创建租户，请稍后重试" });
     } finally {
@@ -759,25 +669,18 @@ function TenantWizard({
     if (ok) {
       setCopyState("ok");
       window.setTimeout(() => setCopyState("idle"), 1600);
-      flushAudits([auditCodeCopy(code, actor)]);
-      addToast({ type: "success", title: "企业码已复制，并已记录操作日志" });
+      addToast({ type: "success", title: "企业码已复制" });
     } else {
       setCopyState("fail");
       addToast({ type: "error", title: "复制失败", description: "请手动选中文本复制。" });
     }
   };
 
-  // 创建完成页（方案 §3.2）：企业名称、类型、主企业码、首位管理员、状态待激活
+  // 创建完成页（方案 §3.2）：企业名称、类型、主企业码、首位管理员、当前状态
   if (created) {
     return (
       <Modal open title="租户已创建，主企业码已生成" width={520} onClose={onClose}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {created.replayed && (
-            <div className="tm-note tm-note--info" role="note">
-              <AlertTriangle size={14} aria-hidden />
-              <span>该主体已创建过租户：以下为已存在的主企业码与首位管理员，<b>未重复创建</b>（幂等保护生效）。</span>
-            </div>
-          )}
           <dl className="tm-confirm-grid">
             <dt>企业名称</dt><dd>{created.tenant.legalName}</dd>
             <dt>租户类型</dt><dd>{TENANT_TYPE_LABEL[created.tenant.type]}</dd>
@@ -850,69 +753,30 @@ function TenantWizard({
 
       {step === 1 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 16 }}>
-          <Field id="wf-legalName" label="企业法定名称" required error={errors.legalName} hint="失焦或点「查询」自动带出信用代码与注册地址">
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                {...inputProps("wf-legalName", errors.legalName)}
-                value={form.legalName}
-                onChange={(e) => set({ legalName: e.target.value })}
-                onBlur={(e) => runAddressLookup(e.currentTarget.value)}
-                placeholder="与营业执照一致"
-              />
-              <button
-                type="button"
-                className="tm-ghost-btn"
-                style={{ height: 40, flexShrink: 0 }}
-                disabled={addrLookup.status === "searching"}
-                onClick={() => runAddressLookup(form.legalName)}
-                title="按企业名称查询工商登记信息（演示模拟企查查）"
-              >
-                {addrLookup.status === "searching"
-                  ? <LoaderCircle size={14} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden />
-                  : <Search size={14} aria-hidden />}
-                查询
-              </button>
-            </div>
+          <Field id="wf-legalName" label="企业法定名称" required error={errors.legalName}>
+            <input
+              {...inputProps("wf-legalName", errors.legalName)}
+              value={form.legalName}
+              onChange={(e) => set({ legalName: e.target.value })}
+              placeholder="与营业执照一致"
+            />
           </Field>
-          <Field
-            id="wf-uscc"
-            label="统一社会信用代码"
-            required
-            error={errors.uscc}
-            hint={addrLookup.status === "found" ? "已按企业名称自动带出（工商登记 · 演示模拟），可核对修改" : "18 位，全局查重"}
-          >
+          <Field id="wf-uscc" label="统一社会信用代码" required error={errors.uscc} hint="18 位，全局查重">
             <input
               {...inputProps("wf-uscc", errors.uscc)}
               className="tm-field font-mono-nums"
               value={form.uscc}
-              onChange={(e) => {
-                set({ uscc: e.target.value.toUpperCase() });
-                if (addrLookup.status !== "idle") setAddrLookup({ status: "idle", key: "" });
-              }}
+              onChange={(e) => set({ uscc: e.target.value.toUpperCase() })}
               placeholder="91320191MA4WQ7LR8C"
               maxLength={18}
               style={{ ...fieldInput, letterSpacing: "0.04em", ...(errors.uscc ? { borderColor: "#DC2626" } : {}) }}
             />
           </Field>
-          <Field
-            id="wf-address"
-            label="企业注册地址"
-            required
-            error={errors.address}
-            hint={
-              addrLookup.status === "searching" ? `正在按「${addrLookup.key}」查询工商登记信息…`
-                : addrLookup.status === "found" ? "已按企业名称自动带出（工商登记 · 演示模拟），可核对修改"
-                : addrLookup.status === "notfound" ? `未查询到「${addrLookup.key}」的工商登记信息，请手动填写`
-                : "填写企业名称后自动带出，也可手动填写"
-            }
-          >
+          <Field id="wf-address" label="企业注册地址" required error={errors.address} hint="与营业执照登记的住所一致">
             <input
               {...inputProps("wf-address", errors.address)}
               value={form.address}
-              onChange={(e) => {
-                set({ address: e.target.value });
-                if (addrLookup.status !== "idle") setAddrLookup({ status: "idle", key: "" });
-              }}
+              onChange={(e) => set({ address: e.target.value })}
               placeholder="省市 + 详细地址"
             />
           </Field>
@@ -954,7 +818,7 @@ function TenantWizard({
               <Field id="wf-mah" label="药品上市许可持有人 / 生产企业标识" required>
                 <select id="wf-mah" className="tm-field" style={fieldInput} value={form.mahHolderFlag ? "yes" : "no"} onChange={(e) => set({ mahHolderFlag: e.target.value === "yes" })}>
                   <option value="yes">是 · 上市许可持有人（MAH）</option>
-                  <option value="no">否 · 受托生产企业</option>
+                  <option value="no">否 · 销售企业</option>
                 </select>
               </Field>
             </>
@@ -1074,7 +938,7 @@ function TenantWizard({
           </dl>
           <div className="tm-note tm-note--brand" role="note">
             <ShieldCheck size={14} aria-hidden />
-            <span>确认创建后，系统将生成<b>不可修改的主企业码</b>，并创建首位管理员<b>待激活</b>账号；租户初始状态为「待激活」，首位管理员首次登录（短信验证码或账号密码）通过后自动激活。</span>
+            <span>确认创建后，系统将生成<b>不可修改的主企业码</b>；租户直接生效为「正常」状态，首位管理员可凭手机号验证码或登录账号直接登录使用。</span>
           </div>
         </div>
       )}
@@ -1165,15 +1029,11 @@ function TenantDetailDrawer({
   const tenant = registry.tenants.find((t) => t.id === tenantId);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // 状态操作弹窗（暂停/恢复/终止均要求原因码 + 说明）
-  const [statusAction, setStatusAction] = useState<"suspend" | "resume" | "terminate" | null>(null);
+  // 状态操作弹窗（暂停/恢复：标准原因码快捷选择 + 说明必填，写审计）
+  const [statusAction, setStatusAction] = useState<"suspend" | "resume" | null>(null);
   const [reasonCode, setReasonCode] = useState("");
   const [reasonNote, setReasonNote] = useState("");
   const [reasonErr, setReasonErr] = useState<string | null>(null);
-
-  const [adminChangeOpen, setAdminChangeOpen] = useState(false);
-  const [adminForm, setAdminForm] = useState({ name: "", account: "", phone: "", reason: "" });
-  const [adminErr, setAdminErr] = useState<Record<string, string>>({});
 
   // 更换套餐弹窗
   const [pkgChangeOpen, setPkgChangeOpen] = useState(false);
@@ -1191,28 +1051,18 @@ function TenantDetailDrawer({
   const pkg = packageOfTenant(tenant.id);
   const expired = tenantExpired(tenant);
 
-  // 汇总本租户的操作日志（实时操作流水 + 种子租户的初始基线记录）
+  // 汇总本租户的操作日志：仅收录租户状态变更（创建 / 暂停 / 恢复），
+  // 套餐、管理员、企业码等其余操作只进全局操作日志；种子租户补初始基线
   const tenantLog = (() => {
     const rawLogs = registry.activityLog.filter(
-      (l) => l.targetTenant === tenant.shortName || l.code === tenant.primaryCode,
+      (l) =>
+        STATUS_LOG_REASONS.has(l.reasonCode) &&
+        (l.targetTenant === tenant.shortName || l.code === tenant.primaryCode),
     );
     const hasCreated = rawLogs.some((l) => l.reasonCode === "TENANT_CREATED");
     if (hasCreated) return rawLogs;
     const seedBaseline: TenantAuditLine[] = [];
     if (
-      tenant.status === "terminated" &&
-      !rawLogs.some((l) => l.reasonCode === "TENANT_TERMINATED")
-    ) {
-      seedBaseline.push({
-        id: `seed-term-${tenant.id}`,
-        at: tenant.statusChangedAt,
-        actor: tenant.createdBy,
-        reasonCode: "TENANT_TERMINATED",
-        targetTenant: tenant.shortName,
-        code: tenant.primaryCode,
-        detail: `${tenant.statusReasonCode ? statusReasonLabel(tenant.statusReasonCode) : "合作协议终止"}${tenant.statusNote ? `：${tenant.statusNote}` : ""} · 主企业码永久停用（retired）`,
-      });
-    } else if (
       tenant.status === "suspended" &&
       !rawLogs.some((l) => l.reasonCode === "TENANT_SUSPENDED")
     ) {
@@ -1224,20 +1074,6 @@ function TenantDetailDrawer({
         targetTenant: tenant.shortName,
         code: tenant.primaryCode,
         detail: `${tenant.statusReasonCode ? statusReasonLabel(tenant.statusReasonCode) : "合作协议暂停"}${tenant.statusNote ? `：${tenant.statusNote}` : ""}`,
-      });
-    }
-    if (
-      tenant.initialAdmin.memberStatus === "active" &&
-      !rawLogs.some((l) => l.reasonCode === "TENANT_ACTIVATED")
-    ) {
-      seedBaseline.push({
-        id: `seed-act-${tenant.id}`,
-        at: tenant.initialAdmin.activatedAt ?? tenant.statusChangedAt,
-        actor: tenant.initialAdmin.name,
-        reasonCode: "TENANT_ACTIVATED",
-        targetTenant: tenant.shortName,
-        code: tenant.primaryCode,
-        detail: `首位管理员「${tenant.initialAdmin.name}」首次登录完成激活，租户转为正常状态`,
       });
     }
     seedBaseline.push({
@@ -1255,8 +1091,7 @@ function TenantDetailDrawer({
   const copyCode = async (code: string) => {
     const ok = await copyTextWithFallback(code);
     if (ok) {
-      flushAudits([auditCodeCopy(code, actor)]);
-      addToast({ type: "success", title: "企业码已复制，并已记录操作日志" });
+      addToast({ type: "success", title: "企业码已复制" });
     } else {
       addToast({ type: "error", title: "复制失败", description: "请手动选中文本复制。" });
     }
@@ -1269,15 +1104,9 @@ function TenantDetailDrawer({
     setBusy(null);
   };
 
-  const openStatusAction = (action: "suspend" | "resume" | "terminate") => {
-    const first =
-      action === "suspend" ? SUSPEND_REASON_OPTIONS[0].code
-        : action === "resume" ? RESUME_REASON_OPTIONS[0].code
-          // 待激活终止默认「开户作废」；已暂停终止默认「合作协议终止」
-          : tenant.status === "pending_activation"
-            ? TERMINATE_REASON_OPTIONS.find((o) => o.code === "OPENING_VOIDED")?.code ?? TERMINATE_REASON_OPTIONS[0].code
-            : TERMINATE_REASON_OPTIONS.find((o) => o.code === "CONTRACT_ENDED")?.code ?? TERMINATE_REASON_OPTIONS[0].code
-    setReasonCode(first as string);
+  const openStatusAction = (action: "suspend" | "resume") => {
+    const first = action === "suspend" ? SUSPEND_REASON_OPTIONS[0].code : RESUME_REASON_OPTIONS[0].code;
+    setReasonCode(first);
     setReasonNote("");
     setReasonErr(null);
     setStatusAction(action);
@@ -1285,7 +1114,7 @@ function TenantDetailDrawer({
 
   const runStatusAction = () => {
     if (!reasonNote.trim()) {
-      setReasonErr("请填写说明（必填，随审计记录保留）");
+      setReasonErr("请填写说明（必填，随操作日志保留）");
       return;
     }
     const action = statusAction;
@@ -1295,19 +1124,17 @@ function TenantDetailDrawer({
       const r =
         action === "suspend"
           ? suspendTenant(tenant.id, reasonCode, reasonNote.trim(), actor)
-          : action === "resume"
-            ? resumeTenant(tenant.id, reasonCode, reasonNote.trim(), actor)
-            : terminateTenant(tenant.id, reasonCode, reasonNote.trim(), actor)
+          : resumeTenant(tenant.id, reasonCode, reasonNote.trim(), actor);
       if (r.ok) {
         flushAudits(r.audits);
-        const titles = { suspend: "租户已暂停", resume: "租户已恢复", terminate: "租户已终止" } as const
+        const titles = { suspend: "租户已暂停", resume: "租户已恢复" } as const
         addToast({ type: "success", title: titles[action], description: "原因与说明已写入操作日志。" });
       }
     });
   };
 
   const reasonOptions =
-    statusAction === "suspend" ? SUSPEND_REASON_OPTIONS : statusAction === "resume" ? RESUME_REASON_OPTIONS : TERMINATE_REASON_OPTIONS;
+    statusAction === "suspend" ? SUSPEND_REASON_OPTIONS : RESUME_REASON_OPTIONS;
 
   return (
     <>
@@ -1323,48 +1150,29 @@ function TenantDetailDrawer({
               <button type="button" className="tm-icon-btn" aria-label="复制主企业码" title="复制主企业码" onClick={() => void copyCode(tenant.primaryCode)}>
                 <Copy size={13} aria-hidden />
               </button>
-              {tenant.status === "terminated" && <span className="tm-chip tm-chip--muted">已退役 · 永久停用</span>}
             </div>
-            {tenant.statusReasonCode && (
+            {(tenant.statusReasonCode || tenant.statusNote) && (
               <div style={{ marginTop: 8, fontSize: "var(--fs-12)", color: "#6B7280", lineHeight: 1.7 }}>
-                最近原因：{statusReasonLabel(tenant.statusReasonCode)}{tenant.statusNote ? `（${tenant.statusNote}）` : ""}
+                最近原因：{statusReasonLabel(tenant.statusReasonCode ?? "")}{tenant.statusNote ? `（${tenant.statusNote}）` : ""}
               </div>
             )}
             <div style={{ marginTop: 2, fontSize: "var(--fs-12)", color: "#9CA3AF", lineHeight: 1.7 }}>
-              主企业码全局唯一、系统生成，仅可查看和复制；租户终止后永久保留且不得分配给其他企业。
+              主企业码全局唯一、系统生成，仅可查看和复制。
             </div>
           </div>
           {/* 生命周期主操作（变更首位管理员在「管理员信息」选项卡） */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {tenant.status === "pending_activation" && (
-              <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("terminate")}>
-                <Ban size={14} aria-hidden />
-                终止租户
+            {tenant.status === "active" && (
+              <button type="button" className="tm-warn-btn" disabled={busy !== null} onClick={() => openStatusAction("suspend")}>
+                <PauseCircle size={14} aria-hidden />
+                暂停租户
               </button>
             )}
-            {tenant.status === "active" && (
-              <>
-                <button type="button" className="tm-warn-btn" disabled={busy !== null} onClick={() => openStatusAction("suspend")}>
-                  <PauseCircle size={14} aria-hidden />
-                  暂停租户
-                </button>
-                <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("terminate")}>
-                  <Ban size={14} aria-hidden />
-                  终止租户
-                </button>
-              </>
-            )}
             {tenant.status === "suspended" && (
-              <>
-                <button type="button" className="tm-primary-btn" disabled={busy !== null} onClick={() => openStatusAction("resume")}>
-                  <PlayCircle size={14} aria-hidden />
-                  恢复租户
-                </button>
-                <button type="button" className="tm-danger-btn" disabled={busy !== null} onClick={() => openStatusAction("terminate")}>
-                  <Ban size={14} aria-hidden />
-                  终止租户
-                </button>
-              </>
+              <button type="button" className="tm-primary-btn" disabled={busy !== null} onClick={() => openStatusAction("resume")}>
+                <PlayCircle size={14} aria-hidden />
+                恢复租户
+              </button>
             )}
           </div>
         </div>
@@ -1419,22 +1227,20 @@ function TenantDetailDrawer({
             >
               <div className="tm-sec-head">
                 <h4 className="tm-sec-title">套餐与开通</h4>
-                {tenant.status !== "terminated" && (
-                  <button
-                    type="button"
-                    className="tm-ghost-btn tm-btn-sm"
-                    disabled={busy !== null}
-                    onClick={() => {
-                      const current = packageOfTenant(tenant.id);
-                      setPkgChoice(current?.id ?? "");
-                      setPkgErr(null);
-                      setPkgChangeOpen(true);
-                    }}
-                  >
-                    <RefreshCw size={13} aria-hidden />
-                    更换套餐
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="tm-ghost-btn tm-btn-sm"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    const current = packageOfTenant(tenant.id);
+                    setPkgChoice(current?.id ?? "");
+                    setPkgErr(null);
+                    setPkgChangeOpen(true);
+                  }}
+                >
+                  <RefreshCw size={13} aria-hidden />
+                  更换套餐
+                </button>
               </div>
               <dl className="tm-confirm-grid">
                 <dt>绑定套餐</dt>
@@ -1470,7 +1276,7 @@ function TenantDetailDrawer({
                 <dt>创建时间 / 创建人</dt><dd className="font-mono-nums">{tenant.createdAt} · {tenant.createdBy}</dd>
                 {tenant.type === "pharma" ? (
                   <>
-                    <dt>主体分类</dt><dd>{p.pharmaCategory || "—"}（{p.mahHolderFlag ? "MAH 持有人" : "受托生产"}）</dd>
+                    <dt>主体分类</dt><dd>{p.pharmaCategory || "—"}（{p.mahHolderFlag ? "MAH 持有人" : "销售企业"}）</dd>
                   </>
                 ) : (
                   <>
@@ -1495,26 +1301,14 @@ function TenantDetailDrawer({
             >
               <div className="tm-sec-head">
                 <h4 className="tm-sec-title">管理员信息</h4>
-                {tenant.status === "pending_activation" && (
-                  <button type="button" className="tm-ghost-btn tm-btn-sm" disabled={busy !== null} onClick={() => { setAdminForm({ name: "", account: "", phone: "", reason: "" }); setAdminErr({}); setAdminChangeOpen(true) }}>
-                    <UserCog size={13} aria-hidden />
-                    变更
-                  </button>
-                )}
+                <span className="tm-sub" style={{ marginTop: 0 }}>只读 · 企业内部成员由企业管理员自行维护</span>
               </div>
               <dl className="tm-confirm-grid">
                 <dt>姓名</dt><dd>{tenant.initialAdmin.name}</dd>
                 <dt>手机号</dt><dd className="font-mono-nums">{maskPhone(tenant.initialAdmin.phone)}</dd>
+                <dt>登录账号</dt><dd className="font-mono-nums">{registry.users.find((u) => u.id === tenant.initialAdmin.userId)?.account ?? "—"}</dd>
                 <dt>管理员角色</dt><dd>{tenant.initialAdmin.roleLabel}</dd>
-                <dt>成员状态</dt><dd>{tenant.initialAdmin.memberStatus === "pending_activation" ? "待激活（首次登录自动激活）" : `已激活 · ${tenant.initialAdmin.activatedAt ?? "—"}`}</dd>
               </dl>
-              {tenant.status === "pending_activation" && (
-                <div className="tm-sec-foot">
-                  <span style={{ fontSize: "var(--fs-12)", color: "#9CA3AF", lineHeight: 1.7 }}>
-                    仅待激活阶段可变更；租户激活后由该企业管理员自行维护企业成员，软件服务方不代配企业内部权限。
-                  </span>
-                </div>
-              )}
             </section>
           )}
 
@@ -1529,7 +1323,7 @@ function TenantDetailDrawer({
               <div className="tm-sec-head">
                 <h4 className="tm-sec-title">操作日志</h4>
                 <span className="tm-sub" style={{ marginTop: 0 }}>
-                  共 {tenantLog.length} 条记录 · 按时间倒序
+                  仅记录状态变更（创建 / 暂停 / 恢复）· 共 {tenantLog.length} 条 · 按时间倒序
                 </span>
               </div>
               {tenantLog.length === 0 ? (
@@ -1540,21 +1334,17 @@ function TenantDetailDrawer({
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 8, maxHeight: 360, overflowY: "auto" }}>
                   {tenantLog.map((l) => {
                     const chipTone =
-                      l.reasonCode === "TENANT_TERMINATED"
-                        ? "tm-chip tm-chip--danger"
-                        : l.reasonCode === "TENANT_SUSPENDED"
-                          ? "tm-chip tm-chip--warn"
-                          : l.reasonCode === "TENANT_REACTIVATED" || l.reasonCode === "TENANT_ACTIVATED"
-                            ? "tm-chip tm-chip--ok"
-                            : "tm-chip tm-chip--primary";
+                      l.reasonCode === "TENANT_SUSPENDED"
+                        ? "tm-chip tm-chip--warn"
+                        : l.reasonCode === "TENANT_REACTIVATED"
+                          ? "tm-chip tm-chip--ok"
+                          : "tm-chip tm-chip--primary";
                     const dotColor =
-                      l.reasonCode === "TENANT_TERMINATED"
-                        ? "#C73A3A"
-                        : l.reasonCode === "TENANT_SUSPENDED"
-                          ? "#B45309"
-                          : l.reasonCode === "TENANT_REACTIVATED" || l.reasonCode === "TENANT_ACTIVATED"
-                            ? "#15803D"
-                            : "#2F6BCE";
+                      l.reasonCode === "TENANT_SUSPENDED"
+                        ? "#B45309"
+                        : l.reasonCode === "TENANT_REACTIVATED"
+                          ? "#15803D"
+                          : "#2F6BCE";
                     return (
                       <div
                         key={l.id}
@@ -1586,9 +1376,6 @@ function TenantDetailDrawer({
                               <span className={chipTone}>
                                 {AUDIT_ACTION_LABEL[l.reasonCode] ?? "租户管理操作"}
                               </span>
-                              <span className="tm-chip font-mono-nums" style={{ fontSize: 11, padding: "1px 8px" }}>
-                                {l.reasonCode}
-                              </span>
                             </div>
                             <span className="font-mono-nums" style={{ fontSize: "var(--fs-12)", color: "#6B7280" }}>
                               {l.actor} · {l.at}
@@ -1606,13 +1393,6 @@ function TenantDetailDrawer({
                 </div>
               )}
             </section>
-          )}
-
-          {tenant.status === "terminated" && (
-            <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 12 }}>
-              <Ban size={14} aria-hidden />
-              <span>该租户已终止：只读查看，不能恢复；主企业码 {tenant.primaryCode} 永久保留且不得分配给其他企业。</span>
-            </div>
           )}
         </div>
       </Modal>
@@ -1701,25 +1481,15 @@ function TenantDetailDrawer({
         </Modal>
       )}
 
-      {/* 状态操作：暂停 / 恢复 / 终止（原因码 + 说明均必填，写审计） */}
+      {/* 状态操作：暂停 / 恢复（原因码 + 说明均必填，写审计） */}
       {statusAction && (
         <Modal
           open
-          title={`${statusAction === "suspend" ? "暂停" : statusAction === "resume" ? "恢复" : "终止"}租户 · ${tenant.legalName}`}
+          title={`${statusAction === "suspend" ? "暂停" : "恢复"}租户 · ${tenant.legalName}`}
           width={480}
           onClose={() => { if (busy === null) setStatusAction(null) }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {statusAction === "terminate" && (
-              <div className="tm-note tm-note--warn" role="note">
-                <AlertTriangle size={14} aria-hidden />
-                <span>
-                  终止后<b>不可恢复</b>，主企业码 {tenant.primaryCode} 永久停用（retired），历史记录保留。
-                  {tenant.status === "pending_activation" && "该租户尚未激活，终止即开户作废，首位管理员的待激活邀请一并失效。"}
-                  {tenant.status === "active" && "该租户当前处于正常使用状态，终止后所有在册成员将立即被阻断登录。"}
-                </span>
-              </div>
-            )}
             {statusAction === "suspend" && (
               <div className="tm-note tm-note--warn" role="note">
                 <AlertTriangle size={14} aria-hidden />
@@ -1766,78 +1536,7 @@ function TenantDetailDrawer({
                 onClick={runStatusAction}
               >
                 {busy === statusAction ? <LoaderCircle size={14} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden /> : null}
-                确认{statusAction === "suspend" ? "暂停" : statusAction === "resume" ? "恢复" : "终止"}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* 变更首位管理员（必填变更原因） */}
-      {adminChangeOpen && (
-        <Modal open title="变更首位管理员" width={460} onClose={() => { if (busy === null) setAdminChangeOpen(false) }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div className="tm-note tm-note--warn" role="note">
-              <AlertTriangle size={14} aria-hidden />
-              <span>变更后旧邀请立即失效（旧账号停用、预置授权回收），新管理员获得新的待激活关系；租户保持「待激活」状态，全过程写审计。</span>
-            </div>
-            <Field id="ca-name" label="新管理员姓名" required error={adminErr.name}>
-              <input {...inputProps("ca-name", adminErr.name)} value={adminForm.name} onChange={(e) => setAdminForm((f) => ({ ...f, name: e.target.value }))} />
-            </Field>
-            <Field
-              id="ca-account"
-              label="登录账号"
-              required
-              error={adminErr.account}
-              hint="企业内唯一；随手机号预填可修改，用于账号密码登录"
-            >
-              <input
-                {...inputProps("ca-account", adminErr.account)}
-                className="tm-field"
-                value={adminForm.account}
-                onChange={(e) => setAdminForm((f) => ({ ...f, account: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") }))}
-                maxLength={20}
-                style={{ ...fieldInput, ...(adminErr.account ? { borderColor: "#DC2626" } : {}) }}
-              />
-            </Field>
-            <Field id="ca-phone" label="新管理员手机号" required error={adminErr.phone}>
-              <input
-                {...inputProps("ca-phone", adminErr.phone)}
-                className="tm-field font-mono-nums"
-                value={adminForm.phone}
-                onChange={(e) => {
-                  const phone = e.target.value.replace(/\D/g, "");
-                  setAdminForm((f) => {
-                    const previousAuto = defaultRuntimeAccount(f.phone);
-                    const nextAccount = !f.account || f.account === previousAuto ? defaultRuntimeAccount(phone) : f.account;
-                    return { ...f, phone, account: nextAccount };
-                  });
-                }}
-                maxLength={11}
-                style={{ ...fieldInput, ...(adminErr.phone ? { borderColor: "#DC2626" } : {}) }}
-              />
-            </Field>
-            <Field id="ca-reason" label="变更原因" required error={adminErr.reason}>
-              <input {...inputProps("ca-reason", adminErr.reason)} value={adminForm.reason} onChange={(e) => setAdminForm((f) => ({ ...f, reason: e.target.value }))} placeholder="必填；随审计记录保留" />
-            </Field>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" className="tm-ghost-btn" disabled={busy !== null} onClick={() => setAdminChangeOpen(false)}>取消</button>
-              <button type="button" className="tm-primary-btn" disabled={busy !== null} onClick={() => {
-                const errs: Record<string, string> = {};
-                if (!adminForm.name.trim()) errs.name = "请输入姓名";
-                if (!ACCOUNT_PATTERN.test(adminForm.account.trim())) errs.account = "账号须为 3-20 位小写字母/数字，可含 - 与 _";
-                else if (isAccountTakenInWorkspace(adminForm.account.trim(), tenant.enterpriseOrgId)) errs.account = "该账号在本企业已存在，请更换";
-                if (!/^1\d{10}$/.test(adminForm.phone)) errs.phone = "请输入正确的 11 位手机号";
-                if (!adminForm.reason.trim()) errs.reason = "请输入变更原因";
-                setAdminErr(errs);
-                if (Object.keys(errs).length > 0) return;
-                void run("change-admin", () => {
-                  const r = changeInitialAdmin(tenant.id, { name: adminForm.name.trim(), phone: adminForm.phone, account: adminForm.account.trim(), roleLabel: tenant.initialAdmin.roleLabel }, adminForm.reason.trim(), actor);
-                  setAdminChangeOpen(false);
-                  if (r.ok) { flushAudits(r.audits); addToast({ type: "success", title: "首位管理员已变更", description: "旧邀请已失效，新管理员待激活。" }); }
-                });
-              }}>
-                确认变更
+                确认{statusAction === "suspend" ? "暂停" : "恢复"}
               </button>
             </div>
           </div>

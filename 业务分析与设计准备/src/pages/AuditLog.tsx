@@ -9,6 +9,7 @@ import { usePermission } from '../context/PermissionContext';
 import { orgDescendantIds } from '../data/permissions';
 import { PLATFORM_WORKSPACE_NAME } from '../auth/authTypes';
 import {
+  RETIRED_AUDIT_REASONS,
   getTenantRegistrySnapshot,
   subscribeTenantRegistry,
   type TenantAuditLine,
@@ -43,28 +44,21 @@ interface AuditRow {
 const TENANT_AUDIT_ACTION: Record<string, string> = {
   TENANT_CREATED: '正式租户创建',
   ENT_CODE_PRIMARY_GENERATED: '主企业码生成',
-  ENT_CODE_COLLISION_RETRIED: '企业码冲突重试',
-  ENT_CODE_COPIED: '企业码复制',
   INITIAL_ADMIN_CREATED: '首位管理员创建',
-  INITIAL_ADMIN_CHANGED: '首位管理员变更',
-  TENANT_ACTIVATED: '租户激活',
+  // 租户创建即正常：首登只激活首位管理员的成员身份（原因码沿用历史取值）
+  TENANT_ACTIVATED: '首位管理员激活',
   TENANT_SUSPENDED: '租户暂停',
   TENANT_REACTIVATED: '租户恢复',
-  TENANT_TERMINATED: '租户终止',
 };
 
 /** 标准英文原因码 → 中文可读说明 */
 const REASON_LABEL: Record<string, string> = {
   TENANT_CREATED: '创建新企业租户并初始化主企业码',
   ENT_CODE_PRIMARY_GENERATED: '系统自动生成 8 位主企业码',
-  ENT_CODE_COLLISION_RETRIED: '企业码碰撞自动重试生成',
-  ENT_CODE_COPIED: '管理员复制主企业码',
-  INITIAL_ADMIN_CREATED: '指定首位企业管理员（待首次激活）',
-  INITIAL_ADMIN_CHANGED: '变更首位企业管理员人选',
-  TENANT_ACTIVATED: '首位管理员完成首次登录并激活租户',
+  INITIAL_ADMIN_CREATED: '指定首位企业管理员（可直接登录）',
+  TENANT_ACTIVATED: '首位管理员完成首次登录并激活账号',
   TENANT_SUSPENDED: '暂停租户登录与业务访问',
   TENANT_REACTIVATED: '恢复租户正常服务状态',
-  TENANT_TERMINATED: '终止租户服务并永久停用企业码',
   ACCOUNT_FROZEN: '账号已停用或冻结，拒绝登录',
   INVALID_CREDENTIALS: '账号或密码校验未通过',
   INVALID_CODE: '短信验证码错误或已失效',
@@ -86,7 +80,7 @@ const ACTION_COLOR: Record<string, string> = {
   '正式租户创建': '#248A5A',
   '主企业码生成': '#248A5A',
   '首位管理员创建': '#248A5A',
-  '租户激活': '#248A5A',
+  '首位管理员激活': '#248A5A',
   '租户恢复': '#248A5A',
   '新建用户': '#248A5A',
   '启用账号': '#248A5A',
@@ -100,9 +94,8 @@ const ACTION_COLOR: Record<string, string> = {
   '审核通过': '#248A5A',
   '恢复合作': '#248A5A',
   '授予业务资格': '#248A5A',
-  // 红色：高危暂停 / 终止 / 停用 / 回收 / 越权 / 驳回
+  // 红色：高危暂停 / 停用 / 回收 / 越权 / 驳回
   '租户暂停': '#C73A3A',
-  '租户终止': '#C73A3A',
   '停用账号': '#C73A3A',
   '停用菜单': '#C73A3A',
   '回收角色': '#C73A3A',
@@ -113,8 +106,6 @@ const ACTION_COLOR: Record<string, string> = {
   '删除': '#C73A3A',
   '审核驳回': '#C73A3A',
   // 橙色：变更 / 调整 / 暂停合作
-  '首位管理员变更': '#C77A16',
-  '企业码冲突重试': '#C77A16',
   '用户调岗': '#C77A16',
   '重命名部门': '#C77A16',
   '调整汇报上级': '#C77A16',
@@ -136,7 +127,6 @@ const ACTION_COLOR: Record<string, string> = {
   '提交': '#2F6BCE',
   // 灰色：低风险常规操作
   '退出登录': '#6B7280',
-  '企业码复制': '#6B7280',
   '导出': '#6B7280',
 };
 
@@ -219,8 +209,11 @@ export function AuditLog() {
   }, [isPlatform, orgs, principal]);
 
   const allRows: AuditRow[] = useMemo(() => {
+    // 已下线操作（复制企业码 / 终止）不留痕：新旧流水一律不展示；
+    // 仍在册的原因码按现行文案展示，历史条目的旧措辞（如「租户激活」）随之对齐
     const permRows: AuditRow[] = auditEvents
       .filter(e => {
+        if (RETIRED_AUDIT_REASONS.has(e.reason ?? '')) return false;
         if (!tenantOrgNames) return true;
         return tenantOrgNames.has(e.org);
       })
@@ -231,7 +224,7 @@ export function AuditLog() {
         operator: e.actor,
         role: e.actorRole,
         module: e.module,
-        action: e.action,
+        action: TENANT_AUDIT_ACTION[e.reason ?? ''] ?? e.action,
         target: e.target,
         beforeState: e.beforeSummary,
         afterState: e.afterSummary,
@@ -246,6 +239,7 @@ export function AuditLog() {
     // 平台侧并入租户注册表持久化流水（含种子历史记录及首登激活），并与实时 logAudit 去重
     const tenantRegistryRows: AuditRow[] = isPlatform
       ? registry.activityLog
+          .filter(line => !RETIRED_AUDIT_REASONS.has(line.reasonCode))
           .map(mapTenantAuditLine)
           .filter(tr => {
             const trMinute = tr.time.slice(0, 16);

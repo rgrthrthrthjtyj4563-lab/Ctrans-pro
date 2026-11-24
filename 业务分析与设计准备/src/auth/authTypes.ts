@@ -301,7 +301,7 @@ export interface DefaultLoginRecord {
 
 /**
  * 已登录用户可免重认证切换的一家有效企业（头像菜单「切换企业」列表项）。
- * 口径（FR-04/05）：成员关系 active、租户可登录（非待激活/暂停/终止）、
+ * 口径（FR-04/05）：成员关系 active、租户可登录（未暂停）、
  * 且该企业内存在可登录身份；不满足的企业不展示、不暴露名称。
  */
 export interface SwitchableEnterprise {

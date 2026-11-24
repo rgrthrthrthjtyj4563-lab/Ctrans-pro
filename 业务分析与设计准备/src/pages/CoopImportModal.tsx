@@ -28,10 +28,8 @@ import { InfoBanner } from './permUi';
 const mono = "'JetBrains Mono', monospace";
 
 const TENANT_STATUS_LABEL: Record<string, string> = {
-  pending_activation: '待激活',
   active: '正常',
   suspended: '已暂停',
-  terminated: '已终止',
 };
 
 /** 按统一社会信用代码定位服务商主体：注册中心为权威，内置 org 映射兜底（registry 未登记的演示服务商） */
