@@ -108,14 +108,11 @@ function buildSeeds(): McMessage[] {
       // 药厂侧拜访入口统一走业务数据管理的审核工作台（hospital-visits 药厂侧已下线）
       target: { page: "visit-audit-hospital", focus: { serviceMonth: "2026-09", provider: "东方恒业推广有限公司" } } },
 
-    // 沈悦（百益 · 企业管理员）：合同归档 + 价目联动视角
+    // 沈悦（百益 · 企业管理员）：合同归档 + 结算跟进视角
     { id: "mc-shenyue-1", recipientUserId: "u-shenyue", workspaceKey: ORG_PHARMA, tab: "待办", type: "合同",
       title: "《东方恒业推广服务协议》待上传归档", desc: "线下已签 · 待上传扫描件", minutesAgo: 1500,
       unread: true, status: "pending", deadline: "已超期 2 天 · 10-24 截止", level: "overdue",
       target: { page: "contract-management" } },
-    { id: "mc-shenyue-2", recipientUserId: "u-shenyue", workspaceKey: ORG_PHARMA, tab: "通知", type: "价目",
-      title: "合同价目草稿已生成", desc: "AI 整理完成，可在价目表配置中查看", minutesAgo: 60,
-      unread: true, jump: true, target: { page: "price-config" } },
     { id: "mc-shenyue-3", recipientUserId: "u-shenyue", workspaceKey: ORG_PHARMA, tab: "待办", type: "结算",
       title: "结算单 SET-0819 已确认", desc: "已处理 · 可在结算记录中追溯", minutesAgo: 4460,
       unread: false, status: "done" },

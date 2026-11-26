@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent } from 'react';
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Download, Eye, FileText,
-  Info, Loader2, PencilLine, Plus, RefreshCw, Search, Trash2, Upload, X,
+  AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, Download, Eye, FileText,
+  Loader2, PencilLine, Plus, RefreshCw, Search, Trash2, Upload, X,
 } from 'lucide-react';
 import { Button } from '../components/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -19,13 +19,7 @@ interface Props {
   navigate?: NavigateFn;
 }
 
-interface ContractCandidate { id: string; name: string; contractName: string; clue: string; }
 interface VarietyAttachment { id: string; name: string; type: string; size: string; uploader: string; uploadedAt: string; }
-
-const CONTRACT_CANDIDATES: ContractCandidate[] = [
-  { id: 'contract-candidate-ezetimibe', name: '依折麦布片', contractName: '004市场综合服务协议', clue: '覆盖华东地区，关联 32 条服务价目' },
-  { id: 'contract-candidate-ticagrelor', name: '替格瑞洛片', contractName: '004市场综合服务协议', clue: '覆盖华北地区，关联 18 条服务价目' },
-];
 
 const emptyForm: Omit<Variety, 'id'> = {
   genericName: '', tradeName: '', approvalNo: '', applicableDept: '', dosageForm: '',
@@ -54,18 +48,12 @@ export function VarietyManage({ addToast, navigate }: Props) {
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [selected, setSelected] = useState<Variety | null>(null);
   const [detailTab, setDetailTab] = useState<'basic' | 'attachments'>('basic');
-  const [drawer, setDrawer] = useState<{ editing?: Variety; candidate?: ContractCandidate; prefill?: NmpaDrugRecord } | null>(null);
-  const [contractHintDismissed, setContractHintDismissed] = useState(false);
-  const [contractHintExpanded, setContractHintExpanded] = useState(true);
+  const [drawer, setDrawer] = useState<{ editing?: Variety; prefill?: NmpaDrugRecord } | null>(null);
   const [search, setSearch] = useState('');
   const [priceFilter, setPriceFilter] = useState<'全部' | '已配置' | '未配置'>('全部');
   const [attachmentMap, setAttachmentMap] = useState<Record<string, VarietyAttachment[]>>(initialAttachments);
   const [showPriceGuide, setShowPriceGuide] = useState(false);
 
-  const pendingCandidates = useMemo(
-    () => CONTRACT_CANDIDATES.filter((candidate) => !varieties.some((variety) => variety.genericName.trim() === candidate.name)),
-    [varieties],
-  );
   const filteredVarieties = useMemo(() => {
     const query = search.trim().toLowerCase();
     return varieties.filter((variety) => {
@@ -75,7 +63,7 @@ export function VarietyManage({ addToast, navigate }: Props) {
     });
   }, [priceFilter, search, varieties]);
 
-  function openCreate(candidate?: ContractCandidate) { setDrawer({ candidate }); }
+  function openCreate() { setDrawer({}); }
   function openEdit(variety: Variety) { setDrawer({ editing: variety }); }
   function openDetail(variety: Variety, tab: 'basic' | 'attachments' = 'basic', shouldShowPriceGuide = false) {
     setSelected(variety); setDetailTab(tab); setShowPriceGuide(shouldShowPriceGuide && !variety.activePriceBookId); setView('detail');
@@ -111,7 +99,7 @@ export function VarietyManage({ addToast, navigate }: Props) {
   }
 
   return <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-    <PageHeader title="品种管理" description="维护药厂实际经营品种及其资料、合同线索和价目配置情况。" />
+    <PageHeader title="品种管理" description="维护药厂实际经营品种的基础档案、资料附件及价目配置状态。" />
     <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
       <div style={toolbarStyle}>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -124,15 +112,14 @@ export function VarietyManage({ addToast, navigate }: Props) {
           <button type="button" onClick={() => { setSearch(''); setPriceFilter('全部'); }} style={resetButtonStyle}>重置</button>
         </div>
       </div>
-      {!contractHintDismissed && pendingCandidates.length > 0 && <ContractCandidateCard candidates={pendingCandidates} expanded={contractHintExpanded} onToggle={() => setContractHintExpanded((expanded) => !expanded)} onDismiss={() => setContractHintDismissed(true)} onCreate={openCreate} canWrite={canWrite} />}
       <div style={tableCardStyle}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}><thead><tr>{['通用名 / 商品名', '规格 / 包装', '批准文号', '剂型', '上市许可持有人', '价目配置', '关联合同', '最近更新', '操作'].map((label) => <th key={label} style={thStyle}>{label}</th>)}</tr></thead>
-          <tbody>{filteredVarieties.length === 0 ? <tr><td colSpan={9}><EmptyState title="未找到品种" description="请调整筛选条件，或新建一个品种档案。" /></td></tr> : filteredVarieties.map((variety) => {
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}><thead><tr>{['通用名 / 商品名', '规格 / 包装', '批准文号', '剂型', '上市许可持有人', '价目配置', '最近更新', '操作'].map((label) => <th key={label} style={thStyle}>{label}</th>)}</tr></thead>
+          <tbody>{filteredVarieties.length === 0 ? <tr><td colSpan={8}><EmptyState title="未找到品种" description="请调整筛选条件，或新建一个品种档案。" /></td></tr> : filteredVarieties.map((variety) => {
             const configured = Boolean(variety.activePriceBookId);
             return <tr key={variety.id} style={{ borderBottom: '1px solid #F1F3F5' }}>
               <td style={tdStyle}><div style={{ fontWeight: 600 }}>{variety.genericName}</div><div style={{ color: 'var(--color-text-2)', fontSize: 'var(--fs-12)', marginTop: 2 }}>{variety.tradeName || '—'}</div></td>
               <td style={tdStyle}>{[variety.spec, variety.package].filter(Boolean).join(' · ') || '—'}</td><td style={{ ...tdStyle, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-12)' }}>{variety.approvalNo || '—'}</td><td style={tdStyle}>{variety.dosageForm || '—'}</td><td style={tdStyle}>{variety.holder || '—'}</td>
-              <td style={tdStyle}><StatusPill tone={configured ? 'success' : 'warning'}>{configured ? '已配置' : '未配置'}</StatusPill></td><td style={tdStyle}><StatusPill tone="neutral">{variety.id === 'V-001' ? '1 份' : '—'}</StatusPill></td><td style={{ ...tdStyle, color: 'var(--color-text-2)', fontSize: 'var(--fs-12)' }}>2026-09-23</td>
+              <td style={tdStyle}><StatusPill tone={configured ? 'success' : 'warning'}>{configured ? '已配置' : '未配置'}</StatusPill></td><td style={{ ...tdStyle, color: 'var(--color-text-2)', fontSize: 'var(--fs-12)' }}>2026-09-23</td>
               <td style={tdStyle}><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><button type="button" onClick={() => openDetail(variety)} style={actionLinkStyle}>查看</button>{canWrite && <><span style={{ color: '#D0D5DD' }}>|</span><button type="button" onClick={() => openEdit(variety)} style={{ ...actionLinkStyle, color: 'var(--color-text-2)' }}>编辑</button></>}</div></td>
             </tr>;
           })}</tbody>
@@ -140,21 +127,13 @@ export function VarietyManage({ addToast, navigate }: Props) {
         <div style={paginationStyle}>共 {filteredVarieties.length} 条记录</div>
       </div>
     </div>
-    {drawer && <VarietyDrawer key={drawer.editing ? `edit-${drawer.editing.id}` : drawer.prefill ? `prefill-${drawer.prefill.id}` : `create-${drawer.candidate?.id ?? 'blank'}`} editing={drawer.editing} candidate={drawer.candidate} prefillRecord={drawer.prefill} varieties={varieties} onClose={() => setDrawer(null)} onCreateFromRecord={(record) => setDrawer({ prefill: record })} onSubmit={(form) => {
+    {drawer && <VarietyDrawer key={drawer.editing ? `edit-${drawer.editing.id}` : drawer.prefill ? `prefill-${drawer.prefill.id}` : 'create'} editing={drawer.editing} prefillRecord={drawer.prefill} varieties={varieties} onClose={() => setDrawer(null)} onCreateFromRecord={(record) => setDrawer({ prefill: record })} onSubmit={(form) => {
       const result = drawer.editing ? updateVariety(drawer.editing.id, form) : createVariety(form);
       if (!result.ok || !result.data) return { ok: false, message: result.error ?? '保存失败' };
       setDrawer(null); addToast({ type: 'success', title: drawer.editing ? '品种已更新' : '品种已创建', description: result.data.genericName }); openDetail(result.data, 'basic', !drawer.editing); return { ok: true };
     }} />}
   </div>;
 }
-
-function ContractCandidateCard({ candidates, expanded, onToggle, onDismiss, onCreate, canWrite }: { candidates: ContractCandidate[]; expanded: boolean; onToggle: () => void; onDismiss: () => void; onCreate: (candidate: ContractCandidate) => void; canWrite: boolean }) {
-  return <section style={{ marginBottom: 16, border: '1px solid #F2C66D', background: '#FFF9E9', borderRadius: 8, overflow: 'hidden' }}>
-    <div style={{ display: 'flex', gap: 12, padding: 16 }}><div style={{ width: 34, height: 34, display: 'grid', placeItems: 'center', flex: '0 0 auto', color: '#A95F00', background: '#FEF0C7', borderRadius: 7 }}><FileText size={18} /></div><div style={{ minWidth: 0, flex: 1 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}><div style={{ fontSize: 'var(--fs-14)', fontWeight: 650, color: '#7A4900' }}>合同中发现 {candidates.length} 个未建档品种</div><div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><button type="button" onClick={onDismiss} style={candidateTextButtonStyle}>暂不处理</button><button type="button" aria-label={expanded ? '收起候选品种' : '展开候选品种'} onClick={onToggle} style={iconTextButtonStyle}><ChevronDown size={16} style={{ transform: expanded ? 'rotate(180deg)' : undefined, transition: 'transform 150ms ease' }} /></button></div></div><p style={{ margin: '4px 0 0', fontSize: 'var(--fs-12)', color: '#9A6207', lineHeight: 1.65 }}>《004市场综合服务协议》提到了以下品种，但合同未包含规格、批准文号等识别信息，系统暂未找到对应品种档案。</p></div></div>
-    {expanded && candidates.map((candidate) => <div key={candidate.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(130px, 1fr) minmax(180px, 1.35fr) minmax(220px, 1.6fr) auto', gap: 18, alignItems: 'center', padding: '12px 16px 12px 62px', borderTop: '1px solid #F8DEA4', background: '#FFFDF6' }}><CandidateCell label="合同候选名称" value={candidate.name} strong /><CandidateCell label="来源合同" value={candidate.contractName} /><CandidateCell label="合同线索" value={candidate.clue} />{canWrite && <Button size="sm" variant="primary" onClick={() => onCreate(candidate)}>去新建品种</Button>}</div>)}
-  </section>;
-}
-function CandidateCell({ label, value, strong }: { label: string; value: string; strong?: boolean }) { return <div><div style={{ color: '#A56B0B', fontSize: 'var(--fs-12)', marginBottom: 3 }}>{label}</div><div style={{ color: '#744500', fontSize: 'var(--fs-13)', fontWeight: strong ? 650 : 400 }}>{value}</div></div>; }
 
 type NmpaQueryStatus = 'idle' | 'querying' | 'empty' | 'single' | 'multi' | 'applied';
 type VarietyForm = Omit<Variety, 'id'>;
@@ -179,15 +158,15 @@ function recordFormPatch(record: NmpaDrugRecord): Partial<VarietyForm> {
   return patch;
 }
 
-function VarietyDrawer({ editing, candidate, prefillRecord, varieties, onClose, onSubmit, onCreateFromRecord }: {
-  editing?: Variety; candidate?: ContractCandidate; prefillRecord?: NmpaDrugRecord; varieties: Variety[];
+function VarietyDrawer({ editing, prefillRecord, varieties, onClose, onSubmit, onCreateFromRecord }: {
+  editing?: Variety; prefillRecord?: NmpaDrugRecord; varieties: Variety[];
   onClose: () => void; onSubmit: (form: Omit<Variety, 'id'>) => { ok: boolean; message?: string }; onCreateFromRecord: (record: NmpaDrugRecord) => void;
 }) {
   const { principal } = usePermission();
   const pharmaName = (principal.realm === 'TENANT' ? principal.tenantName : '') || DEMO_HOLDER;
   const [form, setForm] = useState<VarietyForm>(() => {
     if (editing) return { ...editing };
-    const base: VarietyForm = { ...emptyForm, genericName: candidate?.name ?? '' };
+    const base: VarietyForm = { ...emptyForm };
     return prefillRecord ? { ...base, ...recordFormPatch(prefillRecord) } : base;
   });
   const [expanded, setExpanded] = useState(false); const [error, setError] = useState('');
@@ -285,7 +264,6 @@ function VarietyDrawer({ editing, candidate, prefillRecord, varieties, onClose, 
   const singleRecord = queryResults.length === 1 ? queryResults[0] : null;
   return <div style={drawerOverlayStyle} role="presentation" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={editing ? '编辑品种' : '新建品种'} style={drawerStyle} onMouseDown={(event) => event.stopPropagation()}>
     <div style={drawerHeaderStyle}><h2 style={{ margin: 0, fontSize: 'var(--fs-16)' }}>{editing ? '编辑品种' : '新建品种'}</h2><button type="button" onClick={onClose} style={iconTextButtonStyle}><X size={18} /></button></div>
-    {candidate && <div style={sourceHintStyle}><Info size={16} style={{ flex: '0 0 auto', marginTop: 1 }} /><span><strong>来源线索：</strong>合同中提到“{candidate.name}”。该名称仅用于辅助录入，请根据实际药品信息补全规格和批准文号。</span></div>}
     <div style={{ padding: 20, overflow: 'auto', flex: 1 }}>
       {pendingNotice && <div role="status" style={pendingNoticeStyle}>药监局信息仍在查询中。可继续等待，或按当前填写内容保存。</div>}
       {error && <div role="alert" style={{ marginBottom: 14, padding: '9px 10px', borderRadius: 6, background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)', fontSize: 'var(--fs-12)' }}>{error}</div>}
@@ -358,7 +336,7 @@ function VarietyDrawer({ editing, candidate, prefillRecord, varieties, onClose, 
           : <SectionHeading>基础识别信息</SectionHeading>}
         {missingNotice && <div role="alert" style={missingNoticeStyle}>
           <span style={{ flex: 1 }}>请先填写批准文号或通用名，再查询药监局药品信息。</span>
-          <button type="button" onClick={() => setMissingNotice(false)} style={candidateTextButtonStyle}>知道了</button>
+          <button type="button" onClick={() => setMissingNotice(false)} style={textButtonStyle}>知道了</button>
         </div>}
         <div style={formGridStyle}>
           <FormField label="批准文号" required mark={fieldMark('approvalNo')}><input value={form.approvalNo} onChange={(event) => set('approvalNo', event.target.value)} placeholder="如：国药准字H20051408" style={inputStyle} /></FormField>
@@ -373,7 +351,6 @@ function VarietyDrawer({ editing, candidate, prefillRecord, varieties, onClose, 
         <p style={holderNoteStyle}>药品上市许可持有人默认为当前登录药厂（{pharmaName}），保存时自动写入，无需填写。</p>
       </section>
       <section style={{ marginTop: 22 }}><button type="button" onClick={() => setExpanded((value) => !value)} style={{ ...iconTextButtonStyle, gap: 5, color: 'var(--color-text-2)', fontSize: 'var(--fs-12)', fontWeight: 600 }}><ChevronRight size={15} style={{ transform: expanded ? 'rotate(90deg)' : undefined, transition: 'transform 150ms ease' }} />补充信息（可折叠）</button>{expanded && <div style={{ ...formGridStyle, marginTop: 14 }}><FormField label="适用科室"><input value={form.applicableDept} onChange={(event) => set('applicableDept', event.target.value)} placeholder="如：心内科" style={inputStyle} /></FormField><FormField label="有效期 / 停用说明"><input type="date" value={form.validUntil} onChange={(event) => set('validUntil', event.target.value)} style={inputStyle} /></FormField></div>}</section>
-      <p style={{ margin: '22px 0 0', padding: '9px 10px', borderRadius: 6, color: 'var(--color-text-2)', background: '#F8FAFC', fontSize: 'var(--fs-12)', lineHeight: 1.6 }}>保存后将建立实际品种档案，合同线索不会自动写入品种资料或价目。</p>
     </div>
     <div style={drawerFooterStyle}><Button variant="outline" onClick={onClose}>取消</Button><Button variant="primary" onClick={submit}>{editing ? '保存修改' : '保存并继续配置价目'}</Button></div>
     <ConfirmDialog open={confirmAllOpen} variant="warning" title="全部采用查询值" description={`确认后将把 ${reviewRows.length} 个差异字段（${reviewRows.map((row) => row.label).join('、')}）全部更新为药监局查询值。`} confirmLabel="确认采用" onConfirm={adoptAllRows} onCancel={() => setConfirmAllOpen(false)} />
@@ -410,7 +387,7 @@ function VarietyDetail({ variety, tab, onBack, onTabChange, onEdit, onGoToPriceC
 }
 
 function BasicDetail({ variety, onGoToPriceConfig, onDismissPriceGuide, showPriceGuide }: { variety: Variety; onGoToPriceConfig: () => void; onDismissPriceGuide: () => void; showPriceGuide: boolean }) {
-  return <>{showPriceGuide && <section style={successGuideStyle}><div style={{ width: 34, height: 34, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'var(--color-success-fg)', background: '#DDF3E5', flex: '0 0 auto' }}><CheckCircle2 size={19} /></div><div style={{ flex: 1 }}><div style={{ color: '#176B46', fontSize: 'var(--fs-14)', fontWeight: 650 }}>品种已创建，尚未配置价目</div><p style={{ margin: '4px 0 10px', color: '#277351', fontSize: 'var(--fs-12)', lineHeight: 1.65 }}>可前往价目表配置，为该品种补充服务价目。合同提取结果仅作为配置线索，不会自动生效。</p><div style={{ display: 'flex', gap: 8 }}><Button variant="primary" size="sm" onClick={onGoToPriceConfig}>去配置价目</Button><Button variant="ghost" size="sm" onClick={onDismissPriceGuide} style={{ color: '#277351' }}>稍后处理</Button></div></div></section>}<section style={detailCardStyle}><h2 style={detailSectionTitleStyle}>基础识别信息</h2><DetailGrid values={[[ '通用名', variety.genericName ], [ '商品名', variety.tradeName ], [ '批准文号', variety.approvalNo ], [ '剂型', variety.dosageForm ], [ '规格', variety.spec ], [ '包装', variety.package ], [ '最小制剂单位', variety.unit ], [ '药品上市许可持有人', variety.holder ], [ '生产企业', variety.manufacturer ]]} /><div style={detailDividerStyle} /><h2 style={detailSectionTitleStyle}>补充信息</h2><DetailGrid values={[[ '适用科室', variety.applicableDept ], [ '有效期 / 停用说明', variety.validUntil ]]} /><div style={{ marginTop: 22, color: 'var(--color-text-3)', fontSize: 'var(--fs-12)' }}>最近更新：2026-09-23 14:22 · 当前用户</div></section></>;
+  return <>{showPriceGuide && <section style={successGuideStyle}><div style={{ width: 34, height: 34, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'var(--color-success-fg)', background: '#DDF3E5', flex: '0 0 auto' }}><CheckCircle2 size={19} /></div><div style={{ flex: 1 }}><div style={{ color: '#176B46', fontSize: 'var(--fs-14)', fontWeight: 650 }}>品种已创建，尚未配置价目</div><p style={{ margin: '4px 0 10px', color: '#277351', fontSize: 'var(--fs-12)', lineHeight: 1.65 }}>可前往价目表配置，为该品种补充服务价目。</p><div style={{ display: 'flex', gap: 8 }}><Button variant="primary" size="sm" onClick={onGoToPriceConfig}>去配置价目</Button><Button variant="ghost" size="sm" onClick={onDismissPriceGuide} style={{ color: '#277351' }}>稍后处理</Button></div></div></section>}<section style={detailCardStyle}><h2 style={detailSectionTitleStyle}>基础识别信息</h2><DetailGrid values={[[ '通用名', variety.genericName ], [ '商品名', variety.tradeName ], [ '批准文号', variety.approvalNo ], [ '剂型', variety.dosageForm ], [ '规格', variety.spec ], [ '包装', variety.package ], [ '最小制剂单位', variety.unit ], [ '药品上市许可持有人', variety.holder ], [ '生产企业', variety.manufacturer ]]} /><div style={detailDividerStyle} /><h2 style={detailSectionTitleStyle}>补充信息</h2><DetailGrid values={[[ '适用科室', variety.applicableDept ], [ '有效期 / 停用说明', variety.validUntil ]]} /><div style={{ marginTop: 22, color: 'var(--color-text-3)', fontSize: 'var(--fs-12)' }}>最近更新：2026-09-23 14:22 · 当前用户</div></section></>;
 }
 
 function AttachmentDetail({ attachments, onAddAttachment, onDeleteAttachment, fileInputRef, canWrite }: { attachments: VarietyAttachment[]; onAddAttachment: (file: File) => void; onDeleteAttachment: (id: string) => void; fileInputRef: React.RefObject<HTMLInputElement | null>; canWrite: boolean }) {
@@ -433,12 +410,11 @@ const thStyle: CSSProperties = { padding: '10px 12px', background: 'var(--color-
 const tdStyle: CSSProperties = { padding: '12px', color: 'var(--color-text-1)', fontSize: 'var(--fs-13)', verticalAlign: 'middle', whiteSpace: 'nowrap' };
 const paginationStyle: CSSProperties = { padding: '10px 12px', color: 'var(--color-text-3)', fontSize: 'var(--fs-12)', borderTop: '1px solid #F1F3F5' };
 const actionLinkStyle: CSSProperties = { padding: 0, border: 'none', background: 'transparent', color: 'var(--color-brand)', fontFamily: 'inherit', fontSize: 'var(--fs-12)', fontWeight: 550, cursor: 'pointer' };
-const candidateTextButtonStyle: CSSProperties = { padding: 0, border: 'none', background: 'transparent', color: '#A36300', fontFamily: 'inherit', fontSize: 'var(--fs-12)', cursor: 'pointer' };
+const textButtonStyle: CSSProperties = { padding: 0, border: 'none', background: 'transparent', color: '#A36300', fontFamily: 'inherit', fontSize: 'var(--fs-12)', cursor: 'pointer' };
 const iconTextButtonStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 3, border: 'none', background: 'transparent', color: 'var(--color-text-2)', cursor: 'pointer' };
 const drawerOverlayStyle: CSSProperties = { position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(17,24,39,0.3)' };
 const drawerStyle: CSSProperties = { width: 560, maxWidth: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#fff', boxShadow: 'var(--shadow-xl)' };
 const drawerHeaderStyle: CSSProperties = { height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid var(--color-border)', flex: '0 0 auto' };
-const sourceHintStyle: CSSProperties = { display: 'flex', gap: 8, margin: '16px 20px 0', padding: '10px 12px', border: '1px solid #BFD8FE', borderRadius: 7, background: 'var(--color-info-bg)', color: '#245AA5', fontSize: 'var(--fs-12)', lineHeight: 1.6 };
 const formGridStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 16px' };
 const drawerFooterStyle: CSSProperties = { display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)', flex: '0 0 auto' };
 

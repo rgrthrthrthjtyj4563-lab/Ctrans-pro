@@ -2,14 +2,13 @@
  * 合同管理（药厂侧，2026-09-21）
  *
  * 服务商准入完成后的合同归档页：归档双方线下签署合同，上传即归档、删除恢复待上传。
- * 状态机只有两态：待上传 → 已归档。AI 价目整理是后台辅助能力——归档不依赖解析完成，
- * 页面不出现任何 AI 分析状态/进度/百分比；成果通过非阻塞通知与价目表草稿来源提示衔接
- * （价目侧人工调整在「价目表管理」完成，不回到本页）。
+ * 状态机只有两态：待上传 → 已归档。合同仅用于合作留档与后续审计查阅（2026-11-26 与
+ * 品种/价目解耦）：不解析合同内容，品种授权与价目表配置在本页之外独立进行。
  * 列表行 = 本厂「已准入」服务商（VendorAccessContext 派生）；归档信息 = ContractContext。
  * 依据《服务商合同管理原型 UI 设计需求文档 V2.0》。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Trash2, FileText, CheckCircle2, AlertTriangle, X, Info, Eye, Repeat2 } from 'lucide-react';
+import { Upload, Trash2, FileText, Info, Eye, Repeat2 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
 import { Button } from '../components/Button';
@@ -47,21 +46,16 @@ function uploadedAtText(uploadedAt: string | undefined): string {
   return uploadedAt;
 }
 
-/** 低匹配率档：待完善远多于带入（如 5/35）——仍是 done，但通知强调人工补齐（不影响归档） */
-function isLowMatch(job: { status: string; importedCount?: number; pendingCount?: number }): boolean {
-  return job.status === 'done' && (job.pendingCount ?? 0) > (job.importedCount ?? 0) * 2;
-}
-
 interface ContractRow {
   providerTenantId: string;
   vendorName: string;
   vendorAccessRecordId?: string;
 }
 
-export function ContractManagement({ addToast, navigate, navFocus }: Props) {
+export function ContractManagement({ addToast, navFocus }: Props) {
   const { principal, can } = usePermission();
   const { records } = useVendorAccess();
-  const { contractOf, aiJobs, uploadContract, deleteContract } = useContract();
+  const { contractOf, uploadContract, deleteContract } = useContract();
 
   const pharmaTenantId = principal.realm === 'TENANT' ? principal.tenantId : '';
   const canManage = can('contract-management', 'create');
@@ -156,14 +150,15 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
       return;
     }
     const isReplace = upload.mode === 'replace';
+    const vendorName = upload.vendorName;
     setUpload(null);
-    // 非阻塞即时提示：归档成功与后台整理解耦（§5.4）；替换时旧价目草稿保留、以新文件重新入队
+    // 归档即时完成：合同仅用于合作留档与后续审计查阅，不触发任何价目处理
     addToast({
       type: 'success',
       title: isReplace ? '合同已替换' : '合同已归档',
       description: isReplace
-        ? '系统正在按新合同重新整理价目内容；已生成的价目表草稿会保留，完成后以新合同为来源。'
-        : '系统正在后台整理合同中的价目内容。完成后会自动带入价目表草稿，不影响你继续处理其他工作。',
+        ? `「${vendorName}」的归档合同已替换为新文件。`
+        : `「${vendorName}」合同已归档，可在列表中查看或替换。`,
     });
   }
 
@@ -180,7 +175,7 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
   }, [focusUpload, rows, canManage]);
 
   // ── 删除合同（危险操作：二次确认 + 影响说明）────────────────────────────────
-  const [del, setDel] = useState<{ contractId: string; fileName: string; providerName: string; hasDraft: boolean } | null>(null);
+  const [del, setDel] = useState<{ contractId: string; fileName: string; providerName: string } | null>(null);
 
   // ── 查看合同文件（眼睛：原型以示意版式模拟预览，不做真实文件解析）──────────
   const [viewing, setViewing] = useState<{ fileName: string; providerName: string } | null>(null);
@@ -196,19 +191,6 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
     setDel(null);
   }
 
-  // ── 后台整理结果通知（非阻塞、可关闭；仅本页会话内完成的通知，历史完成不重弹）──
-  const preExistingJobs = useRef<Set<string> | null>(null);
-  if (preExistingJobs.current === null) {
-    preExistingJobs.current = new Set(aiJobs.filter((j) => j.status !== 'processing').map((j) => j.contractId));
-  }
-  const [dismissedNotices, setDismissedNotices] = useState<Set<string>>(new Set());
-  const notices = aiJobs.filter(
-    (j) =>
-      (j.status === 'done' || j.status === 'failed') &&
-      !preExistingJobs.current!.has(j.contractId) &&
-      !dismissedNotices.has(j.contractId),
-  );
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PageHeader
@@ -216,74 +198,6 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
         description="管理已准入服务商的线下签署合同与归档文件。"
       />
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        {/* 后台整理结果通知（轻量、可关闭、不阻塞） */}
-        {notices.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {notices.map((j) => {
-              const low = isLowMatch(j);
-              const ok = j.status === 'done' && !low;
-              return (
-              <div
-                key={j.contractId}
-                role="status"
-                style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 10,
-                  padding: '11px 14px', borderRadius: 8,
-                  background: ok ? '#F2FAF5' : '#FFF9EF',
-                  border: `1px solid ${ok ? '#C8E9D6' : '#F5D99A'}`,
-                }}
-              >
-                {ok ? (
-                  <CheckCircle2 size={15} style={{ color: '#248A5A', flexShrink: 0, marginTop: 2 }} />
-                ) : (
-                  <AlertTriangle size={15} style={{ color: '#C77A16', flexShrink: 0, marginTop: 2 }} />
-                )}
-                <div style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-13)', lineHeight: 1.7, color: ok ? '#1F7A4D' : '#92400E' }}>
-                  <div style={{ fontWeight: 700 }}>
-                    {ok ? '合同价目草稿已生成' : low ? '合同价目草稿已生成（部分匹配）' : '合同已归档，但未能自动整理价目内容'}
-                  </div>
-                  {ok ? (
-                    <div>
-                      《{j.contractFileName}》中的 {j.importedCount} 项可识别价目，已带入价目表草稿；其余内容可在价目表管理中按需完善。
-                    </div>
-                  ) : low ? (
-                    <div>
-                      《{j.contractFileName}》中仅识别出 {j.importedCount} 项可唯一匹配的价目，已带入价目表草稿；
-                      其余 {j.pendingCount} 项未能自动匹配（计价单位或服务项对应关系不明确），请在价目表管理中人工补齐。
-                      合同归档不受影响；如原件不清晰，也可删除后重新上传。
-                    </div>
-                  ) : (
-                    <div>你可以在价目表管理手动配置；如文件不清晰，可删除后重新上传。</div>
-                  )}
-                  {j.status === 'done' && (
-                    <div style={{ marginTop: 8 }}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setDismissedNotices((prev) => new Set(prev).add(j.contractId));
-                          if (navigate) navigate('price-config');
-                          else addToast({ type: 'info', title: '请前往「基础数据 › 价目表配置」查看价目表草稿。' });
-                        }}
-                      >
-                        去价目表管理
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setDismissedNotices((prev) => new Set(prev).add(j.contractId))}
-                  aria-label="关闭通知"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 2, flexShrink: 0, display: 'flex' }}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              );
-            })}
-          </div>
-        )}
-
         {/* 合同列表 */}
         <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
           {rows.length === 0 ? (
@@ -343,9 +257,6 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
                                     contractId: contract.id,
                                     fileName: contract.contractFileName ?? '',
                                     providerName: row.vendorName,
-                                    hasDraft: aiJobs.some(
-                                      (j) => j.providerTenantId === row.providerTenantId && j.status === 'done',
-                                    ),
                                   })
                                 }
                               >
@@ -368,7 +279,7 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
         </div>
         <div style={{ marginTop: 10, fontSize: 'var(--fs-12)', color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 6 }}>
           <Info size={12} />
-          上传后合同立即归档；价目内容在后台自动整理，完成后自动带入价目表草稿，人工调整在「价目表管理」完成。
+          上传后合同立即归档，仅用于合作留档与后续审计查阅；删除后该服务商恢复为「待上传」。
         </div>
       </div>
 
@@ -440,12 +351,12 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
             )}
 
             <div style={{ padding: '9px 12px', borderRadius: 6, background: 'var(--color-brand-subtle)', fontSize: 'var(--fs-12)', color: 'var(--color-brand)', lineHeight: 1.7 }}>
-              上传后合同会立即归档。价目内容将在后台自动整理，不需要在此等待。
+              上传后合同立即归档，仅用于合作留档与后续审计查阅。
             </div>
 
             {upload.mode === 'replace' && (
               <div style={{ padding: '9px 12px', borderRadius: 6, background: '#FEF3E2', border: '1px solid #F5D99A', fontSize: 'var(--fs-12)', color: '#92400E', lineHeight: 1.7 }}>
-                替换后，系统将按新合同重新整理价目内容；已生成的价目表草稿会保留，整理完成后以新合同为来源。
+                替换后将以新文件作为该服务商的当前归档，原归档文件不再保留。
               </div>
             )}
           </div>
@@ -472,11 +383,6 @@ export function ContractManagement({ addToast, navigate, navFocus }: Props) {
               <br />
               删除后，该服务商会恢复为「待上传」。
             </div>
-            {del.hasDraft && (
-              <div style={{ padding: '9px 12px', borderRadius: 6, background: '#FEF3E2', border: '1px solid #F5D99A', fontSize: 'var(--fs-12)', color: '#92400E', lineHeight: 1.7 }}>
-                该合同已生成价目表草稿：删除合同<b>不会自动删除</b>已生成的价目表草稿，如需调整请在价目表管理中处理。
-              </div>
-            )}
           </div>
         )}
       </Modal>

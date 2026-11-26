@@ -457,7 +457,7 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     module: "合作与授权",
     name: "合同管理",
     description:
-      "归档已准入服务商的线下签署合同：上传即归档、删除恢复待上传；AI 价目整理在后台进行（页面不展示解析状态），成果经价目表草稿与价目表管理衔接",
+      "归档已准入服务商的线下签署合同：上传即归档、删除恢复待上传；仅用于合作留档与后续审计查阅，不参与品种授权与价目表配置",
     actions: acts("contract-management", ["view", "create", "delete"]),
     realms: ["TENANT"],
     tenantTypes: ["pharma"],

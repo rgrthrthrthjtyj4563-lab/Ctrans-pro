@@ -1596,8 +1596,8 @@ export interface VendorAccessRecord {
 
 // ── 服务商合同管理（药厂归档双方线下签署合同，2026-09-21）──────────────────────
 // 合同状态机只有两态：待上传 ──(药厂上传合同)──→ 已归档。
-// AI 价目整理是后台辅助能力（见 ContractAiJob），不是合同业务状态：
-// 合同页不展示任何 AI 分析状态/进度，归档不依赖解析完成。
+// 合同只做合作留档与审计查阅（2026-11-26 与品种/价目解耦）：不解析合同内容，
+// 品种授权与价目表配置不依赖合同是否归档。
 
 export type ContractArchiveStatus = "待上传" | "已归档"
 
@@ -1615,21 +1615,4 @@ export interface ProviderContractRecord {
   uploadedBy?: string
   /** yyyy-MM-dd HH:mm；刚上传的行展示为「刚刚」 */
   uploadedAt?: string
-}
-
-/**
- * AI 价目整理后台任务（仅供防重/衔接展示，不是合同状态）：
- * 成功 → 价目表草稿带来源（合同文件导入）；失败 → 合同仍为已归档，仅通知。
- */
-export interface ContractAiJob {
-  contractId: string
-  pharmaTenantId: string
-  providerTenantId: string
-  contractFileName: string
-  status: "processing" | "done" | "failed"
-  /** 成功时可唯一匹配带入价目草稿的项数 */
-  importedCount?: number
-  /** 成功时待人工完善项数 */
-  pendingCount?: number
-  finishedAt?: string
 }

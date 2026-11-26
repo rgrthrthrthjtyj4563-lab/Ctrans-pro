@@ -487,7 +487,7 @@ export function VendorDetailDrawer({ providerTenantId, pharmaTenantId, addToast,
                   <div style={{ fontSize: 'var(--fs-13)', fontWeight: 700, color: 'var(--color-text-1)' }}>服务商已完成准入</div>
                   <div style={{ fontSize: 'var(--fs-13)', color: 'var(--color-text-1)', marginTop: 2 }}>下一步，归档双方已签署的合作合同</div>
                   <div style={{ fontSize: 'var(--fs-12)', color: 'var(--color-text-2)' }}>
-                    归档后，系统会辅助将合同中可识别的价目内容带入价目表草稿；后续调整可在价目表管理中完成。
+                    可在此上传归档双方已签署的合作合同，作为合作留档与后续审计依据；未归档不影响先配置品种授权。
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                     <Button variant="primary" size="sm" icon={<FileText size={13} />} onClick={() => { setApproveOpen(false); setApproveDone(null); goUploadContract(); }}>
