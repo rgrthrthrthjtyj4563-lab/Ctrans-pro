@@ -14,6 +14,11 @@
  * 两类状态及激活、终止操作取消。同轮调整：列表去掉状态统计卡片；复制企业码
  * 不写操作日志；新建向导的企业名称 / 信用代码 / 注册地址改为纯手动录入。
  *
+ * 2026-11-25 套餐与有效期合并入口：卡头「更换套餐」升级为「更换套餐 / 有效期」，
+ * 两项各自可选、至少改一项；有效期一有变化标准原因码 + 说明必填（与暂停/恢复
+ * 同构），写审计。详情「操作日志」口径不变（仍只收状态变更），有效期调整只进
+ * 全局操作日志。
+ *
  * 数据全部来自运行时注册表（mock，localStorage 演示），生产环境由服务端与
  * 数据库完成（见 tenantRegistry.ts 头注）。页面可见性由角色页面权限收敛：
  * 仅贝医系统管理员可见可访问；本页操作走操作日志（标准原因码）。
@@ -38,6 +43,7 @@ import {
   Factory,
   LoaderCircle,
   PauseCircle,
+  Pencil,
   PlayCircle,
   Plus,
   RefreshCw,
@@ -57,7 +63,8 @@ import {
   createTenant,
   suspendTenant,
   resumeTenant,
-  changeTenantPackage,
+  changeTenantOpening,
+  updateTenantProfile,
   tenantExpired,
   isUsccTaken,
   resetTenantRegistry,
@@ -66,6 +73,9 @@ import {
   legacyReasonLabel,
   SUSPEND_REASON_OPTIONS,
   RESUME_REASON_OPTIONS,
+  EXPIRE_REASON_OPTIONS,
+  expireLabel,
+  todayStr,
   TENANT_STATUS_LABEL,
   TENANT_TYPE_LABEL,
   type TenantAdminDesignee,
@@ -90,6 +100,8 @@ const AUDIT_ACTION_LABEL: Record<string, string> = {
   INITIAL_ADMIN_CREATED: "首位管理员创建",
   TENANT_PACKAGE_BOUND: "租户套餐绑定",
   TENANT_PACKAGE_CHANGED: "租户套餐换绑",
+  TENANT_EXPIRE_CHANGED: "租户有效期调整",
+  TENANT_PROFILE_UPDATED: "主体资料更新",
   // 原因码沿用历史取值；租户创建即正常，首登只激活首位管理员的成员身份
   TENANT_ACTIVATED: "首位管理员激活",
   TENANT_SUSPENDED: "租户暂停",
@@ -189,6 +201,8 @@ const errPill: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 6, marginTop: 6,
   fontSize: "var(--fs-12)", color: "#C73A3A",
 };
+const radioLabel: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, height: 40, fontSize: "var(--fs-14)", color: "var(--color-text-1)", cursor: "pointer" };
+const radioInput: React.CSSProperties = { width: 16, height: 16, margin: 0, accentColor: "var(--color-brand, #2F6BCE)", cursor: "pointer" };
 
 function Field({
   id, label, error, children, required, hint,
@@ -307,7 +321,7 @@ export function TenantManagement({ addToast }: { addToast: (msg: { type: "succes
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <PageHeader
         title="租户管理"
-        description="软件服务方开户闭环：直接创建药厂/服务商租户（一次完成开户并生成全局唯一主企业码，创建即正常生效、首位管理员可直接登录），支持套餐换绑与暂停/恢复生命周期管理。"
+        description="软件服务方开户闭环：直接创建药厂/服务商租户（一次完成开户并生成全局唯一主企业码，创建即正常生效、首位管理员可直接登录），支持套餐换绑、有效期调整与暂停/恢复生命周期管理。"
         actions={
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -581,16 +595,12 @@ function TenantWizard({
   const validateStep = (s: number): boolean => {
     const errs: Record<string, string> = {};
     if (s === 1) {
-      if (!form.legalName.trim()) errs.legalName = "请输入企业法定名称";
-      if (!/^[0-9A-Z]{18}$/.test(form.uscc.trim().toUpperCase())) errs.uscc = "请输入 18 位统一社会信用代码（数字与大写字母）";
-      else if (isUsccTaken(form.uscc)) errs.uscc = "该企业主体已存在租户，请先查看现有记录";
-      if (!form.address.trim()) errs.address = "请输入企业注册地址";
-      if (!form.contactName.trim()) errs.contactName = "请输入联系人姓名";
-      if (!/^1\d{10}$/.test(form.contactPhone.trim())) errs.contactPhone = "请输入正确的 11 位手机号";
-      if (form.type !== "pharma") {
-        if (!form.bizOwner.trim()) errs.bizOwner = "请输入业务负责人";
-        if (!form.complianceOwner.trim()) errs.complianceOwner = "请输入合规负责人";
+      // 2026-11-25：企业资料字段全部选填——仅在已填写时做格式与查重校验
+      if (form.uscc.trim()) {
+        if (!/^[0-9A-Z]{18}$/.test(form.uscc.trim().toUpperCase())) errs.uscc = "请输入 18 位统一社会信用代码（数字与大写字母）";
+        else if (isUsccTaken(form.uscc)) errs.uscc = "该企业主体已存在租户，请先查看现有记录";
       }
+      if (form.contactPhone.trim() && !/^1\d{10}$/.test(form.contactPhone.trim())) errs.contactPhone = "请输入正确的 11 位手机号";
     }
     if (s === 2) {
       if (!form.packageId) errs.packageId = "请选择租户套餐";
@@ -721,7 +731,7 @@ function TenantWizard({
         <div role="radiogroup" aria-label="选择租户类型" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
           {([
             { key: "pharma" as const, title: "药厂", desc: "药品上市许可持有人/生产企业；开通后可进行服务商准入审核、品种授权与人员备案", icon: <Factory size={22} /> },
-            { key: "provider" as const, title: "服务提供商", desc: "推广服务企业；开通后可管理工作组与服务专员，需向药厂发起准入申请建立合作", icon: <Building2 size={22} /> },
+            { key: "provider" as const, title: "服务提供商", desc: "推广服务企业；开通后可管理多级部门与服务专员，需向药厂发起准入申请建立合作", icon: <Building2 size={22} /> },
           ]).map((opt) => {
             const selected = form.type === opt.key;
             return (
@@ -753,7 +763,7 @@ function TenantWizard({
 
       {step === 1 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 16 }}>
-          <Field id="wf-legalName" label="企业法定名称" required error={errors.legalName}>
+          <Field id="wf-legalName" label="企业法定名称" hint="选填">
             <input
               {...inputProps("wf-legalName", errors.legalName)}
               value={form.legalName}
@@ -761,7 +771,7 @@ function TenantWizard({
               placeholder="与营业执照一致"
             />
           </Field>
-          <Field id="wf-uscc" label="统一社会信用代码" required error={errors.uscc} hint="18 位，全局查重">
+          <Field id="wf-uscc" label="统一社会信用代码" hint="选填" error={errors.uscc}>
             <input
               {...inputProps("wf-uscc", errors.uscc)}
               className="tm-field font-mono-nums"
@@ -772,7 +782,7 @@ function TenantWizard({
               style={{ ...fieldInput, letterSpacing: "0.04em", ...(errors.uscc ? { borderColor: "#DC2626" } : {}) }}
             />
           </Field>
-          <Field id="wf-address" label="企业注册地址" required error={errors.address} hint="与营业执照登记的住所一致">
+          <Field id="wf-address" label="企业注册地址" hint="选填">
             <input
               {...inputProps("wf-address", errors.address)}
               value={form.address}
@@ -780,10 +790,10 @@ function TenantWizard({
               placeholder="省市 + 详细地址"
             />
           </Field>
-          <Field id="wf-contactName" label="企业联系人姓名" required error={errors.contactName}>
+          <Field id="wf-contactName" label="企业联系人姓名" hint="选填">
             <input {...inputProps("wf-contactName", errors.contactName)} value={form.contactName} onChange={(e) => set({ contactName: e.target.value })} />
           </Field>
-          <Field id="wf-contactPhone" label="企业联系人手机号" required error={errors.contactPhone}>
+          <Field id="wf-contactPhone" label="企业联系人手机号" hint="选填" error={errors.contactPhone}>
             <input {...inputProps("wf-contactPhone", errors.contactPhone)} className="tm-field font-mono-nums" value={form.contactPhone} onChange={(e) => set({ contactPhone: e.target.value.replace(/\D/g, "") })} maxLength={11} placeholder="11 位手机号" style={{ ...fieldInput, ...(errors.contactPhone ? { borderColor: "#DC2626" } : {}) }} />
           </Field>
           <Field
@@ -815,7 +825,7 @@ function TenantWizard({
                   {PHARMA_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
                 </select>
               </Field>
-              <Field id="wf-mah" label="药品上市许可持有人 / 生产企业标识" required>
+              <Field id="wf-mah" label="药品上市许可持有人 / 生产企业标识" hint="选填">
                 <select id="wf-mah" className="tm-field" style={fieldInput} value={form.mahHolderFlag ? "yes" : "no"} onChange={(e) => set({ mahHolderFlag: e.target.value === "yes" })}>
                   <option value="yes">是 · 上市许可持有人（MAH）</option>
                   <option value="no">否 · 销售企业</option>
@@ -824,10 +834,10 @@ function TenantWizard({
             </>
           ) : (
             <>
-              <Field id="wf-bizOwner" label="业务负责人" required error={errors.bizOwner}>
+              <Field id="wf-bizOwner" label="业务负责人" hint="选填">
                 <input {...inputProps("wf-bizOwner", errors.bizOwner)} value={form.bizOwner} onChange={(e) => set({ bizOwner: e.target.value })} />
               </Field>
-              <Field id="wf-complianceOwner" label="合规负责人" required error={errors.complianceOwner}>
+              <Field id="wf-complianceOwner" label="合规负责人" hint="选填">
                 <input {...inputProps("wf-complianceOwner", errors.complianceOwner)} value={form.complianceOwner} onChange={(e) => set({ complianceOwner: e.target.value })} />
               </Field>
               <Field id="wf-qualificationNo" label="相关资质编号" hint="按原型需要模拟，选填">
@@ -863,7 +873,7 @@ function TenantWizard({
               ))}
             </select>
           </Field>
-          <Field id="wf-expireAt" label="开通有效期至" hint="留空 = 永久有效；到期后该租户登录被拒绝">
+            <Field id="wf-expireAt" label="开通有效期至" hint="留空 = 永久有效；到期后该租户登录被拒绝，创建后可在详情页调整">
             <input
               id="wf-expireAt"
               className="tm-field font-mono-nums"
@@ -1014,6 +1024,65 @@ function TenantWizard({
 
 // ─── 租户详情抽屉 ────────────────────────────────────────────────────────────
 
+/**
+ * 主体资料编辑表单（2026-11-25）：字段与新建向导一致；创建时间 / 创建人、
+ * 主企业码、企业类型不可编辑。保存时保留 profile 中未在表单暴露的历史字段
+ * （如药厂生产许可证编号/有效期）。
+ */
+interface SubjectProfileForm {
+  legalName: string
+  uscc: string
+  address: string
+  contactName: string
+  contactPhone: string
+  licenseAttachment: string
+  remark: string
+  pharmaCategory: string
+  mahHolderFlag: boolean
+  bizOwner: string
+  complianceOwner: string
+  qualificationNo: string
+  qualificationValidTo: string
+}
+
+function profileFormOf(tenant: TenantRecord): SubjectProfileForm {
+  const p = tenant.profile
+  return {
+    legalName: p.legalName,
+    uscc: p.uscc,
+    address: p.address,
+    contactName: p.contactName,
+    contactPhone: p.contactPhone,
+    licenseAttachment: p.licenseAttachment ?? "",
+    remark: p.remark ?? "",
+    pharmaCategory: p.pharmaCategory ?? "",
+    mahHolderFlag: p.mahHolderFlag ?? true,
+    bizOwner: p.bizOwner ?? "",
+    complianceOwner: p.complianceOwner ?? "",
+    qualificationNo: p.qualificationNo ?? "",
+    qualificationValidTo: p.qualificationValidTo ?? "",
+  }
+}
+
+/** 更换套餐 / 有效期弹窗表单（null = 未打开） */
+interface OpeningForm {
+  packageId: string;
+  /** 有效期口径：限期（expireAt 必填）/ 永久 */
+  expireMode: "date" | "permanent";
+  expireAt: string;
+  /** 有效期变化时必填：标准原因码 + 说明 */
+  reasonCode: string;
+  note: string;
+}
+
+/** 有效期到期文案（缩短 / 由永久改限时的提示用）：按日历日差，避免夏令时影响 */
+function expireDueText(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const [ty, tm, td] = todayStr().split("-").map(Number);
+  const days = Math.round((Date.UTC(y, m - 1, d) - Date.UTC(ty, tm - 1, td)) / 86400000);
+  return days <= 0 ? "今天到期" : days === 1 ? "明天到期" : `${days} 天后到期`;
+}
+
 function TenantDetailDrawer({
   tenantId, actor, onClose, addToast, flushAudits,
 }: {
@@ -1035,15 +1104,21 @@ function TenantDetailDrawer({
   const [reasonNote, setReasonNote] = useState("");
   const [reasonErr, setReasonErr] = useState<string | null>(null);
 
-  // 更换套餐弹窗
-  const [pkgChangeOpen, setPkgChangeOpen] = useState(false);
-  const [pkgChoice, setPkgChoice] = useState("");
-  const [pkgErr, setPkgErr] = useState<string | null>(null);
+  // 更换套餐 / 有效期弹窗（表单为 null = 未打开）
+  const [openingForm, setOpeningForm] = useState<OpeningForm | null>(null);
+  const [openingErrors, setOpeningErrors] = useState<Record<string, string>>({});
 
   // 详情内容卡片选项卡
   const [detailTab, setDetailTab] = useState<"package" | "profile" | "admin" | "log">("package");
+  // 主体资料编辑态（2026-11-25：只读 → 可编辑）
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState<SubjectProfileForm | null>(null);
+  const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   useEffect(() => {
     setDetailTab("package");
+    setProfileEditing(false);
+    setProfileForm(null);
+    setProfileErrors({});
   }, [tenantId]);
 
   if (!tenant) return null;
@@ -1052,7 +1127,7 @@ function TenantDetailDrawer({
   const expired = tenantExpired(tenant);
 
   // 汇总本租户的操作日志：仅收录租户状态变更（创建 / 暂停 / 恢复），
-  // 套餐、管理员、企业码等其余操作只进全局操作日志；种子租户补初始基线
+  // 套餐、有效期、管理员、企业码等其余操作只进全局操作日志；种子租户补初始基线
   const tenantLog = (() => {
     const rawLogs = registry.activityLog.filter(
       (l) =>
@@ -1104,6 +1179,89 @@ function TenantDetailDrawer({
     setBusy(null);
   };
 
+  // ── 主体资料编辑（2026-11-25） ──
+  const patchProfile = (patch: Partial<SubjectProfileForm>) => {
+    setProfileForm((f) => (f ? { ...f, ...patch } : f));
+    setProfileErrors((errs) => {
+      const next = { ...errs };
+      Object.keys(patch).forEach((key) => delete next[key]);
+      return next;
+    });
+  };
+
+  const validateProfile = (form: SubjectProfileForm): Record<string, string> => {
+    const errs: Record<string, string> = {};
+    if (form.uscc.trim()) {
+      if (!/^[0-9A-Z]{18}$/.test(form.uscc.trim().toUpperCase())) {
+        errs.uscc = "请输入 18 位统一社会信用代码（数字与大写字母）";
+      } else if (isUsccTaken(form.uscc, tenant.id)) {
+        errs.uscc = "该企业主体已存在租户，请先查看现有记录";
+      }
+    }
+    if (form.contactPhone.trim() && !/^1\d{10}$/.test(form.contactPhone.trim())) {
+      errs.contactPhone = "请输入正确的 11 位手机号";
+    }
+    return errs;
+  };
+
+  const startProfileEdit = () => {
+    setProfileForm(profileFormOf(tenant));
+    setProfileErrors({});
+    setProfileEditing(true);
+  };
+
+  const cancelProfileEdit = () => {
+    setProfileEditing(false);
+    setProfileForm(null);
+    setProfileErrors({});
+  };
+
+  const saveProfile = () => {
+    if (!profileForm) return;
+    const errs = validateProfile(profileForm);
+    setProfileErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    // 保留表单未暴露的历史字段（药厂生产许可证编号/有效期等），仅覆盖可编辑项
+    const nextProfile: TenantSubjectProfile = {
+      ...tenant.profile,
+      legalName: profileForm.legalName.trim(),
+      uscc: profileForm.uscc.trim().toUpperCase(),
+      address: profileForm.address.trim(),
+      contactName: profileForm.contactName.trim(),
+      contactPhone: profileForm.contactPhone.trim(),
+      licenseAttachment: profileForm.licenseAttachment || undefined,
+      remark: profileForm.remark.trim() || undefined,
+    };
+    if (tenant.type === "pharma") {
+      nextProfile.pharmaCategory = profileForm.pharmaCategory || undefined;
+      nextProfile.mahHolderFlag = profileForm.mahHolderFlag;
+    } else {
+      nextProfile.bizOwner = profileForm.bizOwner.trim() || undefined;
+      nextProfile.complianceOwner = profileForm.complianceOwner.trim() || undefined;
+      nextProfile.qualificationNo = profileForm.qualificationNo.trim() || undefined;
+      nextProfile.qualificationValidTo = profileForm.qualificationValidTo || undefined;
+    }
+
+    void run("profile", () => {
+      const r = updateTenantProfile(tenant.id, nextProfile, actor);
+      if (r.ok) {
+        flushAudits(r.audits);
+        cancelProfileEdit();
+        addToast({
+          type: "success",
+          title: "主体资料已更新",
+          description: "变更已保存并写入全局操作日志。",
+        });
+      } else {
+        addToast({ type: "error", title: "保存失败", description: r.error });
+      }
+    });
+  };
+
+  const profileDirty =
+    profileForm !== null && JSON.stringify(profileForm) !== JSON.stringify(profileFormOf(tenant));
+
   const openStatusAction = (action: "suspend" | "resume") => {
     const first = action === "suspend" ? SUSPEND_REASON_OPTIONS[0].code : RESUME_REASON_OPTIONS[0].code;
     setReasonCode(first);
@@ -1129,6 +1287,90 @@ function TenantDetailDrawer({
         flushAudits(r.audits);
         const titles = { suspend: "租户已暂停", resume: "租户已恢复" } as const
         addToast({ type: "success", title: titles[action], description: "原因与说明已写入操作日志。" });
+      }
+    });
+  };
+
+  // ── 更换套餐 / 有效期（2026-11-25）：两项各自可选、至少改一项；有效期变化时原因必填 ──
+  const today = todayStr();
+  const currentExpireAt = tenant.expireAt ?? "";
+  const nextExpireAt = openingForm
+    ? openingForm.expireMode === "date"
+      ? openingForm.expireAt
+      : ""
+    : currentExpireAt;
+  const pkgChanged = openingForm !== null && openingForm.packageId !== (pkg?.id ?? "");
+  const expireChanged = openingForm !== null && nextExpireAt !== currentExpireAt;
+  const openingDirty = pkgChanged || expireChanged;
+  // 当前套餐已停用时仍列为选项（标注已停用）保证下拉回显；停用只约束「能否再被新选」
+  const enabledPkgs = listTenantPackages().filter((p) => p.status === "enabled");
+  const pkgOptions = pkg && !enabledPkgs.some((p) => p.id === pkg.id) ? [pkg, ...enabledPkgs] : enabledPkgs;
+  const targetPkg = openingForm ? pkgOptions.find((p) => p.id === openingForm.packageId) : undefined;
+  // 有效期日期随填随验：限期必填、不得早于今天（过去的日期等于立即停用，应走「暂停租户」）。
+  // 「永久有效」与「限期但日期为空」的 nextExpireAt 同为空串，必须先按口径排除前者
+  const expireDateError =
+    !expireChanged || openingForm?.expireMode === "permanent"
+      ? null
+      : !nextExpireAt
+        ? "请选择有效期日期"
+        : nextExpireAt < today
+          ? "有效期不得早于今天；如需立即停用请使用「暂停租户」"
+          : null;
+  // 缩短 / 由永久改限期 → 提示到期后果；仅限期口径适用（永久有效没有「到期」）。
+  // 已过期租户另有过期提示（新日期不早于今天，两者互斥）
+  const expireShortened =
+    expireChanged &&
+    openingForm?.expireMode === "date" &&
+    !expireDateError &&
+    (!tenant.expireAt || nextExpireAt < tenant.expireAt);
+
+  const patchOpening = (patch: Partial<OpeningForm>) => {
+    setOpeningForm((f) => (f ? { ...f, ...patch } : f));
+    // 说明 / 套餐的错误在提交时重算：任何改动先清掉旧错误（日期错误随填随验，不在此列）
+    setOpeningErrors({});
+  };
+
+  const submitOpening = () => {
+    if (!openingForm) return;
+    const errs: Record<string, string> = {};
+    if (pkgChanged && !targetPkg) errs.packageId = "请选择目标套餐";
+    if (expireChanged && !openingForm.note.trim()) errs.note = "请填写说明（必填，随操作日志保留）";
+    setOpeningErrors(errs);
+    if (expireDateError || Object.keys(errs).length > 0) return;
+
+    // 提交前定格表单：run 有演示延时，期间表单可能继续变化。
+    // 套餐只在真正改动时提交：存量租户未显式绑定（回落默认套餐）时，原样传回
+    // 当前套餐会被数据层判成换绑（默认套餐 id ≠ 空），凭空多一条换绑流水
+    const { reasonCode, note } = openingForm;
+    const pkgTarget = pkgChanged ? targetPkg : undefined;
+    // 过期租户把有效期调到今天及以后即恢复登录（已暂停租户另受状态约束，不在此承诺）
+    const willRestoreLogin = expired && tenant.status === "active";
+    void run("opening", () => {
+      const r = changeTenantOpening(
+        tenant.id,
+        {
+          ...(pkgTarget ? { package: { id: pkgTarget.id, label: pkgTarget.name } } : {}),
+          ...(expireChanged ? { expire: { to: nextExpireAt || null, reasonCode, note: note.trim() } } : {}),
+        },
+        actor,
+      );
+      if (r.ok) {
+        flushAudits(r.audits);
+        setOpeningForm(null);
+        const changes = [
+          pkgTarget ? `已换绑「${pkgTarget.name}」，该租户菜单即时生效` : "",
+          expireChanged ? `有效期 ${expireLabel(tenant.expireAt)} → ${expireLabel(nextExpireAt)}` : "",
+        ].filter(Boolean).join("；");
+        addToast({
+          type: "success",
+          title: pkgTarget && expireChanged ? "套餐与有效期已更新" : pkgTarget ? "套餐已更换" : "有效期已调整",
+          description:
+            `「${tenant.legalName}」${changes}。` +
+            (expireChanged ? "原因与说明已写入操作日志。" : "") +
+            (willRestoreLogin ? "该租户登录已恢复。" : ""),
+        });
+      } else {
+        addToast({ type: "error", title: "变更失败", description: r.error });
       }
     });
   };
@@ -1232,14 +1474,18 @@ function TenantDetailDrawer({
                   className="tm-ghost-btn tm-btn-sm"
                   disabled={busy !== null}
                   onClick={() => {
-                    const current = packageOfTenant(tenant.id);
-                    setPkgChoice(current?.id ?? "");
-                    setPkgErr(null);
-                    setPkgChangeOpen(true);
+                    setOpeningForm({
+                      packageId: pkg?.id ?? "",
+                      expireMode: tenant.expireAt ? "date" : "permanent",
+                      expireAt: tenant.expireAt ?? "",
+                      reasonCode: EXPIRE_REASON_OPTIONS[0].code,
+                      note: "",
+                    });
+                    setOpeningErrors({});
                   }}
                 >
                   <RefreshCw size={13} aria-hidden />
-                  更换套餐
+                  更换套餐 / 有效期
                 </button>
               </div>
               <dl className="tm-confirm-grid">
@@ -1250,13 +1496,19 @@ function TenantDetailDrawer({
                 </dd>
                 <dt>开通有效期</dt>
                 <dd className="font-mono-nums" style={expired ? { color: "#C73A3A" } : undefined}>
-                  {tenant.expireAt ? (expired ? `已过期（${tenant.expireAt} 起）` : `至 ${tenant.expireAt}`) : "永久有效"}
+                  {expired ? `已过期（${tenant.expireAt} 起）` : expireLabel(tenant.expireAt)}
                 </dd>
               </dl>
+              {expired && (
+                <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 8 }}>
+                  <AlertTriangle size={14} aria-hidden />
+                  <span>该租户已过期，当前无法登录；通过「更换套餐 / 有效期」延长后立即恢复。</span>
+                </div>
+              )}
             </section>
           )}
 
-          {/* 选项卡 2：主体资料（工商登记信息，只读） */}
+          {/* 选项卡 2：主体资料（2026-11-25 起可编辑：卡头「编辑」→ 表单 → 保存/取消） */}
           {detailTab === "profile" && (
             <section
               id="tm-detail-panel-profile"
@@ -1265,29 +1517,258 @@ function TenantDetailDrawer({
               className="tm-sec"
             >
               <div className="tm-sec-head">
-                <h4 className="tm-sec-title">主体资料</h4>
-                <span className="tm-sub" style={{ marginTop: 0 }}>创建后只读</span>
+                <div style={{ minWidth: 0 }}>
+                  <h4 className="tm-sec-title">主体资料</h4>
+                  <span className="tm-sub" style={{ marginTop: 2, display: "block" }}>
+                    {profileEditing
+                      ? "编辑中 · 保存后立即生效，变更写入操作日志"
+                      : "创建后可在本页签维护企业主体信息"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {profileEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        className="tm-ghost-btn tm-btn-sm"
+                        disabled={busy !== null}
+                        onClick={cancelProfileEdit}
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        className="tm-primary-btn tm-btn-sm"
+                        disabled={busy !== null || !profileDirty}
+                        onClick={saveProfile}
+                      >
+                        {busy === "profile" ? (
+                          <LoaderCircle size={13} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden />
+                        ) : (
+                          <Check size={13} aria-hidden />
+                        )}
+                        {busy === "profile" ? "正在保存…" : "保存"}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="tm-ghost-btn tm-btn-sm"
+                      disabled={busy !== null}
+                      onClick={startProfileEdit}
+                    >
+                      <Pencil size={13} aria-hidden />
+                      编辑
+                    </button>
+                  )}
+                </div>
               </div>
-              <dl className="tm-confirm-grid">
-                <dt>企业法定名称</dt><dd>{tenant.legalName}</dd>
-                <dt>统一社会信用代码</dt><dd className="font-mono-nums">{tenant.uscc}</dd>
-                <dt>注册地址</dt><dd>{p.address}</dd>
-                <dt>企业联系人</dt><dd>{p.contactName} · <span className="font-mono-nums" style={{ fontWeight: 400 }}>{p.contactPhone}</span></dd>
-                <dt>创建时间 / 创建人</dt><dd className="font-mono-nums">{tenant.createdAt} · {tenant.createdBy}</dd>
-                {tenant.type === "pharma" ? (
-                  <>
-                    <dt>主体分类</dt><dd>{p.pharmaCategory || "—"}（{p.mahHolderFlag ? "MAH 持有人" : "销售企业"}）</dd>
-                  </>
-                ) : (
-                  <>
-                    <dt>业务负责人</dt><dd>{p.bizOwner || "—"}</dd>
-                    <dt>合规负责人</dt><dd>{p.complianceOwner || "—"}</dd>
-                    <dt>资质编号</dt><dd>{p.qualificationNo || "—"}{p.qualificationValidTo ? ` · 至 ${p.qualificationValidTo}` : ""}</dd>
-                  </>
-                )}
-                <dt>证明材料</dt><dd>{p.licenseAttachment || "未上传（选填）"}</dd>
-                {p.remark && (<><dt>备注</dt><dd>{p.remark}</dd></>)}
-              </dl>
+
+              {profileEditing && profileForm ? (
+                <>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                      columnGap: 16,
+                      rowGap: 16,
+                      paddingTop: 14,
+                    }}
+                  >
+                    <Field id="tp-legalName" label="企业法定名称">
+                      <input
+                        {...inputProps("tp-legalName")}
+                        value={profileForm.legalName}
+                        onChange={(e) => patchProfile({ legalName: e.target.value })}
+                        placeholder="与营业执照一致"
+                      />
+                    </Field>
+                    <Field id="tp-uscc" label="统一社会信用代码" error={profileErrors.uscc} hint="18 位数字与大写字母；全局唯一">
+                      <input
+                        {...inputProps("tp-uscc", profileErrors.uscc)}
+                        className="tm-field font-mono-nums"
+                        value={profileForm.uscc}
+                        onChange={(e) => patchProfile({ uscc: e.target.value.toUpperCase() })}
+                        placeholder="91320191MA4WQ7LR8C"
+                        maxLength={18}
+                        style={{ ...fieldInput, letterSpacing: "0.04em", ...(profileErrors.uscc ? { borderColor: "#DC2626" } : {}) }}
+                      />
+                    </Field>
+                    <Field id="tp-address" label="企业注册地址">
+                      <input
+                        {...inputProps("tp-address")}
+                        value={profileForm.address}
+                        onChange={(e) => patchProfile({ address: e.target.value })}
+                        placeholder="省市 + 详细地址"
+                      />
+                    </Field>
+                    <Field id="tp-contactName" label="企业联系人姓名">
+                      <input
+                        {...inputProps("tp-contactName")}
+                        value={profileForm.contactName}
+                        onChange={(e) => patchProfile({ contactName: e.target.value })}
+                      />
+                    </Field>
+                    <Field id="tp-contactPhone" label="企业联系人手机号" error={profileErrors.contactPhone}>
+                      <input
+                        {...inputProps("tp-contactPhone", profileErrors.contactPhone)}
+                        className="tm-field font-mono-nums"
+                        value={profileForm.contactPhone}
+                        onChange={(e) => patchProfile({ contactPhone: e.target.value.replace(/\D/g, "") })}
+                        maxLength={11}
+                        placeholder="11 位手机号"
+                        style={{ ...fieldInput, ...(profileErrors.contactPhone ? { borderColor: "#DC2626" } : {}) }}
+                      />
+                    </Field>
+                    <Field id="tp-license" label="营业执照或证明材料" hint="原型使用模拟附件，不产生真实文件">
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          {...inputProps("tp-license")}
+                          value={profileForm.licenseAttachment}
+                          readOnly
+                          placeholder="未选择材料"
+                          style={{ ...fieldInput, background: "#F9FAFB" }}
+                        />
+                        <button
+                          type="button"
+                          className="tm-ghost-btn"
+                          style={{ height: 40, flexShrink: 0 }}
+                          disabled={busy !== null}
+                          onClick={() =>
+                            patchProfile({
+                              licenseAttachment: `营业执照-${profileForm.legalName || tenant.legalName || "租户"}.pdf（模拟附件）`,
+                            })
+                          }
+                        >
+                          模拟上传
+                        </button>
+                        {profileForm.licenseAttachment && (
+                          <button
+                            type="button"
+                            className="tm-ghost-btn"
+                            style={{ height: 40, flexShrink: 0 }}
+                            disabled={busy !== null}
+                            onClick={() => patchProfile({ licenseAttachment: "" })}
+                            aria-label="清除已上传材料"
+                          >
+                            <X size={14} aria-hidden />
+                          </button>
+                        )}
+                      </div>
+                    </Field>
+                    <Field id="tp-remark" label="备注">
+                      <input
+                        {...inputProps("tp-remark")}
+                        value={profileForm.remark}
+                        onChange={(e) => patchProfile({ remark: e.target.value })}
+                        placeholder="补充说明（选填）"
+                      />
+                    </Field>
+
+                    {tenant.type === "pharma" ? (
+                      <>
+                        <Field id="tp-pharmaCategory" label="主体分类">
+                          <select
+                            id="tp-pharmaCategory"
+                            className="tm-field"
+                            style={fieldInput}
+                            value={profileForm.pharmaCategory}
+                            onChange={(e) => patchProfile({ pharmaCategory: e.target.value })}
+                          >
+                            <option value="">请选择（选填）</option>
+                            {PHARMA_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                          </select>
+                        </Field>
+                        <Field id="tp-mah" label="药品上市许可持有人 / 生产企业标识">
+                          <select
+                            id="tp-mah"
+                            className="tm-field"
+                            style={fieldInput}
+                            value={profileForm.mahHolderFlag ? "yes" : "no"}
+                            onChange={(e) => patchProfile({ mahHolderFlag: e.target.value === "yes" })}
+                          >
+                            <option value="yes">是 · 上市许可持有人（MAH）</option>
+                            <option value="no">否 · 销售企业</option>
+                          </select>
+                        </Field>
+                      </>
+                    ) : (
+                      <>
+                        <Field id="tp-bizOwner" label="业务负责人">
+                          <input
+                            {...inputProps("tp-bizOwner")}
+                            value={profileForm.bizOwner}
+                            onChange={(e) => patchProfile({ bizOwner: e.target.value })}
+                          />
+                        </Field>
+                        <Field id="tp-complianceOwner" label="合规负责人">
+                          <input
+                            {...inputProps("tp-complianceOwner")}
+                            value={profileForm.complianceOwner}
+                            onChange={(e) => patchProfile({ complianceOwner: e.target.value })}
+                          />
+                        </Field>
+                        <Field id="tp-qualificationNo" label="相关资质编号">
+                          <input
+                            id="tp-qualificationNo"
+                            className="tm-field"
+                            value={profileForm.qualificationNo}
+                            onChange={(e) => patchProfile({ qualificationNo: e.target.value })}
+                            style={fieldInput}
+                          />
+                        </Field>
+                        <Field id="tp-qualificationValidTo" label="资质有效期至">
+                          <input
+                            id="tp-qualificationValidTo"
+                            className="tm-field font-mono-nums"
+                            style={fieldInput}
+                            type="date"
+                            value={profileForm.qualificationValidTo}
+                            onChange={(e) => patchProfile({ qualificationValidTo: e.target.value })}
+                          />
+                        </Field>
+                      </>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 12,
+                      paddingTop: 10,
+                      borderTop: "1px solid #F3F4F6",
+                      fontSize: "var(--fs-12)",
+                      color: "#9CA3AF",
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    创建时间 / 创建人：<span className="font-mono-nums">{tenant.createdAt}</span> · {tenant.createdBy}（不可修改）
+                  </div>
+                </>
+              ) : (
+                <dl className="tm-confirm-grid">
+                  <dt>企业法定名称</dt><dd>{tenant.legalName}</dd>
+                  <dt>统一社会信用代码</dt><dd className="font-mono-nums">{tenant.uscc || "—"}</dd>
+                  <dt>注册地址</dt><dd>{p.address || "—"}</dd>
+                  <dt>企业联系人</dt>
+                  <dd>
+                    {p.contactName || "—"}
+                    {p.contactPhone && <span className="font-mono-nums" style={{ fontWeight: 400 }}> · {p.contactPhone}</span>}
+                  </dd>
+                  <dt>创建时间 / 创建人</dt><dd className="font-mono-nums">{tenant.createdAt} · {tenant.createdBy}</dd>
+                  {tenant.type === "pharma" ? (
+                    <>
+                      <dt>主体分类</dt><dd>{p.pharmaCategory || "—"}（{p.mahHolderFlag ? "MAH 持有人" : "销售企业"}）</dd>
+                    </>
+                  ) : (
+                    <>
+                      <dt>业务负责人</dt><dd>{p.bizOwner || "—"}</dd>
+                      <dt>合规负责人</dt><dd>{p.complianceOwner || "—"}</dd>
+                      <dt>资质编号</dt><dd>{p.qualificationNo || "—"}{p.qualificationValidTo ? ` · 至 ${p.qualificationValidTo}` : ""}</dd>
+                    </>
+                  )}
+                  <dt>证明材料</dt><dd>{p.licenseAttachment || "未上传（选填）"}</dd>
+                  {p.remark && (<><dt>备注</dt><dd>{p.remark}</dd></>)}
+                </dl>
+              )}
             </section>
           )}
 
@@ -1397,86 +1878,173 @@ function TenantDetailDrawer({
         </div>
       </Modal>
 
-      {/* 更换套餐（即时生效，写审计） */}
-      {pkgChangeOpen && (
+      {/* 更换套餐 / 有效期（两项各自可选、至少改一项；有效期变化时原因必填；即时生效，写审计）。
+          原因字段按需出现会撑高内容：动作放固定底栏，内容区滚动时「确认变更」始终可见 */}
+      {openingForm && (
         <Modal
           open
-          title={`更换套餐 · ${tenant.legalName}`}
-          width={480}
-          onClose={() => { if (busy === null) setPkgChangeOpen(false) }}
+          title={`更换套餐 / 有效期 · ${tenant.legalName}`}
+          width={520}
+          onClose={() => { if (busy === null) setOpeningForm(null) }}
+          footer={
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="tm-ghost-btn" disabled={busy !== null} onClick={() => setOpeningForm(null)}>取消</button>
+              <button
+                type="button"
+                className="tm-primary-btn"
+                disabled={busy !== null || !openingDirty}
+                onClick={submitOpening}
+              >
+                {busy === "opening" ? (
+                  <LoaderCircle size={14} style={{ animation: "spin 0.7s linear infinite" }} aria-hidden />
+                ) : (
+                  <RefreshCw size={14} aria-hidden />
+                )}
+                确认变更
+              </button>
+            </div>
+          }
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {(() => {
-              const current = packageOfTenant(tenant.id);
-              const options = listTenantPackages().filter((p) => p.status === "enabled");
-              const target = options.find((p) => p.id === pkgChoice);
-              return (
+            <p style={{ margin: 0, fontSize: "var(--fs-14)", color: "#374151", lineHeight: 1.7 }}>
+              当前套餐：<b>{pkg?.name ?? "—"}</b>（{pkg?.menuIds.length ?? 0} 项功能）。套餐与有效期互不影响，
+              可只改其中一项；换绑后该租户用户的可见菜单<b>即时</b>按新套餐裁剪/恢复。
+            </p>
+            <div>
+              <label htmlFor="pkg-choice" style={fieldLabel}>目标套餐</label>
+              <select
+                id="pkg-choice"
+                className="tm-field"
+                style={{ ...fieldInput, ...(openingErrors.packageId ? { borderColor: "#DC2626" } : {}) }}
+                value={openingForm.packageId}
+                aria-invalid={Boolean(openingErrors.packageId)}
+                aria-describedby={openingErrors.packageId ? "err-pkg-choice" : undefined}
+                onChange={(e) => patchOpening({ packageId: e.target.value })}
+              >
+                {!pkg && <option value="">请选择目标套餐</option>}
+                {pkgOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.isDefault ? "（默认）" : ""}{p.status === "disabled" ? "（已停用）" : ""} · {p.menuIds.length} 项功能
+                  </option>
+                ))}
+              </select>
+              {targetPkg?.remark && <div style={{ fontSize: "var(--fs-12)", color: "#9CA3AF", marginTop: 4 }}>{targetPkg.remark}</div>}
+              {openingErrors.packageId && (
+                <div id="err-pkg-choice" style={errPill} role="alert">
+                  <AlertTriangle size={13} aria-hidden />
+                  {openingErrors.packageId}
+                </div>
+              )}
+            </div>
+            <div>
+              <div id="op-expire-label" style={fieldLabel}>有效期</div>
+              <div
+                role="radiogroup"
+                aria-labelledby="op-expire-label"
+                aria-describedby="op-expire-hint"
+                style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}
+              >
+                <label style={radioLabel}>
+                  <input
+                    type="radio"
+                    name="op-expire-mode"
+                    checked={openingForm.expireMode === "date"}
+                    onChange={() => patchOpening({ expireMode: "date" })}
+                    style={radioInput}
+                  />
+                  有效期至
+                </label>
+                {openingForm.expireMode === "date" && (
+                  <input
+                    id="op-expire-at"
+                    type="date"
+                    min={today}
+                    className="tm-field font-mono-nums"
+                    style={{ ...fieldInput, width: 172, ...(expireDateError ? { borderColor: "#DC2626" } : {}) }}
+                    value={openingForm.expireAt}
+                    aria-invalid={Boolean(expireDateError)}
+                    aria-describedby={expireDateError ? "err-op-expire-at" : "op-expire-hint"}
+                    onChange={(e) => patchOpening({ expireAt: e.target.value })}
+                  />
+                )}
+                <label style={radioLabel}>
+                  <input
+                    type="radio"
+                    name="op-expire-mode"
+                    checked={openingForm.expireMode === "permanent"}
+                    onChange={() => patchOpening({ expireMode: "permanent" })}
+                    style={radioInput}
+                  />
+                  永久有效
+                </label>
+              </div>
+              {expireDateError ? (
+                <div id="err-op-expire-at" style={errPill} role="alert">
+                  <AlertTriangle size={13} aria-hidden />
+                  {expireDateError}
+                </div>
+              ) : (
+                <div id="op-expire-hint" style={{ fontSize: "var(--fs-12)", color: "#9CA3AF", marginTop: 4 }}>
+                  {openingForm.expireMode === "date" && !openingForm.expireAt
+                    ? "请选择截止日期；截止日当天仍可使用，到期后该租户无法登录。"
+                    : "截止日当天仍可使用，到期后该租户无法登录；调整后即时生效。"}
+                </div>
+              )}
+              {expired && (
+                <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 8 }}>
+                  <AlertTriangle size={14} aria-hidden />
+                  <span>该租户已过期（{tenant.expireAt} 起），当前无法登录；延长有效期后立即恢复。</span>
+                </div>
+              )}
+              {expireShortened && openingForm && (
+                <div className="tm-note tm-note--warn" role="note" style={{ marginTop: 8 }}>
+                  <AlertTriangle size={14} aria-hidden />
+                  <span>
+                    {tenant.expireAt ? "有效期缩短" : "由永久有效改为限期"}：{expireDueText(openingForm.expireAt)}，到期后该租户将无法登录。
+                  </span>
+                </div>
+              )}
+            </div>
+            {/* 变更预览：确认前摆明「改了什么」；无变更时说明确认按钮为何不可用 */}
+            <div style={{ padding: "8px 12px", background: "#F9FAFB", border: "1px solid #F3F4F6", borderRadius: 8, fontSize: "var(--fs-13)", color: "#374151", lineHeight: 1.7 }}>
+              {openingDirty ? (
                 <>
-                  <p style={{ margin: 0, fontSize: "var(--fs-14)", color: "#374151", lineHeight: 1.7 }}>
-                    当前套餐：<b>{current?.name ?? "—"}</b>（{current?.menuIds.length ?? 0} 项功能）。
-                    换绑后该租户用户的可见菜单<b>即时</b>按新套餐裁剪/恢复；已停用套餐不可选。
-                  </p>
-                  <div>
-                    <label htmlFor="pkg-choice" style={fieldLabel}>
-                      目标套餐<span style={{ color: "#C73A3A", marginLeft: 2 }} aria-hidden>*</span>
-                    </label>
-                    <select
-                      id="pkg-choice"
-                      className="tm-field"
-                      value={pkgChoice}
-                      onChange={(e) => { setPkgChoice(e.target.value); setPkgErr(null) }}
-                      style={fieldInput}
-                    >
-                      <option value="">请选择目标套餐</option>
-                      {options.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}{p.isDefault ? "（默认）" : ""} · {p.menuIds.length} 项功能
-                        </option>
-                      ))}
-                    </select>
-                    {target?.remark && <div style={{ fontSize: "var(--fs-12)", color: "#9CA3AF", marginTop: 4 }}>{target.remark}</div>}
-                    {pkgErr && (
-                      <div role="alert" style={errPill}>
-                        <AlertTriangle size={13} aria-hidden />
-                        {pkgErr}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                    <button type="button" className="tm-ghost-btn" disabled={busy !== null} onClick={() => setPkgChangeOpen(false)}>取消</button>
-                    <button
-                      type="button"
-                      className="tm-primary-btn"
-                      disabled={busy !== null}
-                      onClick={() => {
-                        const targetPkg = listTenantPackages().find((x) => x.id === pkgChoice);
-                        if (!targetPkg) {
-                          setPkgErr("请选择目标套餐");
-                          return;
-                        }
-                        if (targetPkg.id === current?.id) {
-                          setPkgErr("目标套餐与当前一致，无需换绑");
-                          return;
-                        }
-                        void run("pkg", () => {
-                          const r = changeTenantPackage(tenant.id, targetPkg.id, targetPkg.name, actor);
-                          if (r.ok) {
-                            flushAudits(r.audits);
-                            setPkgChangeOpen(false);
-                            addToast({ type: "success", title: "套餐已更换", description: `「${tenant.legalName}」已换绑「${targetPkg.name}」，该租户菜单即时生效。` });
-                          } else {
-                            addToast({ type: "error", title: "换绑失败", description: r.error });
-                          }
-                        });
-                      }}
-                    >
-                      <RefreshCw size={14} aria-hidden />
-                      确认换绑
-                    </button>
-                  </div>
+                  {pkgChanged && <div>套餐：<b>{pkg?.name}</b> → <b>{targetPkg?.name ?? "—"}</b></div>}
+                  {expireChanged && <div>有效期：<b>{expireLabel(tenant.expireAt)}</b> → <b>{expireLabel(nextExpireAt)}</b></div>}
                 </>
-              );
-            })()}
+              ) : (
+                <span style={{ color: "#6B7280" }}>尚未变更：调整套餐或有效期后即可确认。</span>
+              )}
+            </div>
+            {expireChanged && (
+              <>
+                <div>
+                  <label htmlFor="op-reason" style={fieldLabel}>原因（标准原因码）<span style={{ color: "#C73A3A", marginLeft: 2 }} aria-hidden>*</span></label>
+                  <select id="op-reason" className="tm-field" style={fieldInput} value={openingForm.reasonCode} onChange={(e) => patchOpening({ reasonCode: e.target.value })}>
+                    {EXPIRE_REASON_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="op-note" style={fieldLabel}>说明<span style={{ color: "#C73A3A", marginLeft: 2 }} aria-hidden>*</span></label>
+                  <textarea
+                    id="op-note"
+                    className="tm-field"
+                    style={{ ...fieldInput, height: 84, padding: "8px 12px", resize: "vertical", ...(openingErrors.note ? { borderColor: "#DC2626" } : {}) }}
+                    value={openingForm.note}
+                    aria-invalid={Boolean(openingErrors.note)}
+                    aria-describedby={openingErrors.note ? "err-op-note" : undefined}
+                    onChange={(e) => patchOpening({ note: e.target.value })}
+                    placeholder="必填；随操作日志保留（如续签合同编号、补偿依据）"
+                  />
+                  {openingErrors.note && (
+                    <div id="err-op-note" style={errPill} role="alert">
+                      <AlertTriangle size={13} aria-hidden />
+                      {openingErrors.note}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </Modal>
       )}

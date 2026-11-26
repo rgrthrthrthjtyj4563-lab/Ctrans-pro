@@ -508,6 +508,12 @@ export interface WorkloadAssign {
   settledBillNo?: string
   /** 部分结算累计的工作量；达到 workload 时整行结算完毕 */
   settledQty?: number
+  /** 2026-11 接手/改派留痕（A11）：原经办人（仅未办工作量可转移；已提交成果保留原经办人） */
+  takenOverFrom?: string
+  /** 接手操作人（本服务商管理员） */
+  takenOverBy?: string
+  /** 接手时间 */
+  takenOverAt?: string
 }
 
 export interface ReportFile {
@@ -727,7 +733,7 @@ export interface AuditLogEntry {
  * - 系统管理后台收敛为 租户管理 / 租户套餐管理 / 菜单管理 / 系统审计日志（软件服务方唯一预置角色=贝医系统管理员）。
  * 菜单显示统一由 ResourcePage.realms/tenantTypes + 角色 pagePerms 判定，不再按旧视角隐藏。
  */
-export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "business-switch" | "execution-chain" | "menus" | "questionnaire-config" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "workgroup-manage" | "audit-log" | "platform-audit" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management" | "tenant-package" | "contract-management" | "visit-audit-hospital" | "visit-audit-commercial" | "visit-audit-pharmacy"
+export type PageId = "dashboard" | "hospital-visits" | "commercial-visits" | "pharmacy-visits" | "meetings" | "surveys" | "budget-plan" | "analytics" | "task-dispatch" | "doctors" | "varieties" | "variety-auth" | "pharma-cooperation" | "provider-partners" | "rep-filing" | "vendor-access" | "vendor-access-records" | "business-switch" | "execution-chain" | "menus" | "questionnaire-config" | "price-config" | "roles" | "role-preview" | "org-structure" | "user-manage" | "audit-log" | "platform-audit" | "baiyee-ai" | "performance-team" | "performance-specialist" | "performance-settings" | "biz-detail-export" | "talk-script-variety" | "scenario-center" | "tenant-management" | "tenant-package" | "contract-management" | "visit-audit-hospital" | "visit-audit-commercial" | "visit-audit-pharmacy"
 
 // ===== 话术管理（话术管理页 + baiyee-AI 采纳入库） =====
 // 依据《话术管理功能需求文档》V1.1（2026-10-29）重构：
@@ -1062,10 +1068,6 @@ export interface DashboardRoleData {
     subtitle?: string
     points: { label: string; value: number }[]
     summary: DashboardStatItem[]
-  }
-  ranking?: {
-    title: string
-    items: DashboardStatItem[]
   }
   distribution?: {
     title: string

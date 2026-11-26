@@ -34,8 +34,7 @@ import {
   useTaskData,
 } from "../context/TaskDataContext"
 import { usePermission } from "../context/PermissionContext"
-import { resolveGroupLeader } from "../data/permissions"
-import { membershipsOfTenant } from "../data/cooperationModel"
+import { membershipsOfTenant, membershipsOfUser, membershipActive } from "../data/cooperationModel"
 import { NO_BIZ_SCOPE_TITLE, noBizScopeDescription, useServingScope } from "../hooks/useServingBizScope"
 import { NO_REGION_SCOPE_DESCRIPTION, NO_REGION_SCOPE_TITLE, usePharmaRegionScope } from "../hooks/usePharmaRegionScope"
 import {
@@ -141,6 +140,13 @@ type PersonalAllocationRow = Pick<WorkloadAssign, "id" | "specialist" | "itemNam
   amount?: number
   done?: number
   completedAt?: string
+  /** 演示兜底行可缺省；真实任务量行必有 */
+  variety?: string
+  region?: string
+  /** A11 接手留痕：原经办人 / 操作人 / 时间 */
+  takenOverFrom?: string
+  takenOverBy?: string
+  takenOverAt?: string
 }
 
 const MAIN_STATUS_COLOR: Record<string, "warning" | "brand" | "danger" | "success" | "default"> =
@@ -192,31 +198,17 @@ export function TaskExecution({
   navigate,
 }: Props) {
   const ctx = useTaskData()
-  const { principal, orgs, users, assignments, groupLeaders } = usePermission()
+  const { principal } = usePermission()
   const { config: acceptCfg, packageOf: acceptPkgOf, reviewBatch: acceptReviewBatch } = useAcceptance()
   const acceptReviewer = useAcceptanceReviewer()
-  /**
-   * 组长拦截（2026-09-15 拍板）：无有效组长的工作组（未设置/被停用/调离本组/
-   * 角色被回收）不得接收新的管理任务——下派控件禁用并说明原因。
-   */
-  const blockedWorkGroups = useMemo(() => {
-    if (principal.realm !== "TENANT" || principal.tenantKind !== "provider") return {}
-    const memberships = membershipsOfTenant(principal.tenantId)
-    const out: Record<string, string> = {}
-    for (const g of orgs.filter(o => o.type === "group" && o.parentId === principal.tenantId)) {
-      const res = resolveGroupLeader(g.id, groupLeaders[g.id], { users, assignments, memberships, tenantId: principal.tenantId })
-      if (res.status === "none") out[g.name] = "该工作组尚未配置有效组长，请先在「工作组管理」指定组长"
-      else if (res.status === "invalid") out[g.name] = `组长失效（${res.reason}），请先在「工作组管理」重新指定`
-    }
-    return out
-  }, [principal, orgs, users, assignments, groupLeaders])
+  // 2026-11 工作组体系下线：不再存在「无有效组长禁止下派」拦截——
+  // 服务商内部承接直接面向服务商管理员、部门负责人或直达服务专员。
   const {
     tasks,
     varieties,
     revokeTask,
     confirmTask,
     unconfirmProvider,
-    splitToWorkgroup,
     splitToSpecialists,
     authorizedSubTargets,
     uploadReport,
@@ -233,9 +225,20 @@ export function TaskExecution({
 
   // 按钮与数据分支口径（2026-09-15）：按租户类型 + 当前角色页面权限判定，
   // 不再使用旧角色名称字符串硬编码
-  const { can: canAction } = usePermission()
+  const { can: canAction, users } = usePermission()
   const isProvider = principal.realm === 'TENANT' && principal.tenantKind === 'provider'
   const isSales = principal.realm === 'TENANT' && principal.tenantKind === 'pharma' && canAction('task-dispatch', 'edit')
+  // 本服务商有效成员（§2 合资格人员）：四级链在途旧单直达分派与接手/改派共用同一候选口径
+  const providerActiveSpecialists = useMemo(() => {
+    if (principal.realm !== 'TENANT') return []
+    return users
+      .filter((u) =>
+        membershipsOfUser(u.id).some(
+          (m) => m.tenantId === principal.tenantId && membershipActive(m),
+        ),
+      )
+      .map((u) => u.name)
+  }, [principal, users])
 
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [applied, setApplied] = useState<Record<string, string>>({})
@@ -461,11 +464,9 @@ export function TaskExecution({
     if (t.taskStatus === "执行中" && isProvider) {
       const actions: React.ReactNode[] = []
       if (hasPromoItems(t)) {
-        // 三级链任务：服务商直接分配服务专员；四级链任务：先拆解到工作组
+        // 2026-11 工作组下线（§2）：新分配统一直达口径；四级链旧单按接手/改派直达分派
         const threeLevel = chainLevelOfTask(t) === "三级链"
-        const hasAssignment = threeLevel
-          ? t.workloadAssigns.length > 0
-          : t.workgroupSplits.length > 0
+        const hasAssignment = t.workloadAssigns.length > 0
         if (!hasAssignment) {
           actions.push(
             <Button
@@ -474,14 +475,12 @@ export function TaskExecution({
               size="sm"
               onClick={() => setSplitTask(t)}
             >
-              {threeLevel ? "分配任务量" : "拆分任务包"}
+              {threeLevel ? "分配任务量" : "分派合资格专员"}
             </Button>,
           )
         } else {
           // 金额允许分批拆：只要还有剩余可拆金额，就保留继续拆分入口
-          const assignedAmount = threeLevel
-            ? t.workloadAssigns.reduce((s, x) => s + x.amount, 0)
-            : t.workgroupSplits.reduce((s, x) => s + x.amount, 0)
+          const assignedAmount = t.workloadAssigns.reduce((s, x) => s + x.amount, 0)
           const remainingSplit = t.planAmount - assignedAmount
           if (remainingSplit > 0) {
             actions.push(
@@ -491,7 +490,7 @@ export function TaskExecution({
                 size="sm"
                 onClick={() => setSplitTask(t)}
               >
-                {threeLevel ? "继续分配" : "继续拆分"}
+                {threeLevel ? "继续分配" : "继续分派"}
               </Button>,
             )
           }
@@ -892,35 +891,31 @@ export function TaskExecution({
 
       <SplitModal
         task={live(splitTask)}
-        mode={
-          splitTask && chainLevelOfTask(splitTask) === "三级链"
-            ? "specialist"
-            : "group"
-        }
-        targets={splitTask ? authorizedSubTargets(splitTask) : []}
-        blockedTargets={
-          splitTask && chainLevelOfTask(splitTask) !== "三级链"
-            ? blockedWorkGroups
-            : undefined
+        // 2026-11 工作组下线（§2）：所有能产生新分配的入口统一直达口径——
+        // 三级链按授权对象分配；四级链在途旧单按「接手/改派给合资格人员」直达分派
+        mode="specialist"
+        targets={
+          splitTask
+            ? chainLevelOfTask(splitTask) === "三级链"
+              ? authorizedSubTargets(splitTask)
+              : providerActiveSpecialists
+            : []
         }
         addToast={addToast}
         onClose={() => setSplitTask(null)}
         onSave={(splits) => {
           if (!splitTask) return
-          const threeLevel = chainLevelOfTask(splitTask) === "三级链"
-          const r = threeLevel
-            ? splitToSpecialists(splitTask.id, splits)
-            : splitToWorkgroup(splitTask.id, splits)
+          const r = splitToSpecialists(splitTask.id, splits)
           if (!r.ok)
             addToast({
               type: "error",
-              title: threeLevel ? "分配失败" : "拆解失败",
+              title: "分配失败",
               description: r.error,
             })
           else {
             addToast({
               type: "success",
-              title: threeLevel ? "已分配给服务专员" : "已拆分到工作组",
+              title: "已分配给服务专员",
             })
             setSplitTask(null)
           }
@@ -2065,6 +2060,39 @@ function TaskDetailV5({
   )
   // 结算单直接弹窗：只记单据 id，弹窗内容每次渲染从 displayBills 派生（确认/驳回后自动刷新）
   const [receiptBillId, setReceiptBillId] = useState<string | null>(null)
+  // ── A11 在途旧单接手/改派（2026-11 §2）：服务商管理员转移失效经办人的未办待办 ──
+  const { takeoverWorkload } = useTaskData()
+  const { principal, users } = usePermission()
+  /** 本服务商有效成员名单：接手候选 + 经办人失效判定（冻结/离职/移除后即失效） */
+  const providerActiveSpecialists = useMemo(() => {
+    const names: string[] = []
+    for (const u of users) {
+      if (
+        membershipsOfUser(u.id).some(
+          (m) => m.tenantName === task.provider && membershipActive(m),
+        )
+      )
+        names.push(u.name)
+    }
+    return names
+  }, [users, task.provider])
+  function handleTakeover(assignId: string, targetSpecialist: string) {
+    const r = takeoverWorkload({
+      taskId: task.id,
+      assignId,
+      targetSpecialist,
+      operator: principal.name,
+    })
+    if (!r.ok) {
+      addToast?.({ type: "error", title: "接手/改派失败", description: r.error })
+      return
+    }
+    addToast?.({
+      type: "success",
+      title: "待办已转移",
+      description: `已交给「${targetSpecialist}」办理；仅转移未办工作，已提交成果、历史组名与已审金额保留，不重复计量。`,
+    })
+  }
   const remain = remainingOfTask(task)
   const pendingUploadReports = task.reports.filter(
     (r) => r.status === "待上传",
@@ -2416,6 +2444,10 @@ function TaskDetailV5({
           task={task}
           rows={allocationRows}
           onBack={() => setAllocationWorkGroup(null)}
+          canTakeover={isProvider}
+          operatorName={principal.name}
+          activeSpecialists={providerActiveSpecialists}
+          onTakeover={handleTakeover}
         />
       ) : (
         <>
@@ -3183,13 +3215,23 @@ function PersonalAllocationDetail({
   task,
   rows,
   onBack,
+  /** A11 接手/改派（2026-11 §2）：服务商管理员对未办待办转移经办人；仅未完成行可操作 */
+  canTakeover = false,
+  operatorName,
+  activeSpecialists,
+  onTakeover,
 }: {
   split: WorkgroupSplit
   task: Task
   rows: PersonalAllocationRow[]
   onBack: () => void
+  canTakeover?: boolean
+  operatorName?: string
+  activeSpecialists?: string[]
+  onTakeover?: (assignId: string, targetSpecialist: string) => void
 }) {
   const [detailRow, setDetailRow] = useState<PersonalAllocationRow | null>(null)
+  const [reassignRow, setReassignRow] = useState<PersonalAllocationRow | null>(null)
   const cells = useMemo(() => {
     const order: string[] = []
     const bySpecialist = new Map<string, PersonalAllocationRow[]>()
@@ -3336,6 +3378,25 @@ function PersonalAllocationDetail({
                         >
                           {specialistSpan} 条业务
                         </div>
+                        {canTakeover && activeSpecialists && !activeSpecialists.includes(row.specialist) && (
+                          <div style={{ marginTop: 4 }}>
+                            <Tag label="经办人已失效" color="danger" />
+                          </div>
+                        )}
+                        {row.takenOverFrom && (
+                          <div
+                            style={{
+                              marginTop: 4,
+                              fontSize: "var(--fs-11)",
+                              fontWeight: 400,
+                              color: "#C77A16",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            接手记录：{row.takenOverFrom} → {row.specialist}
+                            （{row.takenOverBy} · {row.takenOverAt}）
+                          </div>
+                        )}
                       </td>
                     )}
                     {showCategory && (
@@ -3369,13 +3430,38 @@ function PersonalAllocationDetail({
                     </td>
                     <td style={{ ...td, ...groupEdge }}>{completedAt}</td>
                     <td style={{ ...td, ...groupEdge }}>
-                      <Button
-                        variant="soft"
-                        size="sm"
-                        onClick={() => setDetailRow(row)}
-                      >
-                        查看详情
-                      </Button>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        <Button
+                          variant="soft"
+                          size="sm"
+                          onClick={() => setDetailRow(row)}
+                        >
+                          查看详情
+                        </Button>
+                        {canTakeover &&
+                         row.progress === "未完成" &&
+                         task.workloadAssigns.some((a) => a.id === row.id) && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                operatorName &&
+                                onTakeover?.(row.id, operatorName)
+                              }
+                            >
+                              接手
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setReassignRow(row)}
+                            >
+                              改派
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -3384,6 +3470,62 @@ function PersonalAllocationDetail({
           </tbody>
         </table>
       </Section>
+
+      {/* 改派弹窗：从本服务商有效成员中选择合资格接手人（A11） */}
+      {reassignRow && canTakeover && (
+        <Modal
+          open
+          title={`改派待办 · ${reassignRow.itemName}`}
+          onClose={() => setReassignRow(null)}
+          width={520}
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setReassignRow(null)}>
+                取消
+              </Button>
+            </>
+          }
+        >
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ fontSize: "var(--fs-13)", color: "#667085", lineHeight: 1.6 }}>
+              将「{reassignRow.specialist}」名下未办工作量
+              （{reassignRow.variety ?? split.variety} · {reassignRow.region ?? split.region} ·{" "}
+              {reassignRow.itemName} × {reassignRow.workload}）转移给其他合资格人员。
+              仅转移未办工作：已提交成果保留原经办人，历史组名与金额不变。
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(activeSpecialists ?? [])
+                .filter((n) => n !== reassignRow.specialist)
+                .map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => {
+                      onTakeover?.(reassignRow.id, n)
+                      setReassignRow(null)
+                    }}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: 999,
+                      border: "1px solid var(--color-border)",
+                      background: "#fff",
+                      cursor: "pointer",
+                      fontSize: "var(--fs-13)",
+                    }}
+                  >
+                    改派给 {n}
+                  </button>
+                ))}
+              {(activeSpecialists ?? []).filter((n) => n !== reassignRow.specialist)
+                .length === 0 && (
+                <span style={{ fontSize: "var(--fs-13)", color: "#C73A3A" }}>
+                  本服务商暂无其他有效成员可接手；请先在「用户管理」为合资格人员建档或恢复成员身份。
+                </span>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   )
 }
@@ -4209,18 +4351,15 @@ function SplitModal({
   task,
   mode = "group",
   targets,
-  blockedTargets,
   onClose,
   onSave,
   addToast,
   /** group = 四级链按工作组拆分；specialist = 三级链直接分配服务专员 */
-  /** 拆包强约束：仅列出的已授权对象可选；blockedTargets = 组长无效的工作组（禁选） */
+  /** 拆包强约束：仅列出的已授权对象可选（2026-11 工作组下线：无组长拦截概念） */
 }: {
   task: Task | null
   mode?: "group" | "specialist"
   targets: string[]
-  /** 目标名 → 禁止下派原因（工作组无有效组长时不得接收新的管理任务） */
-  blockedTargets?: Record<string, string>
   onClose: () => void
   onSave: (rows: Omit<WorkgroupSplit, "id">[]) => void
   addToast: (msg: Omit<ToastMessage, "id">) => void
@@ -4476,7 +4615,7 @@ function SplitModal({
   return (
     <Modal
       open={!!task}
-      title={isSpecialist ? "分配任务量给服务专员" : "拆分任务包到工作组"}
+      title="分配任务量给服务专员"
       onClose={onClose}
       width={1240}
       footer={
@@ -4554,17 +4693,6 @@ function SplitModal({
                     type: "error",
                     title: `存在未分配的${targetWord}`,
                     description: `请为「${unassigned.join("、")}」分配业务次数，或取消勾选`,
-                  })
-                  return
-                }
-                const blockedSelected = groups
-                  .map((x) => x.workGroup)
-                  .filter((name) => blockedTargets?.[name])
-                if (blockedSelected.length > 0) {
-                  addToast({
-                    type: "error",
-                    title: "存在未配置有效组长的工作组",
-                    description: `「${blockedSelected.join("、")}」尚未配置有效组长，不能下派新的管理任务；请先在「工作组管理」指定组长`,
                   })
                   return
                 }
@@ -4725,8 +4853,6 @@ function SplitModal({
               const amt = g ? groupAmount(g) : 0
               const isEmpty = on && amt <= 0
               const isActive = activeGroup?.workGroup === wg
-              const blockedReason = blockedTargets?.[wg]
-              const blocked = Boolean(blockedReason)
               return (
                 <div
                   key={wg}
@@ -4737,19 +4863,16 @@ function SplitModal({
                     gap: 8,
                     padding: "9px 12px",
                     cursor: on ? "pointer" : "default",
-                    opacity: blocked ? 0.7 : 1,
                     background: isActive
                       ? "var(--color-brand-subtle)"
                       : undefined,
                     borderBottom: "1px solid #F3F4F6",
                   }}
-                  title={blockedReason}
                 >
                   <input
                     type="checkbox"
                     checked={on}
-                    disabled={blocked}
-                    aria-label={blocked ? `${wg}（${blockedReason}）` : wg}
+                    aria-label={wg}
                     onClick={(e) => e.stopPropagation()}
                     onChange={() => toggleGroup(wg)}
                     style={{ flexShrink: 0 }}
@@ -4759,30 +4882,19 @@ function SplitModal({
                       style={{
                         fontSize: "var(--fs-13)",
                         fontWeight: isActive ? 650 : 500,
-                        color: blocked
-                          ? "#C77A16"
-                          : isEmpty
-                            ? "#C73A3A"
-                            : "var(--color-text-1)",
+                        color: isEmpty ? "#C73A3A" : "var(--color-text-1)",
                       }}
                     >
                       {wg}
                     </div>
                     <div style={{ fontSize: "var(--fs-11)", color: "#98A2B3" }}>
-                      {blocked ? (
-                        blockedReason
-                      ) : (
-                        <>
-                          {isSpecialist
-                            ? "服务专员"
-                            : `${workGroupMembers[wg] ?? 0} 位专员`}
-                          {on ? ` · ${formatCNY(amt)}` : ""}
-                        </>
-                      )}
+                      {isSpecialist
+                        ? "服务专员"
+                        : `${workGroupMembers[wg] ?? 0} 位专员`}
+                      {on ? ` · ${formatCNY(amt)}` : ""}
                     </div>
                   </div>
-                  {blocked && <Tag label="待指定组长" color="warning" />}
-                  {!blocked && isEmpty && <Tag label="未分配" color="danger" />}
+                  {isEmpty && <Tag label="未分配" color="danger" />}
                 </div>
               )
             })}

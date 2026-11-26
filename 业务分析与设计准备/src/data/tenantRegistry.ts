@@ -19,6 +19,14 @@
  * - 终止操作取消（「终止后 3–5 年清除数据」改业务侧人工处理，是否保留独立
  *   终止入口待与老总确认，见文档标黄项）。
  *
+ * 2026-11-25 主体资料可维护：租户详情「主体资料」页签由只读改为可编辑
+ * （企业名称 / 信用代码 / 联系人 / 扩展资质等），USCC 修改仍全局查重；
+ * 企业法定名称变更时同步企业根组织名，保证组织树与登录解析读到同一企业名。
+ *
+ * 2026-11-25 有效期建租后可调：详情页「更换套餐」升级为「更换套餐 / 有效期」，
+ * 两项各自可选、至少改一项、同一次提交落库；有效期一旦变化标准原因码 +
+ * 说明必填并写审计，目标日不得早于今天（立即停用走「暂停租户」）。
+ *
  * 生产口径（原型注释，勿当真实能力）：本文件的全部状态保存在内存 +
  * localStorage 演示；真实系统由服务端与数据库完成——主码唯一性用 DB 唯一
  * 约束保证、建租与发码在同一数据库事务内、localStorage 仅承载演示期数据，
@@ -87,7 +95,7 @@ export interface TenantRecord {
   /** 创建时原子创建的企业根节点 id */
   enterpriseOrgId: string
   primaryCode: string
-  /** 主体资料（直接建租时录入，创建后只读） */
+  /** 主体资料（直接建租时录入；创建后可在租户详情「主体资料」页签编辑） */
   profile: TenantSubjectProfile
   /** 首位管理员（激活前为待激活成员关系） */
   initialAdmin: {
@@ -169,6 +177,15 @@ export const RESUME_REASON_OPTIONS = [
   { code: "INVESTIGATION_CLEARED", label: "风险调查结论无碍" },
   { code: "ARREARS_CLEARED", label: "费用欠缴已结清" },
   { code: "OWNER_REQUEST", label: "企业主动申请恢复" },
+] as const
+
+/** 有效期调整标准原因（2026-11-25：有效期一有变化原因必填；与暂停/恢复同构） */
+export const EXPIRE_REASON_OPTIONS = [
+  { code: "RENEWAL", label: "合同续签" },
+  { code: "CONTRACT_ADJUSTED", label: "合同变更" },
+  { code: "GOODWILL", label: "赠送 / 补偿期" },
+  { code: "ENTRY_CORRECTION", label: "录入纠错" },
+  { code: "OTHER", label: "其他" },
 ] as const
 
 /**
@@ -936,7 +953,8 @@ function activeMemberCount(tenant: TenantRecord): number {
  */
 export function createTenant(input: CreateTenantInput): CreateTenantOutcome {
   const uscc = input.profile.uscc.trim().toUpperCase()
-  if (state.tenants.some((t) => t.uscc.toUpperCase() === uscc)) {
+  // 企业资料全部选填：信用代码为空时不参与查重（空值之间不算重复主体）
+  if (uscc && state.tenants.some((t) => t.uscc.toUpperCase() === uscc)) {
     return { ok: false, error: "该企业主体已存在租户，请先查看现有记录", audits: [] }
   }
 
@@ -1078,29 +1096,87 @@ export function resumeTenant(tenantId: string, reasonCode: string, note: string,
 
 // ─── 查重 ────────────────────────────────────────────────────────────────────
 
-/** 统一社会信用代码查重（向导实时校验用） */
-export function isUsccTaken(uscc: string): boolean {
+/** 统一社会信用代码查重（向导与详情页编辑共用；编辑时排除租户自身） */
+export function isUsccTaken(uscc: string, excludeTenantId?: string): boolean {
   const target = uscc.trim().toUpperCase()
-  return state.tenants.some((t) => t.uscc.toUpperCase() === target)
+  if (!target) return false
+  return state.tenants.some((t) => t.id !== excludeTenantId && t.uscc.toUpperCase() === target)
 }
 
-// ─── 套餐与开通限制（2026-09-18 移植 RuoYi 租户套餐模型） ─────────────────────
+// ─── 套餐与开通有效期（2026-09-18 移植 RuoYi 租户套餐模型；2026-11-25 有效期建租后可调） ─────────────────────
+
+/** 有效期调整：目标截止日（YYYY-MM-DD，含当天），null = 改为永久有效 */
+export interface TenantExpireChange {
+  to: string | null
+  /** 标准原因码（EXPIRE_REASON_OPTIONS）与说明，均必填、随审计保留 */
+  reasonCode: string
+  note: string
+}
+
+export interface ChangeTenantOpeningInput {
+  /** 套餐换绑（label 供审计文案）；缺省 = 不改套餐 */
+  package?: { id: string; label: string }
+  /** 有效期调整；缺省 = 不改有效期 */
+  expire?: TenantExpireChange
+}
 
 /**
- * 更换租户套餐（详情页操作）：套餐存在性/启用态由调用方（页面）经 tenantPackages
- * 校验，本函数只落字段与审计；换绑即时生效（visiblePages 实时按套餐求交）。
+ * 更换套餐 / 调整有效期（详情页操作，2026-11-25）：两项各自可选、至少改一项，
+ * 同一次提交落库，按实际变更项各写一条审计。换绑即时生效（visiblePages 实时
+ * 按套餐求交）；有效期调整即时生效，过期租户延长后登录即恢复。
+ *
+ * 套餐存在性/启用态由调用方（页面）经 tenantPackages 校验，本层不反向依赖
+ * 套餐池。有效期一旦变化：标准原因码 + 说明必填，且目标日不得早于今天——
+ * 过去的日期等于立即停用，应走「暂停租户」（列表上才有明确的状态与原因）。
  */
-export function changeTenantPackage(tenantId: string, packageId: string, packageLabel: string, actor: string): OpResult {
+export function changeTenantOpening(tenantId: string, input: ChangeTenantOpeningInput, actor: string): OpResult {
   const tenant = state.tenants.find((t) => t.id === tenantId)
   if (!tenant) return { ok: false, error: "租户不存在", audits: [] }
-  const line = audit("TENANT_PACKAGE_CHANGED", tenant.shortName, actor, {
-    detail: `套餐换绑为「${packageLabel}」，即时生效`,
-  })
+
+  const lines: TenantAuditLine[] = []
+  let next: TenantRecord = tenant
+
+  if (input.package && input.package.id !== tenant.packageId) {
+    next = { ...next, packageId: input.package.id }
+    lines.push(
+      audit("TENANT_PACKAGE_CHANGED", tenant.shortName, actor, {
+        detail: `套餐换绑为「${input.package.label}」，即时生效`,
+      }),
+    )
+  }
+
+  const expire = input.expire
+  if (expire && expire.to !== (tenant.expireAt ?? null)) {
+    const note = expire.note.trim()
+    if (!expire.reasonCode || !note) {
+      return { ok: false, error: "调整有效期必须填写原因与说明", audits: [] }
+    }
+    if (expire.to && (!/^\d{4}-\d{2}-\d{2}$/.test(expire.to) || expire.to < todayStr())) {
+      return { ok: false, error: "有效期日期无效或早于今天；如需立即停用请使用「暂停租户」", audits: [] }
+    }
+    const reasonLabel = EXPIRE_REASON_OPTIONS.find((r) => r.code === expire.reasonCode)?.label ?? expire.reasonCode
+    next = { ...next, expireAt: expire.to ?? undefined }
+    lines.push(
+      audit("TENANT_EXPIRE_CHANGED", tenant.shortName, actor, {
+        detail: `有效期 ${expireLabel(tenant.expireAt)} → ${expireLabel(expire.to)} · 原因：${reasonLabel}：${note}`,
+      }),
+    )
+  }
+
+  if (lines.length === 0) return { ok: false, error: "套餐与有效期均未变更", audits: [] }
   commit({
-    tenants: state.tenants.map((t) => (t.id === tenantId ? { ...t, packageId } : t)),
-    activityLog: [line, ...state.activityLog],
+    tenants: state.tenants.map((t) => (t.id === tenantId ? next : t)),
+    activityLog: [...lines.slice().reverse(), ...state.activityLog],
   })
-  return { ok: true, audits: [line] }
+  return { ok: true, audits: lines }
+}
+
+/**
+ * 兼容入口（套餐换绑弹窗仍在调用）：只改套餐，等价于 changeTenantOpening 的套餐项，
+ * 不重复落库逻辑——2026-11-25 套餐/有效期合并提交时保留旧调用面，避免预览构建中断。
+ */
+export function changeTenantPackage(tenantId: string, packageId: string, packageLabel: string, actor: string): OpResult {
+  return changeTenantOpening(tenantId, { package: { id: packageId, label: packageLabel } }, actor)
 }
 
 /** 按企业组织根 id 取租户记录（登录链路的过期/状态校验消费） */
@@ -1108,13 +1184,118 @@ export function tenantByEnterpriseOrgId(enterpriseOrgId: string): TenantRecord |
   return state.tenants.find((t) => t.enterpriseOrgId === enterpriseOrgId)
 }
 
-/** 租户开通是否已过期（expireAt 早于今天；缺省=永久） */
+// ─── 主体资料编辑（2026-11-25：创建后由只读改为可编辑） ─────────────────────
+
+/** 主体资料字段 → 审计摘要展示名（变更清单用） */
+const PROFILE_FIELD_LABELS: Record<keyof TenantSubjectProfile, string> = {
+  legalName: "企业法定名称",
+  shortName: "企业简称",
+  uscc: "统一社会信用代码",
+  address: "注册地址",
+  contactName: "企业联系人",
+  contactPhone: "联系人手机号",
+  licenseAttachment: "证明材料",
+  remark: "备注",
+  pharmaCategory: "主体分类",
+  mahHolderFlag: "MAH 持有人标识",
+  licenseNo: "生产许可证编号",
+  licenseValidTo: "生产许可证有效期",
+  bizOwner: "业务负责人",
+  complianceOwner: "合规负责人",
+  qualificationNo: "资质编号",
+  qualificationValidTo: "资质有效期",
+}
+
+/**
+ * 企业法定名称变更时同步运行时组织副本：种子企业根不在 state.orgs 里时，
+ * 追加一份覆盖副本（allOrgs 按 id 优先读运行时表），否则原地改副本。
+ */
+function syncEnterpriseRootName(orgId: string, name: string): PermOrg[] {
+  const root = allOrgs().find((o) => o.id === orgId)
+  if (!root) return state.orgs
+  if (state.orgs.some((o) => o.id === orgId)) {
+    return state.orgs.map((o) => (o.id === orgId ? { ...o, name } : o))
+  }
+  return [...state.orgs, { ...root, name }]
+}
+
+/**
+ * 更新租户主体资料（详情页「主体资料 · 编辑」唯一落盘入口）：
+ * - USCC 非空时做全局查重（排除租户自身），与建租时口径一致；
+ * - 企业法定名称变更时同步企业根组织名与运行时管理员 / 授权 / 成员身份中的
+ *   企业名，避免组织树、登录解析与用户列表还显示旧名；
+ * - 变更字段清单写入审计流水（详情页操作日志仅收状态变更，本操作进全局操作日志）。
+ */
+export function updateTenantProfile(
+  tenantId: string,
+  profile: TenantSubjectProfile,
+  actor: string,
+): OpResult {
+  const tenant = state.tenants.find((t) => t.id === tenantId)
+  if (!tenant) return { ok: false, error: "租户不存在", audits: [] }
+
+  const uscc = profile.uscc.trim().toUpperCase()
+  if (uscc && state.tenants.some((t) => t.id !== tenantId && t.uscc.toUpperCase() === uscc)) {
+    return { ok: false, error: "该企业主体已存在租户，请先查看现有记录", audits: [] }
+  }
+
+  const oldProfile = tenant.profile
+  const legalName = profile.legalName.trim()
+  // 企业简称：运行时建租时与法定名称一致，随名称变更；种子数据的缩写简称保留
+  const shortName = tenant.shortName === oldProfile.legalName ? legalName : tenant.shortName
+  const nextProfile: TenantSubjectProfile = { ...profile, legalName, shortName, uscc }
+
+  const changedKeys = (Object.keys(PROFILE_FIELD_LABELS) as (keyof TenantSubjectProfile)[]).filter(
+    (key) => nextProfile[key] !== oldProfile[key],
+  )
+  if (changedKeys.length === 0) {
+    return { ok: false, error: "主体资料未发生变化", audits: [] }
+  }
+
+  const legalNameChanged = legalName !== oldProfile.legalName
+  const line = audit("TENANT_PROFILE_UPDATED", shortName, actor, {
+    code: tenant.primaryCode,
+    detail: `更新主体资料：${changedKeys.map((key) => PROFILE_FIELD_LABELS[key]).join("、")}`,
+  })
+
+  commit({
+    tenants: state.tenants.map((t) =>
+      t.id === tenantId ? { ...t, legalName, shortName, uscc, profile: nextProfile } : t,
+    ),
+    orgs: legalNameChanged ? syncEnterpriseRootName(tenant.enterpriseOrgId, legalName) : state.orgs,
+    users: legalNameChanged
+      ? state.users.map((u) => (u.orgId === tenant.enterpriseOrgId ? { ...u, orgName: legalName } : u))
+      : state.users,
+    assignments: legalNameChanged
+      ? state.assignments.map((a) =>
+          a.scopeOrgId === tenant.enterpriseOrgId ? { ...a, scopeOrgName: legalName } : a,
+        )
+      : state.assignments,
+    memberships: legalNameChanged
+      ? state.memberships.map((m) =>
+          m.tenantId === tenant.enterpriseOrgId ? { ...m, tenantName: legalName } : m,
+        )
+      : state.memberships,
+    // 与套餐换绑一致记入租户流水；详情页操作日志只收状态变更，不会混入
+    activityLog: [line, ...state.activityLog],
+  })
+  return { ok: true, audits: [line] }
+}
+
+/** 今天（YYYY-MM-DD，本地时区；有效期口径用，页面与注册表校验共用） */
+export function todayStr(): string {
+  return nowStamp().slice(0, 10)
+}
+
+/** 有效期文案（详情 / 变更预览 / 审计共用）：限期「至 YYYY-MM-DD」，缺省为永久有效 */
+export function expireLabel(expireAt: string | null | undefined): string {
+  return expireAt ? `至 ${expireAt}` : "永久有效"
+}
+
+/** 租户开通是否已过期（expireAt 早于今天，即截止日当天仍有效；缺省=永久） */
 export function tenantExpired(tenant: TenantRecord): boolean {
   if (!tenant.expireAt) return false
-  const today = new Date()
-  const p = (n: number) => String(n).padStart(2, "0")
-  const todayStr = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`
-  return tenant.expireAt < todayStr
+  return tenant.expireAt < todayStr()
 }
 
 /** 租户当前在册用户数（限额校验口径：种子 + 运行时用户，按企业组织根归集） */

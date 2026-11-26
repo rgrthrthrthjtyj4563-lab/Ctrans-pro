@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from './Button';
 
@@ -24,6 +25,18 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    panelRef.current?.focus();
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onCancel]);
+
   if (!open) return null;
 
   const iconColor = variant === 'danger' ? '#C73A3A' : '#C77A16';
@@ -42,16 +55,23 @@ export function ConfirmDialog({
         style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }}
         onClick={onCancel}
       />
-      <div style={{
-        position: 'relative',
-        background: '#FFFFFF',
-        borderRadius: '12px',
-        width: '100%',
-        maxWidth: 420,
-        padding: '24px',
-        boxShadow: '0 16px 40px rgba(0,0,0,0.16)',
-        animation: 'dialogIn 150ms ease',
-      }}>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        style={{
+          position: 'relative',
+          background: '#FFFFFF',
+          borderRadius: '12px',
+          width: '100%',
+          maxWidth: 420,
+          padding: '24px',
+          boxShadow: '0 16px 40px rgba(0,0,0,0.16)',
+          animation: 'dialogIn 150ms ease',
+        }}
+      >
         <button
           onClick={onCancel}
           style={{

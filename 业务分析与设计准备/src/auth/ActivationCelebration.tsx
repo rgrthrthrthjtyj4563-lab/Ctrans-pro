@@ -9,9 +9,10 @@ import { useEffect, useRef, useState } from "react"
 import { ShieldCheck } from "lucide-react"
 import "./authGates.css"
 
-/** 角色名 → 称谓（正文「尊敬的 X 组长」用） */
+/** 角色名 → 称谓（正文「尊敬的 X」用；工作组体系下线后不再产生组长角色，历史数据兜底保留） */
 function titleOfRole(roleName: string): string {
   if (roleName.includes("组长")) return "组长"
+  if (roleName.includes("主管")) return "主管"
   if (roleName.includes("专员")) return "专员"
   if (roleName.includes("管理员")) return "管理员"
   return "同事"

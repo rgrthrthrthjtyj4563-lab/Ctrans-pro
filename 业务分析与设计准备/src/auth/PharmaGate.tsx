@@ -311,7 +311,7 @@ export function PharmaGate({
                             {pharma.workGroup && (
                               <span>
                                 <Users size={13} aria-hidden />
-                                工作组：{pharma.workGroup}
+                                承接范围：{pharma.workGroup}
                               </span>
                             )}
                             {pharma.regions && (

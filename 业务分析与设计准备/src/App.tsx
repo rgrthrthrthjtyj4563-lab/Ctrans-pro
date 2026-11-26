@@ -49,7 +49,6 @@ import { TenantManagement } from "./pages/TenantManagement"
 import { TenantPackageManagement } from "./pages/TenantPackageManagement"
 import { OrgStructure } from "./pages/OrgStructure"
 import { UserManage } from "./pages/UserManage"
-import { WorkGroupManage } from "./pages/WorkGroupManage"
 import { ProviderPartners } from "./pages/ProviderPartners"
 import { ContractManagement } from "./pages/ContractManagement"
 import { TalkScriptProvider } from "./context/TalkScriptContext"
@@ -114,7 +113,6 @@ const pageLabels: Record<string, string> = {
   "role-preview": "角色预览",
   "org-structure": "组织架构",
   "user-manage": "用户管理",
-  "workgroup-manage": "工作组管理",
   "audit-log": "企业审计日志",
   "platform-audit": "系统审计日志",
   "execution-chain": "执行链路配置",
@@ -161,7 +159,6 @@ const pageSections: Record<string, string> = {
   "role-preview": "企业管理",
   "org-structure": "企业管理",
   "user-manage": "企业管理",
-  "workgroup-manage": "企业管理",
   "audit-log": "企业管理",
   "platform-audit": "系统服务",
   "execution-chain": "基础数据",
@@ -1089,15 +1086,13 @@ function AppShell() {
           />
         )
       case "roles":
-        return <RoleManage addToast={addToast} navigate={navigate} />
+        return <RoleManage addToast={addToast} navigate={navigate} menuItems={menuItems} />
       case "role-preview":
         return <RolePreview addToast={addToast} navigate={navigate} />
       case "org-structure":
         return <OrgStructure addToast={addToast} navigate={navigate} />
       case "user-manage":
         return <UserManage addToast={addToast} navFocus={navFocus} />
-      case "workgroup-manage":
-        return <WorkGroupManage addToast={addToast} />
       case "execution-chain":
         return (
           <ExecutionChainConfig addToast={addToast} currentRole={currentRole ?? undefined} />

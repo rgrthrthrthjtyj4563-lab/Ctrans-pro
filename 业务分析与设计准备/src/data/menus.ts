@@ -133,11 +133,11 @@ const SEED_MENU_ITEMS: MenuSeedItem[] = [
   item({ id: 'menu-p-vendor-records', name: '提交记录', type: 'page', parentId: 'group-provider-coop', pageId: 'vendor-access-records', sort: 2, workspace: 'provider' }),
   item({ id: 'menu-provider-partners', name: '合作药厂与业务授权', type: 'page', parentId: 'group-provider-coop', pageId: 'provider-partners', sort: 3, workspace: 'provider' }),
 
-  // ── 企业管理（药厂 + 服务商共有；服务商多一个工作组管理） ───────────────────
+  // ── 企业管理（药厂 + 服务商共有；2026-11 起工作组管理菜单彻底下线，
+  //    服务商组织统一走「组织架构」多级部门树） ─────────────────────────────
   item({ id: 'group-enterprise', name: '企业管理', type: 'group', parentId: null, section: '', iconKey: 'users', sort: 7, workspace: 'any' }),
   item({ id: 'menu-org-structure', name: '组织架构', type: 'page', parentId: 'group-enterprise', pageId: 'org-structure', sort: 1, workspace: 'any' }),
   item({ id: 'menu-user-manage', name: '用户管理', type: 'page', parentId: 'group-enterprise', pageId: 'user-manage', sort: 2, workspace: 'any' }),
-  item({ id: 'menu-workgroup-manage', name: '工作组管理', type: 'page', parentId: 'group-enterprise', pageId: 'workgroup-manage', sort: 3, workspace: 'provider' }),
   item({ id: 'menu-roles', name: '角色与数据范围', type: 'page', parentId: 'group-enterprise', pageId: 'roles', sort: 4, workspace: 'any' }),
   item({ id: 'menu-audit-log', name: '企业审计日志', type: 'page', parentId: 'group-enterprise', pageId: 'audit-log', sort: 5, workspace: 'any' }),
 ];

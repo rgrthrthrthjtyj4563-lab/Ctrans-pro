@@ -7,7 +7,9 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { effectiveProviderAuthRows, subscribeCooperation } from "../data/cooperationModel"
+import { effectiveProviderAuthRows, membershipActive, membershipsOfUser, subscribeCooperation } from "../data/cooperationModel"
+import { allUsers } from "../data/tenantRegistry"
+import { takeoverWorkloadOnTask } from "../data/taskTakeover"
 import { useMessageCenter, providerAdminOf, providerOrgByName } from "./MessageCenterContext"
 import {
   DEMO_HOLDER,
@@ -435,6 +437,19 @@ interface TaskDataContextValue {
     taskId: string,
     rows: Omit<WorkgroupSplit, "id">[],
   ) => MutationResult<Task>
+  /**
+   * 在途任务待办接手/改派（2026-11 §2/A11，工作组下线后旧单交接）：
+   * 仅转移「未完成」的未办工作量；已提交（待审核/已完成）成果保留原经办人。
+   * 目标人员须为本服务商有效成员；重复接手幂等拒绝，不重复计量。
+   */
+  takeoverWorkload: (input: {
+    taskId: string
+    assignId: string
+    /** 接手目标专员姓名；「接手」传操作人本人姓名，「改派」传合资格专员 */
+    targetSpecialist: string
+    operator: string
+    reason?: string
+  }) => MutationResult<WorkloadAssign>
   assignWorkload: (
     taskId: string,
     assigns: Omit<WorkloadAssign, "id">[],
@@ -562,7 +577,10 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     clone(seedSubAuths),
   )
 
-  /** 调整执行链：只有「工作组」节点可切换，其余节点保持启用 */
+  /**
+   * 调整执行链：2026-11 工作组体系下线后仅保留「停用」方向的一次性迁移；
+   * 「可切回四级」的设置已移除——任何入口都不可重新启用工作组层。
+   */
   const updateChain = useCallback(
     (
       next: ExecutionChain,
@@ -571,17 +589,18 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       const before = workGroupEnabled(chain)
       const after = workGroupEnabled(next)
       if (before === after) return { ok: false, error: "执行链未发生变化" }
+      if (after) {
+        return { ok: false, error: "工作组体系已下线：执行链固定为三级直达，不可重新启用工作组层" }
+      }
       const record: ChainChangeRecord = {
         id: `CHAIN-CR-${chain.changeRecords.length + 1}`,
         time: DEMO_NOW,
         operator,
-        action: after ? "启用工作组" : "停用工作组",
-        impact: after
-          ? "新任务恢复四级链：服务商先拆解到工作组，再由工作组分配到专员；存量任务按创建时链路继续执行。"
-          : "新任务改为三级链：服务商直接把工作量分配给专员；组长不再参与拆解与填报审核；存量任务按创建时链路继续执行。",
+        action: "停用工作组",
+        impact: "新任务改为三级链：服务商直接把工作量分配给专员；组长不再参与拆解与填报审核；存量任务按创建时链路继续执行。",
       }
       const updated: ExecutionChain = {
-        nodes: chainNodesOf(after),
+        nodes: chainNodesOf(false),
         changeRecords: [record, ...chain.changeRecords],
         updatedAt: DEMO_NOW,
         updatedBy: operator,
@@ -1315,8 +1334,8 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       if (!task) return { ok: false, error: "任务不存在" }
       if (task.taskStatus !== "执行中")
         return { ok: false, error: "仅执行中任务可分配任务量" }
-      if (chainLevelOf(task.chainSnapshot) !== "三级链")
-        return { ok: false, error: "该任务为四级链任务，请拆分任务包到工作组" }
+      // 2026-11 工作组下线（§2）：四级链在途旧单未拆解的，同样按「改派给合资格人员」
+      // 直达口径分派；任务链快照不变，绩效与结算仍按原链路读取
       const rows = splits.filter((s) => s.qty > 0)
       if (rows.length === 0)
         return { ok: false, error: "请至少为一名服务专员分配工作量" }
@@ -1330,13 +1349,27 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
           ok: false,
           error: "分配明细不完整，请重新选择专员、品种、地区与业务",
         }
-      // 授权强约束：专员必须是该任务 品种×区域 上已授权的对象
-      const allowed = new Set(authorizedSubTargets(task))
+      // 授权强约束：三级链专员必须是该任务 品种×区域 上已授权的对象；
+      // 四级链在途旧单直达分派（§2 接手/改派）以「本服务商有效成员」为资格线
+      const isFourLevelTask = chainLevelOf(task.chainSnapshot) === "四级链"
+      const allowed = new Set(
+        isFourLevelTask
+          ? allUsers()
+              .filter((u) =>
+                membershipsOfUser(u.id).some(
+                  (m) => m.tenantName === task.provider && membershipActive(m),
+                ),
+              )
+              .map((u) => u.name)
+          : authorizedSubTargets(task),
+      )
       const unauthorized = rows.find((s) => !allowed.has(s.workGroup))
       if (unauthorized) {
         return {
           ok: false,
-          error: `「${unauthorized.workGroup}」未获得本任务品种·区域的服务商授权，请先在 品种授权 → 服务商授权 中授权`,
+          error: isFourLevelTask
+            ? `「${unauthorized.workGroup}」不是本服务商有效成员（可能已离职/冻结），无法承接；请先在「用户管理」恢复或建档`
+            : `「${unauthorized.workGroup}」未获得本任务品种·区域的服务商授权，请先在 品种授权 → 服务商授权 中授权`,
         }
       }
       const notInPlan = rows.find(
@@ -1464,13 +1497,50 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
           operator: ROLE_ACTOR["服务提供商"],
           role: "服务提供商",
           action: "分配任务量",
-          detail: "三级链任务：工作量直接分配给服务专员，不经工作组",
+          detail: isFourLevelTask
+            ? "四级链在途旧单：按接手/改派口径直接分派合资格专员；链路快照与历史组名不变"
+            : "三级链任务：工作量直接分配给服务专员，不经工作组",
         }),
       }
       setTasks((prev) => prev.map((t) => (t.id === taskId ? next : t)))
       return { ok: true, data: next }
     },
     [authorizedSubTargets, tasks],
+  )
+
+  /**
+   * 在途任务待办接手/改派（2026-11 §2/A11）：校验与留痕规则见 data/taskTakeover.ts，
+   * 此处仅做状态落库（workloadAssigns 替换 + 任务操作日志）。
+   */
+  const takeoverWorkload = useCallback(
+    (input: {
+      taskId: string
+      assignId: string
+      targetSpecialist: string
+      operator: string
+      reason?: string
+    }): MutationResult<WorkloadAssign> => {
+      const task = tasks.find((t) => t.id === input.taskId)
+      if (!task) return { ok: false, error: "任务不存在" }
+      const r = takeoverWorkloadOnTask(task, { ...input, now: DEMO_NOW })
+      if (!r.ok) return { ok: false, error: r.error }
+      const next: Task = {
+        ...task,
+        workloadAssigns: task.workloadAssigns.map((a) =>
+          a.id === r.assign.id ? r.assign : a,
+        ),
+        opsLogs: appendLog(task, {
+          time: DEMO_NOW,
+          operator: input.operator,
+          role: "服务提供商",
+          action: "待办接手",
+          detail: r.logDetail,
+        }),
+      }
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? next : t)))
+      return { ok: true, data: r.assign }
+    },
+    [tasks],
   )
 
   const assignWorkload = useCallback(
@@ -2388,6 +2458,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       unconfirmProvider,
       splitToWorkgroup,
       splitToSpecialists,
+      takeoverWorkload,
       assignWorkload,
       uploadReport,
       reuploadReport,
@@ -2438,6 +2509,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
       unconfirmProvider,
       splitToWorkgroup,
       splitToSpecialists,
+      takeoverWorkload,
       assignWorkload,
       uploadReport,
       reuploadReport,

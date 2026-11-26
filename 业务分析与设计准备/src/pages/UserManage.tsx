@@ -1,1027 +1,1231 @@
 /**
- * 用户管理：本企业成员账号的唯一维护入口（User × TenantMembership）。
- * 只管理账号本身：建档、启停、调岗与已分配角色只读查看；角色授予/回收与
- * 数据范围（含可处理药厂/品种）统一在「角色与数据范围」页的「已授权成员」
- * 页签完成，本页不得修改任何权限范围。列表与建档范围锁定当前租户组织子树。
- * 备案是业务资格不是账号属性：建档只建账号，备案留底档案在「服务人员备案」板块处理。
+ * 用户管理（精致左树右表 + 方案 A 负责地区）：基础查询、新增、修改、启停、删除与负责地区配置。
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Lock, UserMinus, UserPlus, Upload, Users } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { ChevronDown, ChevronRight, Plus, Search } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '../components/EmptyState';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { StatusTag } from '../components/StatusTag';
+import { AnchoredPopover } from '../components/AnchoredPopover';
+import { MultiSelect } from '../components/MultiSelect';
 import { usePermission } from '../context/PermissionContext';
+import { REGION_NATIONWIDE } from '../constants';
+import { ACCOUNT_PATTERN } from '../data/tenantRegistry';
 import {
   enterpriseRootOf,
-  grantStatusLabel,
   isDeptParentType,
-  latestAssignmentAt,
+  isMembershipUnassigned,
+  orgChildren,
   orgDescendantIds,
   orgPathLabel,
-  scopeLabel,
+  type PermOrg,
+  type PermUser,
 } from '../data/permissions';
-import type { NavFocus } from '../types';
-import type { ToastMessage } from '../components/Toast';
 import {
-  membershipActive,
   membershipOfUserInTenant,
   membershipsOfTenant,
   subscribeTenantMemberships,
 } from '../data/cooperationModel';
-import { ACCOUNT_PATTERN, isAccountTakenInWorkspace, isPhoneTakenInWorkspace, tenantQuotaInfo } from '../data/tenantRegistry';
-import { loginGuardOf, unlockLoginGuard } from '../auth/mockGateway';
-import { Field, InfoBanner, inputStyle, tdStyle, thStyle } from './permUi';
-import { canonicalRegions, hasPharmaAdminAssignment, REGION_SCOPE_ALL, regionScopeLabel } from '../data/pharmaRegionScope';
-import { PROVINCES, REGION_NATIONWIDE } from '../constants';
+import type { NavFocus } from '../types';
+import type { ToastMessage } from '../components/Toast';
+import { Field, inputStyle } from './permUi';
 
 interface Props {
   addToast: (msg: Omit<ToastMessage, 'id'>) => void;
   navFocus?: NavFocus;
 }
 
-const chipStyle = {
-  padding: '2px 8px', borderRadius: 999, fontSize: 'var(--fs-12)', background: '#F3F4F6', color: '#374151',
-} as const;
-
-/** 批量导入的解析行（校验错误挂在 error 上；有错则全批驳回） */
-type ImportRow = {
-  line: number;
+interface UserForm {
+  mode: 'create' | 'edit';
+  userId?: string;
   account: string;
   name: string;
   phone: string;
-  dept: string;
   email: string;
-  error?: string;
+  orgId: string;
+  roleIds: string[];
+  regions: string[];
+  /** 手机号是否允许编辑：未激活可改（录错号在激活前修正）；已激活为个人登录凭证，管理员不可改 */
+  phoneEditable: boolean;
+  error: string;
+}
+
+/** 常用大区快捷预设（一键勾选对应省份，完整覆盖 34 个省级行政区） */
+const REGION_PRESETS: { label: string; provinces: string[] }[] = [
+  { label: '全国', provinces: [REGION_NATIONWIDE] },
+  { label: '华东', provinces: ['上海', '江苏', '浙江', '安徽', '福建', '江西', '山东'] },
+  { label: '华北', provinces: ['北京', '天津', '河北', '山西', '内蒙古'] },
+  { label: '华南', provinces: ['广东', '广西', '海南'] },
+  { label: '华中', provinces: ['河南', '湖北', '湖南'] },
+  { label: '西南', provinces: ['重庆', '四川', '贵州', '云南', '西藏'] },
+  { label: '西北', provinces: ['陕西', '甘肃', '青海', '宁夏', '新疆'] },
+  { label: '东北', provinces: ['辽宁', '吉林', '黑龙江'] },
+  { label: '港澳台', provinces: ['香港', '澳门', '台湾'] },
+];
+
+const cardStyle = {
+  background: 'var(--color-surface)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 12,
+  boxShadow: 'var(--shadow-xs)',
+} as const;
+
+const headCellStyle = {
+  padding: '12px 16px',
+  textAlign: 'left' as const,
+  fontSize: 'var(--fs-12)',
+  fontWeight: 500,
+  color: 'var(--color-text-2)',
+  background: '#FAFBFC',
+  borderBottom: '1px solid var(--color-border)',
+  whiteSpace: 'nowrap' as const,
 };
 
-export function UserManage({ addToast, navFocus }: Props) {
+const bodyCellStyle = {
+  padding: '12px 16px',
+  fontSize: 'var(--fs-13)',
+  color: 'var(--color-text-1)',
+  borderBottom: '1px solid #F1F3F5',
+  verticalAlign: 'middle' as const,
+};
+
+const actionBtnStyle = {
+  background: 'none',
+  border: 'none',
+  padding: '4px 6px',
+  borderRadius: 6,
+  fontSize: 'var(--fs-13)',
+  fontWeight: 500,
+  color: 'var(--color-brand)',
+  cursor: 'pointer',
+  transition: 'background 150ms ease',
+} as const;
+
+/** 柔和头像底色（按姓名哈希，低饱和度不刺眼） */
+const AVATAR_TONES = [
+  { bg: '#E8F4F1', fg: '#176B5B' },
+  { bg: '#EBF2FE', fg: '#2F6BCE' },
+  { bg: '#FEF3E2', fg: '#B4690E' },
+  { bg: '#F3EEFB', fg: '#6B46C1' },
+  { bg: '#EEF2F6', fg: '#475467' },
+];
+
+function avatarTone(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length];
+}
+
+/** 将省份列表归纳为更易读的摘要（若完整命中某个大区则直接展示大区名） */
+function summarizeRegions(regions: string[]): string[] {
+  if (regions.length === 0) return [];
+  if (regions.includes(REGION_NATIONWIDE)) return [REGION_NATIONWIDE];
+  const remaining = new Set(regions);
+  const labels: string[] = [];
+  for (const preset of REGION_PRESETS) {
+    if (preset.label === '全国') continue;
+    if (preset.provinces.every(p => remaining.has(p))) {
+      labels.push(preset.label);
+      preset.provinces.forEach(p => remaining.delete(p));
+    }
+  }
+  remaining.forEach(p => labels.push(p));
+  return labels;
+}
+
+/** 地区标签样式：命中的「全国」用品牌色，大区 / 省份用中性底 */
+function regionTagStyle(label: string): CSSProperties {
+  const nationwide = label === REGION_NATIONWIDE;
+  return {
+    padding: '2px 8px',
+    borderRadius: 6,
+    fontSize: 'var(--fs-12)',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+    background: nationwide ? 'var(--color-brand-subtle)' : 'var(--color-neutral-bg)',
+    color: nationwide ? 'var(--color-brand)' : 'var(--color-neutral-fg)',
+  };
+}
+
+/** 摘要标签若完整命中某个大区，返回该大区（用于展开省份明细）；散省份与「全国」无需展开 */
+function regionPresetOf(label: string) {
+  return REGION_PRESETS.find(p => p.label !== REGION_NATIONWIDE && p.label === label);
+}
+
+/** 「+N」浮框：该成员的全部负责地区；完整命中的大区附省份明细 */
+function RegionOverflowPopover({
+  labels,
+  anchorRef,
+  onClose,
+}: {
+  labels: string[];
+  anchorRef: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+}) {
+  const presets = labels.map(regionPresetOf).filter((p): p is NonNullable<ReturnType<typeof regionPresetOf>> => Boolean(p));
+  return (
+    <AnchoredPopover anchorRef={anchorRef} onClose={onClose}>
+      <div
+        role="dialog"
+        aria-label="负责地区"
+        style={{ padding: 12, minWidth: 200, maxWidth: 320, minHeight: 0, overflow: 'auto', display: 'grid', gap: 10 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <span style={{ fontSize: 'var(--fs-13)', fontWeight: 600, color: 'var(--color-text-1)' }}>负责地区</span>
+          <span className="font-mono-nums" style={{ fontSize: 'var(--fs-12)', color: 'var(--color-text-3)' }}>
+            共 {labels.length} 项
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {labels.map(label => <span key={label} style={regionTagStyle(label)}>{label}</span>)}
+        </div>
+        {presets.length > 0 && (
+          <div style={{ display: 'grid', gap: 4, paddingTop: 10, borderTop: '1px solid #F1F3F5', fontSize: 'var(--fs-12)', lineHeight: 1.6, color: 'var(--color-text-2)' }}>
+            {presets.map(p => (
+              <div key={p.label}>
+                <span style={{ color: 'var(--color-text-1)', fontWeight: 500 }}>{p.label}</span>：{p.provinces.join('、')}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </AnchoredPopover>
+  );
+}
+
+export function UserManage({ addToast }: Props) {
   const store = usePermission();
-  const { orgs, users, assignments, roles, can, previewReadOnly, principal } = store;
-  // P0：名单与部门展示基于 TenantMembership（建档/调岗实时刷新）
-  const [membershipVersion, bump] = useState(0);
-  useEffect(() => subscribeTenantMemberships(() => bump(x => x + 1)), []);
+  const { orgs, users, assignments, roles, realmRoles, can, previewReadOnly, principal } = store;
   const tenantRootId = principal.realm === 'TENANT' ? principal.tenantId : 'org-platform';
   const tenantRoot = orgs.find(o => o.id === tenantRootId);
-  // 药厂侧（2026-10-27 方向修订）：负责区域配置在成员上，调岗不改变；本页成员详情是唯一编辑入口
-  const isPharmaTenant = store.tenantKind === 'pharma';
+  const isTenant = principal.realm === 'TENANT';
+  /** 负责地区只对药厂租户有意义：服务商成员的可处理范围由品种授权派生，不按人配置 */
+  const showRegions = isTenant && tenantRoot?.type === 'pharma';
 
+  const [membershipVersion, bump] = useState(0);
+  useEffect(() => subscribeTenantMemberships(() => bump(x => x + 1)), []);
+
+  const [deptFilter, setDeptFilter] = useState('');
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(tenantRootId);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([tenantRootId]));
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [includeChildren, setIncludeChildren] = useState(true);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  // 组织架构成员详情「管理账号」跳入时直接打开该成员详情
-  useEffect(() => {
-    if (navFocus?.userDetailUserId) setSelectedUserId(navFocus.userDetailUserId);
-  }, [navFocus?.userDetailUserId]);
-  const [createUserOpen, setCreateUserOpen] = useState<{
-    name: string; account: string; phone: string; email: string; orgId: string; error: string;
-  } | null>(null);
-  const [moveUser, setMoveUser] = useState<{ userId: string; targetId: string; error: string } | null>(null);
-  // 编辑负责区域（2026-10-27 方向修订：按成员配置；「全国」与具体省份互斥；未配置 = 区域受控数据不可见）
-  const [regionEdit, setRegionEdit] = useState<{ userId: string; mode: 'nationwide' | 'provinces' | 'unconfigured'; selected: string[]; error: string } | null>(null);
-  const [disableUser, setDisableUser] = useState<{ userId: string; revokeAll: boolean } | null>(null);
-  const [enableUserId, setEnableUserId] = useState<string | null>(null);
-  // ── 2026-09-18 成员生命周期补全：移除 / 重新加入 / 批量导入 / 登录解锁 ──
-  const [removeUser, setRemoveUser] = useState<{ userId: string; kind: string; note: string; error: string } | null>(null);
-  const [rejoinUser, setRejoinUser] = useState<{ userId: string; orgId: string; error: string } | null>(null);
-  const [importOpen, setImportOpen] = useState<{ raw: string } | null>(null);
-  const [unlockUserId, setUnlockUserId] = useState<string | null>(null);
+  const [regionFilter, setRegionFilter] = useState('');
+  const [regionSearch, setRegionSearch] = useState('');
+  const [showProvinceGrid, setShowProvinceGrid] = useState(false);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [form, setForm] = useState<UserForm | null>(null);
+  const [deleting, setDeleting] = useState<PermUser | null>(null);
+  /** 正在展开「更多负责地区」浮框的成员 */
+  const [regionPopoverFor, setRegionPopoverFor] = useState<string | null>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+  /** 待确认停用的成员 */
+  const [freezing, setFreezing] = useState<PermUser | null>(null);
 
   const canCreate = can('user-manage', 'create') && !previewReadOnly;
   const canEdit = can('user-manage', 'edit') && !previewReadOnly;
+  const canDelete = can('user-manage', 'delete') && !previewReadOnly;
 
-  // 组织架构「新建用户」独立入口跳入：直接打开新建弹窗，并把当前部门带入为默认归属
+  const tenantOrgIds = useMemo(() => new Set(orgDescendantIds(orgs, tenantRootId)), [orgs, tenantRootId]);
+  const scopedOrgs = useMemo(() => orgs.filter(o => tenantOrgIds.has(o.id)), [orgs, tenantOrgIds]);
+
   useEffect(() => {
-    const orgId = navFocus?.createUserDefaultOrgId;
-    if (!orgId || !canCreate) return;
-    if (!orgs.some(o => o.id === orgId)) return;
-    setCreateUserOpen({ name: '', account: '', phone: '', email: '', orgId, error: '' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navFocus?.createUserDefaultOrgId]);
+    setSelectedOrgId(tenantRootId);
+    setExpanded(new Set(scopedOrgs.map(o => o.id)));
+  }, [tenantRootId]);
 
-  const memberships = useMemo(() => membershipsOfTenant(tenantRootId), [tenantRootId, membershipVersion]);
-  const tenantUserIds = useMemo(
-    () => memberships.map(m => users.find(u => u.id === m.userId)).filter((u): u is (typeof users)[number] => Boolean(u)),
-    [memberships, users],
+  const activeMemberships = useMemo(
+    () => membershipsOfTenant(tenantRootId).filter(m => m.status !== 'removed' && m.status !== 'left'),
+    [tenantRootId, membershipVersion],
   );
-  const memberOrgName = (userId: string) => {
-    const m = membershipOfUserInTenant(userId, tenantRootId);
-    if (!m) return '—';
-    // 与组织架构口径一致：所属节点已不存在 → 「未分配」（而不是回退到企业名）
-    return orgs.find(o => o.id === m.orgUnitId)?.name ?? '未分配';
-  };
-  const memberOrgId = (userId: string) => membershipOfUserInTenant(userId, tenantRootId)?.orgUnitId ?? '';
-  /** 成员身份 orgUnit 在组织树中已不存在（原节点裁撤）——名单上仍应可见，便于重新归属 */
-  const memberOrgDangling = (userId: string) => {
-    const id = memberOrgId(userId);
-    return Boolean(id) && !orgs.some(o => o.id === id);
-  };
-  /** 成员身份（含 removed）：行展示与操作分支的依据 */
-  const membershipOf = (userId: string) => membershipOfUserInTenant(userId, tenantRootId);
-  const isRemovedMember = (userId: string) => membershipOf(userId)?.status === 'removed';
-  const isLoginLocked = (userId: string) => loginGuardOf(userId).locked;
 
-  useEffect(() => {
-    if (selectedUserId && !tenantUserIds.some(u => u.id === selectedUserId)) setSelectedUserId(null);
-  }, [selectedUserId, tenantUserIds]);
+  const memberOrgId = (userId: string) =>
+    membershipOfUserInTenant(userId, tenantRootId)?.orgUnitId
+    ?? users.find(u => u.id === userId)?.orgId
+    ?? '';
+
+  /** 主属部门仍是本企业组织树内节点才返回；原部门已被删除 = 待分配 */
+  const memberEffectiveOrgId = (userId: string): string | undefined => {
+    const id = memberOrgId(userId);
+    return scopedOrgs.some(o => o.id === id) ? id : undefined;
+  };
+
+  const memberOrgName = (userId: string) =>
+    orgs.find(o => o.id === memberEffectiveOrgId(userId))?.name ?? '—';
+
+  const memberRegions = (userId: string): string[] =>
+    membershipOfUserInTenant(userId, tenantRootId)?.responsibleRegions ?? [];
+
+  const isUserEnabled = (u: PermUser) => {
+    if (!isTenant) return u.accountStatus === 'enabled';
+    const m = membershipOfUserInTenant(u.id, tenantRootId);
+    return m ? m.status !== 'frozen' : u.accountStatus === 'enabled';
+  };
+
+  /** 是否待激活（2026-11-25 拍板：后台建号不收验证码，首登短信验证码激活） */
+  const isPendingActivation = (u: PermUser) =>
+    membershipOfUserInTenant(u.id, tenantRootId)?.status === 'pending_activation';
+
+  const tenantUsers = useMemo(() => {
+    if (!isTenant) return users.filter(u => tenantOrgIds.has(u.orgId));
+    return activeMemberships
+      .map(m => users.find(u => u.id === m.userId))
+      .filter((u): u is PermUser => Boolean(u));
+  }, [activeMemberships, isTenant, tenantOrgIds, users]);
+
+  /** 待分配成员：原部门已被删除/裁撤，不再出现在本企业组织树内 */
+  const unassignedIds = useMemo(
+    () => new Set(tenantUsers
+      .filter(u => isMembershipUnassigned(scopedOrgs, membershipOfUserInTenant(u.id, tenantRootId), tenantRootId))
+      .map(u => u.id)),
+    [scopedOrgs, tenantRootId, tenantUsers],
+  );
+
+  const deptUserCount = (orgId: string) => {
+    const ids = new Set(orgDescendantIds(scopedOrgs, orgId));
+    const inSubtree = tenantUsers.filter(u => {
+      const memberOrg = memberEffectiveOrgId(u.id);
+      return Boolean(memberOrg) && ids.has(memberOrg!);
+    }).length;
+    // 企业根节点统计该企业现有成员，包含待分配成员
+    return orgId === tenantRootId ? inSubtree + unassignedIds.size : inSubtree;
+  };
 
   const people = useMemo(() => {
-    // 范围=成员身份 orgUnit（含下级时按本租户子树），不再是 User.orgId 主档。
-    // 默认隐藏「已移除」成员；筛选=已移除 时反向只读展示移除名单。
-    const scopeIds = includeChildren ? new Set(orgDescendantIds(orgs, tenantRootId)) : new Set([tenantRootId]);
+    const scopeIds = new Set(orgDescendantIds(scopedOrgs, selectedOrgId || tenantRootId));
     const kw = keyword.trim().toLowerCase();
-    return tenantUserIds.filter(u => {
-      // 待归属成员（所属节点已不存在）始终进入名单，便于在用户管理核对与重新归属
-      if (!memberOrgDangling(u.id) && !scopeIds.has(memberOrgId(u.id))) return false;
-      if (kw && !(u.name.toLowerCase().includes(kw) || u.account.toLowerCase().includes(kw))) return false;
-      if (statusFilter === 'removed') {
-        if (!isRemovedMember(u.id)) return false;
-      } else {
-        if (isRemovedMember(u.id)) return false;
-        if (statusFilter && u.accountStatus !== statusFilter) return false;
+    const preset = REGION_PRESETS.find(p => p.label === regionFilter);
+    return tenantUsers.filter(u => {
+      // 待分配成员挂在企业根节点：只在根节点选中时进入列表（搜索/筛选照常生效）
+      if (unassignedIds.has(u.id)) {
+        if ((selectedOrgId || tenantRootId) !== tenantRootId) return false;
+      } else if (!scopeIds.has(memberEffectiveOrgId(u.id) ?? '')) {
+        return false;
+      }
+      if (kw && !(u.name.toLowerCase().includes(kw) || u.account.toLowerCase().includes(kw) || u.phone.includes(kw))) return false;
+      if (statusFilter === 'enabled' && (!isUserEnabled(u) || isPendingActivation(u))) return false;
+      if (statusFilter === 'disabled' && isUserEnabled(u)) return false;
+      if (statusFilter === 'pending' && !isPendingActivation(u)) return false;
+      if (regionFilter && preset) {
+        const regs = memberRegions(u.id);
+        if (preset.label === '全国') {
+          if (!regs.includes(REGION_NATIONWIDE)) return false;
+        } else {
+          const hit = regs.includes(REGION_NATIONWIDE) || preset.provinces.some(p => regs.includes(p));
+          if (!hit) return false;
+        }
       }
       return true;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeChildren, keyword, orgs, statusFilter, tenantRootId, tenantUserIds, memberships, membershipVersion]);
+  }, [keyword, membershipVersion, regionFilter, scopedOrgs, selectedOrgId, statusFilter, tenantRootId, tenantUsers, unassignedIds]);
 
-  const selectedUser = users.find(u => u.id === selectedUserId) ?? null;
-  const userAssignments = (userId: string) =>
-    assignments
-      .filter(a => a.userId === userId && a.tenantId === tenantRootId)
-      .map(a => ({ ...a, roleName: roles.find(r => r.id === a.roleId)?.name ?? '（已删除角色）' }));
+  const orgOptions = useMemo(
+    () => scopedOrgs.filter(o =>
+      enterpriseRootOf(scopedOrgs, o.id)?.id === tenantRootId
+      && (isDeptParentType(o.type) || o.type === 'platform'),
+    ),
+    [scopedOrgs, tenantRootId],
+  );
 
-  // 成员负责区域（2026-10-27 方向修订：按人配置、调岗不变；仅药厂租户）
-  const memberRegionsOf = (userId: string): string[] =>
-    canonicalRegions(membershipOfUserInTenant(userId, tenantRootId)?.responsibleRegions ?? []);
-  const memberIsAdmin = (userId: string): boolean =>
-    isPharmaTenant && hasPharmaAdminAssignment(userAssignments(userId), tenantRootId);
-  const memberRegionsCell = (userId: string) => {
-    if (!isPharmaTenant) return <span style={{ color: '#9CA3AF' }} title="服务商成员区域由品种授权派生">—</span>;
-    if (memberIsAdmin(userId)) return <span style={{ fontWeight: 500 }}>全国</span>;
-    const regions = memberRegionsOf(userId);
-    if (regions.length === 0) return <span style={{ color: '#C77A16' }}>未配置</span>;
-    if (regions.includes(REGION_NATIONWIDE)) return <span style={{ fontWeight: 500 }}>全国</span>;
-    if (regions.length > 2) return <span title={regions.join('、')}>{regions.slice(0, 2).join('、')} 等 {regions.length} 个</span>;
-    return <span>{regions.join('、')}</span>;
-  };
+  const grantableRoles = useMemo(
+    () => realmRoles.filter(r => r.status === 'enabled'),
+    [realmRoles],
+  );
 
-  function submitCreateUser() {
-    if (!createUserOpen) return;
-    const name = createUserOpen.name.trim();
-    const account = createUserOpen.account.trim();
-    const phone = createUserOpen.phone.trim();
-    const email = createUserOpen.email.trim();
-    const fail = (error: string) => setCreateUserOpen({ ...createUserOpen, error });
-    if (!account) return fail('请填写用户名');
-    // 账号口径（2026-09-18）：企业内唯一 + 格式规则；用于账号密码登录（登录=企业编码+账号+密码）
-    if (!ACCOUNT_PATTERN.test(account)) return fail('账号须为 3-20 位小写字母/数字，可含 - 与 _');
-    // 已移除成员识别（2026-09-18 重新加入入口②）：输入命中已移除成员的账号/手机号时
-    // 引导重新加入，而不是提示"已存在"
-    const removedHit = memberships.find(m => {
-      if (m.status !== 'removed') return false;
-      const u = users.find(x => x.id === m.userId);
-      return Boolean(u && (u.phone === createUserOpen.phone.trim() || u.account.toLowerCase() === account.toLowerCase()));
+  const userActiveAssignments = (userId: string) =>
+    assignments.filter(a => a.userId === userId && a.tenantId === tenantRootId && a.status === 'active');
+
+  const userRoleNames = (userId: string) =>
+    userActiveAssignments(userId)
+      .map(a => roles.find(r => r.id === a.roleId)?.name)
+      .filter((n): n is string => Boolean(n));
+
+  const roleOptions = useMemo(
+    () => grantableRoles.map(r => ({ value: r.id, label: r.name })),
+    [grantableRoles],
+  );
+
+  /** 该成员在本企业担任负责人的部门（停用确认时提示交接） */
+  const managedDeptNames = (userId: string) =>
+    orgs
+      .filter(o => o.type === 'department' && o.managerUserId === userId && enterpriseRootOf(orgs, o.id)?.id === tenantRootId)
+      .map(o => o.name);
+
+  function openCreate() {
+    setRegionSearch('');
+    setShowProvinceGrid(false);
+    setForm({
+      mode: 'create',
+      account: '',
+      name: '',
+      phone: '',
+      email: '',
+      orgId: selectedOrgId || orgOptions[0]?.id || tenantRootId,
+      roleIds: [],
+      regions: [],
+      phoneEditable: true,
+      error: '',
     });
-    if (removedHit) {
-      const u = users.find(x => x.id === removedHit.userId);
-      if (u && (ACCOUNT_PATTERN.test(account) || /^1\d{10}$/.test(createUserOpen.phone.trim()))) {
-        setCreateUserOpen(null);
-        setRejoinUser({ userId: u.id, orgId: removedHit.orgUnitId, error: '' });
-        addToast({ type: 'info', title: '发现已移除的同名成员', description: `${u.name}（${u.account}）曾于 ${removedHit.removedAt ?? '—'} 被移除，可直接重新加入并保留历史记录。` });
-        return;
+  }
+
+  function openEdit(u: PermUser) {
+    setRegionSearch('');
+    setShowProvinceGrid(false);
+    const membership = membershipOfUserInTenant(u.id, tenantRootId);
+    setForm({
+      mode: 'edit',
+      userId: u.id,
+      account: u.account,
+      name: u.name,
+      phone: u.phone,
+      email: u.email,
+      orgId: memberEffectiveOrgId(u.id) || tenantRootId,
+      roleIds: Array.from(new Set(userActiveAssignments(u.id).map(a => a.roleId))),
+      regions: [...memberRegions(u.id)],
+      // 未激活可改（激活前修正录错的号）；已激活为个人登录凭证，管理员不可改
+      phoneEditable: membership?.status === 'pending_activation',
+      error: '',
+    });
+  }
+
+  function toggleProvince(province: string) {
+    if (!form) return;
+    const base = form.regions.filter(r => r !== REGION_NATIONWIDE);
+    const next = base.includes(province)
+      ? base.filter(r => r !== province)
+      : [...base, province];
+    setForm({ ...form, regions: next, error: '' });
+  }
+
+  function togglePreset(preset: { label: string; provinces: string[] }) {
+    if (!form) return;
+    if (preset.label === '全国') {
+      const next = form.regions.includes(REGION_NATIONWIDE) ? [] : [REGION_NATIONWIDE];
+      setForm({ ...form, regions: next, error: '' });
+      return;
+    }
+    const base = form.regions.filter(r => r !== REGION_NATIONWIDE);
+    const allSelected = preset.provinces.every(p => base.includes(p));
+    const next = allSelected
+      ? base.filter(p => !preset.provinces.includes(p))
+      : Array.from(new Set([...base, ...preset.provinces]));
+    setForm({ ...form, regions: next, error: '' });
+  }
+
+  function submitForm() {
+    if (!form) return;
+    const fail = (error: string) => setForm({ ...form, error });
+    // 分配角色、负责地区均为必选：不再存在「未配置 / —」成员状态
+    if (!form.name.trim()) return fail('请填写姓名');
+    if (!form.phone.trim()) return fail('请填写手机号');
+    if (isTenant && grantableRoles.length > 0 && form.roleIds.length === 0) return fail('请至少选择一个角色');
+    if (showRegions && form.regions.length === 0) return fail('请至少选择一个负责地区');
+    // 用户名必填（仅新建可输；编辑态锁定）：格式必须满足账号规则，避免被自动改写成 u+手机号
+    if (form.mode === 'create') {
+      const account = form.account.trim();
+      if (!account) return fail('请填写用户名');
+      if (!ACCOUNT_PATTERN.test(account)) return fail('用户名需为 3-20 位，仅限小写字母、数字、下划线或连字符，且以字母或数字开头');
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    if (form.mode === 'create') {
+      const res = store.createUser({
+        account: form.account.trim(),
+        name: form.name,
+        phone: form.phone,
+        email: form.email.trim() || undefined,
+        orgId: form.orgId,
+        roles: isTenant ? form.roleIds.map(roleId => ({ roleId, effectiveFrom: today })) : undefined,
+      });
+      if (!res.ok) return fail(res.error || '新增失败');
+      if (showRegions && res.user) {
+        const regRes = store.setMemberRegions({ userId: res.user.id, regions: form.regions });
+        if (!regRes.ok) return fail(regRes.error || '负责地区保存失败');
       }
-    }
-    if (isAccountTakenInWorkspace(account, tenantRootId)) return fail('该账号在本企业已存在，请更换');
-    if (!name) return fail('请填写姓名');
-    if (!phone) return fail('请填写手机号');
-    if (!/^1\d{10}$/.test(phone)) return fail('手机号格式不正确，应为 1 开头的 11 位数字');
-    if (!email) return fail('请填写邮箱');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('邮箱格式不正确');
-    const targetOrg = orgs.find(o => o.id === createUserOpen.orgId);
-    if (!targetOrg) return fail('请选择所属部门');
-    if (enterpriseRootOf(orgs, targetOrg.id)?.id !== tenantRootId) return fail('只能挂在本企业组织下（租户边界）');
-    const result = store.createUser({ name, account, phone, email, orgId: createUserOpen.orgId });
-    if (!result.ok) return fail(result.error || '新建用户失败');
-    addToast({
-      type: 'success',
-      title: '已新建用户',
-      description: `${name} · ${account} · 未分配角色，可在「角色与数据范围」对应角色的「已授权成员」页签授予`,
-    });
-    setCreateUserOpen(null);
-  }
-
-  const moveUserTarget = moveUser ? orgs.find(o => o.id === moveUser.targetId) : undefined;
-  const moveUserOptions = useMemo(() => {
-    if (!moveUser) return [];
-    const user = users.find(u => u.id === moveUser.userId);
-    if (!user) return [];
-    // 以成员身份的当前归属为准排除（不读 User.orgId 主档）
-    const currentOrgId = memberOrgId(moveUser.userId);
-    return orgs.filter(o => {
-      if (o.id === currentOrgId) return false;
-      if (!isDeptParentType(o.type) && o.type !== 'provider' && o.type !== 'group' && o.type !== 'platform') return false;
-      return enterpriseRootOf(orgs, o.id)?.id === tenantRootId;
-    });
-  }, [moveUser, orgs, tenantRootId, users]);
-
-  function submitMoveUser() {
-    if (!moveUser) return;
-    const result = store.setUserOrg({ userId: moveUser.userId, orgId: moveUser.targetId });
-    if (!result.ok) {
-      setMoveUser({ ...moveUser, error: result.error || '调整失败' });
-      return;
-    }
-    const user = users.find(u => u.id === moveUser.userId);
-    addToast({
-      type: 'success',
-      title: '已调整所属部门',
-      description: isPharmaTenant
-        ? `${user?.name} → ${moveUserTarget?.name}。所属部门已变化；角色和负责区域保持不变，请根据新职责检查是否需要调整。`
-        : `${user?.name} → ${moveUserTarget?.name}。仅变更归属；角色与数据范围保持不变，需调整请前往「角色与数据范围」。`,
-    });
-    setMoveUser(null);
-  }
-
-  function submitRegionEdit() {
-    if (!regionEdit) return;
-    const user = users.find(u => u.id === regionEdit.userId);
-    if (!user) return;
-    if (regionEdit.mode === 'provinces' && regionEdit.selected.length === 0) {
-      setRegionEdit({ ...regionEdit, error: '请至少勾选一个省份；如需清空请选择「未配置」' });
-      return;
-    }
-    const nextRegions = regionEdit.mode === 'nationwide' ? [REGION_NATIONWIDE] : regionEdit.mode === 'provinces' ? regionEdit.selected : [];
-    const before = memberRegionsOf(regionEdit.userId);
-    const result = store.setMemberRegions({ userId: regionEdit.userId, regions: nextRegions });
-    if (!result.ok) {
-      setRegionEdit({ ...regionEdit, error: result.error || '保存失败' });
-      return;
-    }
-    const added = nextRegions.filter(r => !before.includes(r));
-    const removed = before.filter(r => !nextRegions.includes(r));
-    addToast({
-      type: 'success',
-      title: '负责区域已更新',
-      description: [
-        added.length > 0 ? `新增：${added.join('、')}` : '',
-        removed.length > 0 ? `移除：${removed.join('、')}` : '',
-        nextRegions.length === 0 ? '已置为未配置：该成员将无法查看区域受控的业务数据（角色不受影响）' : '',
-      ].filter(Boolean).join('；') || '没有变化',
-    });
-    setRegionEdit(null);
-  }
-
-  const disableTarget = disableUser ? users.find(u => u.id === disableUser.userId) : undefined;
-  const disableActiveCount = disableUser
-    ? assignments.filter(a => a.userId === disableUser.userId && a.status === 'active').length
-    : 0;
-
-  function submitDisableUser() {
-    if (!disableUser) return;
-    const result = store.setUserStatus(disableUser.userId, 'disabled', { reason: '管理员停用', revokeAssignments: disableUser.revokeAll });
-    if (!result.ok) {
-      addToast({ type: 'error', title: '停用失败', description: result.error });
-      return;
-    }
-    addToast({
-      type: 'success',
-      title: '账号已停用',
-      description: disableUser.revokeAll && disableActiveCount > 0
-        ? `已同步回收 ${disableActiveCount} 条有效角色分配。`
-        : `有效角色 ${disableActiveCount} 条保留冻结记录，不再参与新会话计算。`,
-    });
-    setDisableUser(null);
-  }
-
-  const defaultOrgOptions = () =>
-    orgs.filter(o => {
-      if (enterpriseRootOf(orgs, o.id)?.id !== tenantRootId) return false;
-      return isDeptParentType(o.type) || o.type === 'provider' || o.type === 'group' || o.type === 'platform';
-    });
-
-  // ── 批量导入成员（2026-09-18）：粘贴解析 → 逐行校验 → 有错全驳 → 确认导入 ──
-  const importRows = useMemo(() => {
-    if (!importOpen) return [] as ImportRow[];
-    const deptOptions = defaultOrgOptions();
-    const lines = importOpen.raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const seenAccounts = new Set<string>();
-    const seenPhones = new Set<string>();
-    const rows: ImportRow[] = [];
-    lines.forEach((line, i) => {
-      const cols = line.split(/\t|,|，/).map(c => c.trim());
-      // 首行为表头（同时含「账号」「姓名」字样）时自动跳过
-      if (i === 0 && cols.some(c => c.includes('账号')) && cols.some(c => c.includes('姓名'))) return;
-      const row: ImportRow = {
-        line: rows.length + 1,
-        account: (cols[0] ?? '').toLowerCase(),
-        name: cols[1] ?? '',
-        phone: cols[2] ?? '',
-        dept: cols[3] ?? '',
-        email: cols[4] ?? '',
-      };
-      const errs: string[] = [];
-      if (!ACCOUNT_PATTERN.test(row.account)) errs.push('账号格式不符（3-20 位小写字母/数字，可含 - _）');
-      else if (seenAccounts.has(row.account)) errs.push('账号在文件内重复');
-      else if (isAccountTakenInWorkspace(row.account, tenantRootId)) errs.push('账号在本企业已存在');
-      if (!row.name) errs.push('缺少姓名');
-      if (!/^1\d{10}$/.test(row.phone)) errs.push('手机号格式不符');
-      else if (seenPhones.has(row.phone)) errs.push('手机号在文件内重复');
-      else if (isPhoneTakenInWorkspace(row.phone, tenantRootId)) {
-        const removedPhone = memberships.some(m => m.status === 'removed' && users.find(x => x.id === m.userId)?.phone === row.phone);
-        errs.push(removedPhone ? '该手机号对应已移除成员，请单独使用「重新加入」' : '手机号在本企业已存在');
+      addToast({ type: 'success', title: '已新增用户' });
+    } else if (form.userId) {
+      // 手机号变更（仅未激活成员可选）：单独走 correctMemberPhone 的全套校验与审计
+      if (form.phoneEditable) {
+        const target = tenantUsers.find(u => u.id === form.userId);
+        if (target && form.phone !== target.phone) {
+          const phoneRes = store.correctMemberPhone({ userId: form.userId, phone: form.phone });
+          if (!phoneRes.ok) return fail(phoneRes.error || '手机号修改失败');
+        }
       }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errs.push('邮箱格式不符');
-      if (!row.dept) errs.push('缺少部门');
-      else {
-        const matched = deptOptions.filter(o => o.name === row.dept || orgPathLabel(orgs, o.id) === row.dept);
-        if (matched.length === 0) errs.push('部门不存在（须为本企业组织内部门）');
-        else if (matched.length > 1) errs.push('部门名称不唯一，请使用完整路径');
+      const res = store.updateMemberProfile({
+        userId: form.userId,
+        name: form.name,
+        email: form.email,
+        orgUnitId: form.orgId,
+      });
+      if (!res.ok) return fail(res.error || '修改失败');
+      if (isTenant) {
+        // 同步角色差异：先加后减，避免误触发唯一管理员拦截
+        const currentActive = userActiveAssignments(form.userId);
+        const currentIds = new Set(currentActive.map(a => a.roleId));
+        const targetIds = new Set(form.roleIds);
+        for (const roleId of form.roleIds) {
+          if (!currentIds.has(roleId)) {
+            const grantRes = store.createAssignment({ userId: form.userId, roleId, effectiveFrom: today });
+            if (!grantRes.ok) return fail(grantRes.error || '分配角色失败');
+          }
+        }
+        for (const a of currentActive) {
+          if (!targetIds.has(a.roleId)) {
+            const revokeRes = store.revokeAssignment(a.id, '用户管理调整角色');
+            if (!revokeRes.ok) return fail(revokeRes.error || '移除角色失败');
+          }
+        }
+        const regRes = store.setMemberRegions({ userId: form.userId, regions: form.regions });
+        if (!regRes.ok) return fail(regRes.error || '负责地区保存失败');
       }
-      if (errs.length > 0) row.error = errs.join('；');
-      seenAccounts.add(row.account);
-      seenPhones.add(row.phone);
-      rows.push(row);
-    });
-    return rows;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [importOpen, memberships, orgs, tenantRootId, users, membershipVersion]);
-
-  // 套餐用户限额（file 级校验）：超限警示并阻止导入（行级由 createUser 兜底）
-  const quotaWarn = useMemo(() => {
-    if (importRows.length === 0 || !importRows.every(r => !r.error)) return null;
-    const { quota, used } = tenantQuotaInfo(tenantRootId);
-    if (quota == null) return null;
-    return used + importRows.length > quota
-      ? `导入后将在册 ${used + importRows.length} 人，超出租户用户限额 ${quota} 人；请减少行数或联系软件服务方调整限额。`
-      : null;
-  }, [importRows, tenantRootId]);
-
-  const importValid = importRows.length > 0 && importRows.every(r => !r.error) && !quotaWarn;
-
-  function submitImport() {
-    if (!importValid) return;
-    let ok = 0;
-    for (const row of importRows) {
-      const deptOptions = defaultOrgOptions();
-      const target = deptOptions.find(o => o.name === row.dept || orgPathLabel(orgs, o.id) === row.dept);
-      const result = store.createUser({ name: row.name, account: row.account, phone: row.phone, email: row.email, orgId: target?.id ?? tenantRootId });
-      if (!result.ok) {
-        addToast({ type: 'error', title: '批量导入中断', description: `第 ${row.line} 行导入失败：${result.error}（前 ${ok} 行已建档成功）` });
-        setImportOpen(null);
-        return;
-      }
-      ok += 1;
+      addToast({ type: 'success', title: '已保存修改' });
     }
-    store.logAudit({
-      module: '用户与授权',
-      action: '批量导入成员',
-      target: `共 ${importRows.length} 行`,
-      resource: 'users.import',
-      reason: '批量导入',
-      afterSummary: `校验通过 ${importRows.length} 行 · 成功建档 ${ok} 人 · 驳回 0 行`,
-    });
-    addToast({ type: 'success', title: '批量导入完成', description: `成功建档 ${ok} 人；角色与数据范围请前往「角色与数据范围」授予。` });
-    setImportOpen(null);
+    setForm(null);
   }
 
-  function downloadImportTemplate() {
-    addToast({ type: 'info', title: '模板下载（演示）', description: '原型不生成文件（演示）。列顺序：登录账号, 姓名, 手机号, 部门, 邮箱；支持从 Excel 复制后直接粘贴。' });
+  /** 启用直接生效；停用须经 ConfirmDialog 二次确认后调用 */
+  function applyStatus(u: PermUser, next: 'active' | 'frozen') {
+    const res = store.setMemberStatus({ userId: u.id, status: next });
+    if (!res.ok) return addToast({ type: 'error', title: res.error || '操作失败' });
+    addToast({ type: 'success', title: next === 'frozen' ? '已停用账号' : '已启用账号' });
   }
 
-  function submitRemoveUser() {
-    if (!removeUser) return;
-    if (removeUser.kind === '其他' && !removeUser.note.trim()) {
-      setRemoveUser({ ...removeUser, error: '选择「其他」时请填写补充说明' });
-      return;
-    }
-    const result = store.removeTenantMember({ userId: removeUser.userId, kind: removeUser.kind, note: removeUser.note.trim() || undefined });
-    if (!result.ok) {
-      setRemoveUser({ ...removeUser, error: result.error || '移除失败' });
-      return;
-    }
-    const target = users.find(u => u.id === removeUser.userId);
-    addToast({
-      type: 'success',
-      title: '成员已移除',
-      description: `${target?.name} 在本企业的成员身份已终止${result.revokedCount ? `，已同步回收 ${result.revokedCount} 条有效授权` : ''}；可在「已移除成员」筛选中重新加入。`,
-    });
-    setRemoveUser(null);
+  function confirmFreeze() {
+    if (!freezing) return;
+    applyStatus(freezing, 'frozen');
+    setFreezing(null);
   }
 
-  function submitRejoinUser() {
-    if (!rejoinUser) return;
-    const result = store.rejoinTenantMember({ userId: rejoinUser.userId, orgId: rejoinUser.orgId });
-    if (!result.ok) {
-      setRejoinUser({ ...rejoinUser, error: result.error || '重新加入失败' });
-      return;
-    }
-    const target = users.find(u => u.id === rejoinUser.userId);
-    addToast({ type: 'success', title: '成员已重新加入', description: `${target?.name} 已恢复为本企业有效成员；请前往「角色与数据范围」重新授予角色。` });
-    setRejoinUser(null);
+  function confirmDelete() {
+    if (!deleting) return;
+    const res = store.removeTenantMember({ userId: deleting.id, kind: '删除' });
+    if (!res.ok) addToast({ type: 'error', title: res.error || '删除失败' });
+    else addToast({ type: 'success', title: '已删除用户' });
+    setDeleting(null);
   }
+
+  function renderTree(org: PermOrg, depth: number) {
+    const children = orgChildren(scopedOrgs, org.id);
+    const open = expanded.has(org.id);
+    const active = selectedOrgId === org.id;
+    const kw = deptFilter.trim().toLowerCase();
+    const visible = !kw || org.name.toLowerCase().includes(kw) || children.some(c => c.name.toLowerCase().includes(kw));
+    if (!visible) return null;
+    const count = deptUserCount(org.id);
+    return (
+      <div key={org.id}>
+        <div
+          onClick={() => setSelectedOrgId(org.id)}
+          style={{
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '7px 10px',
+            paddingLeft: 8 + depth * 14,
+            marginBottom: 2,
+            borderRadius: 8,
+            cursor: 'pointer',
+            fontSize: 'var(--fs-13)',
+            background: active ? 'var(--color-brand-subtle)' : 'transparent',
+            color: active ? 'var(--color-brand)' : 'var(--color-text-1)',
+            fontWeight: active ? 600 : 400,
+            transition: 'background 120ms ease',
+          }}
+        >
+          {active && (
+            <span style={{
+              position: 'absolute',
+              left: 0,
+              top: 6,
+              bottom: 6,
+              width: 3,
+              borderRadius: 99,
+              background: 'var(--color-brand)',
+            }} />
+          )}
+          {children.length > 0 ? (
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                setExpanded(prev => {
+                  const next = new Set(prev);
+                  if (next.has(org.id)) next.delete(org.id);
+                  else next.add(org.id);
+                  return next;
+                });
+              }}
+              style={{
+                width: 18,
+                height: 18,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: 'none',
+                background: 'none',
+                color: active ? 'var(--color-brand)' : '#9CA3AF',
+                cursor: 'pointer',
+                padding: 0,
+                flexShrink: 0,
+              }}
+            >
+              {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+          ) : (
+            <span style={{ width: 18, display: 'inline-block', flexShrink: 0 }} />
+          )}
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {org.name}
+          </span>
+          <span
+            className="font-mono-nums"
+            style={{
+              fontSize: 'var(--fs-12)',
+              color: active ? 'var(--color-brand)' : 'var(--color-text-3)',
+              flexShrink: 0,
+            }}
+          >
+            {count}
+          </span>
+        </div>
+        {open && children.map(c => renderTree(c, depth + 1))}
+      </div>
+    );
+  }
+
+  const selectedOrgName = scopedOrgs.find(o => o.id === selectedOrgId)?.name ?? tenantRoot?.name ?? '';
+  const hasFilters = Boolean(keyword || statusFilter || regionFilter || selectedOrgId !== tenantRootId);
+  const freezingDepts = freezing ? managedDeptNames(freezing.id) : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--color-canvas)' }}>
       <PageHeader
         title="用户管理"
-        description={isPharmaTenant
-          ? `维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗、负责区域）。角色决定成员可使用的功能；负责区域决定成员可查看哪些区域的业务数据，在本页成员详情中配置。`
-          : `维护「${tenantRoot?.name ?? '本企业'}」的成员账号（建档、启停、调岗）；角色与数据范围为只读展示，调整请前往「角色与数据范围」。`}
         actions={canCreate ? (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="outline" size="md" icon={<Upload size={14} />} onClick={() => setImportOpen({ raw: '' })}>
-              批量导入
-            </Button>
-            <Button variant="primary" size="md" icon={<UserPlus size={14} />} onClick={() => setCreateUserOpen({
-              name: '', account: '', phone: '', email: '', orgId: defaultOrgOptions()[0]?.id ?? tenantRootId, error: '',
-            })}>
-              新建用户
-            </Button>
-          </div>
+          <Button variant="primary" size="md" icon={<Plus size={15} />} onClick={openCreate}>
+            新增用户
+          </Button>
         ) : undefined}
       />
-      <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-        <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="姓名 / 账号" style={{ ...inputStyle, width: 160, height: 30 }} />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 130, height: 30 }}>
-              <option value="">账号状态</option>
-              <option value="enabled">启用</option>
-              <option value="disabled">停用</option>
-              <option value="removed">已移除成员</option>
-            </select>
-            <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: '#374151', cursor: 'pointer' }}>
-              <input type="checkbox" checked={includeChildren} onChange={e => setIncludeChildren(e.target.checked)} style={{ accentColor: 'var(--color-brand)', width: 14, height: 14 }} />
-              含下级部门人员
-            </label>
-            <span style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>共 <strong>{people.length}</strong> 人</span>
+
+      <div style={{ flex: 1, overflow: 'hidden', padding: '20px 24px', display: 'flex', gap: 16, minHeight: 0 }}>
+        {/* 左：部门导航卡 */}
+        <div style={{
+          ...cardStyle,
+          width: 248,
+          flexShrink: 0,
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          minHeight: 0,
+        }}>
+          <div style={{ position: 'relative' }}>
+            <Search
+              size={14}
+              aria-hidden
+              style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', pointerEvents: 'none' }}
+            />
+            <input
+              value={deptFilter}
+              onChange={e => setDeptFilter(e.target.value)}
+              placeholder="搜索部门"
+              style={{ ...inputStyle, height: 34, paddingLeft: 32, borderRadius: 8 }}
+            />
           </div>
-          {people.length === 0 ? (
-            <EmptyState title="本企业暂无成员账号" description="点击「新建用户」创建第一个成员。" />
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>{['姓名 / 账号', '所属部门', '有效角色', '负责区域', '状态', '操作'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
-              </thead>
-              <tbody>
-                {people.map((u, idx) => {
-                  const active = userAssignments(u.id).filter(a => a.status === 'active');
-                  return (
-                    <tr
-                      key={u.id}
-                      onClick={() => setSelectedUserId(u.id)}
-                      style={{ background: selectedUserId === u.id ? 'var(--color-brand-subtle)' : idx % 2 === 0 ? '#fff' : '#FAFAFA', cursor: 'pointer' }}
-                    >
-                      <td style={tdStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                            background: 'linear-gradient(135deg, var(--color-brand), #2F6BCE)', color: '#fff',
-                            fontSize: 'var(--fs-12)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          }}>{u.name.slice(0, 1)}</span>
-                          <div>
-                            <div style={{ fontWeight: 600 }}>{u.name}</div>
-                            <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{u.account}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>{u.phone}</td>
-                      <td style={tdStyle}>
-                        {memberOrgName(u.id)}
-                        {isRemovedMember(u.id) && (
-                          <div style={{ fontSize: 'var(--fs-11)', color: '#C73A3A', marginTop: 2 }}>
-                            {membershipOf(u.id)?.removedKind ?? '已移除'} · {membershipOf(u.id)?.removedBy ?? '—'}
-                          </div>
-                        )}
-                      </td>
-                      <td style={tdStyle}>
-                        {active.length === 0 ? <span style={{ color: '#9CA3AF' }}>未分配角色</span> : (
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {active.map(a => <span key={a.id} style={chipStyle}>{a.roleName}</span>)}
-                          </div>
-                        )}
-                      </td>
-                      <td style={tdStyle}>{memberRegionsCell(u.id)}</td>
-                      <td style={tdStyle}>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                          <StatusTag status={u.accountStatus === 'enabled' ? '启用' : '停用'} size="sm" />
-                          {isRemovedMember(u.id) && <StatusTag status="已移除" size="sm" />}
-                          {isLoginLocked(u.id) && !isRemovedMember(u.id) && (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 999, fontSize: '11px', background: '#FEF3E2', color: '#C77A16' }}>
-                              <Lock size={10} aria-hidden /> 登录锁定
+          <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+            {tenantRoot && renderTree(tenantRoot, 0)}
+          </div>
+        </div>
+
+        {/* 右：用户列表卡 */}
+        <div style={{
+          ...cardStyle,
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          {/* 工具栏 */}
+          <div style={{
+            padding: '14px 16px',
+            borderBottom: '1px solid var(--color-border)',
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ position: 'relative', width: 220 }}>
+              <Search
+                size={14}
+                aria-hidden
+                style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', pointerEvents: 'none' }}
+              />
+              <input
+                value={keyword}
+                onChange={e => setKeyword(e.target.value)}
+                placeholder="姓名 / 用户名 / 手机号"
+                style={{ ...inputStyle, height: 34, paddingLeft: 32, borderRadius: 8 }}
+              />
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              style={{ ...inputStyle, width: 112, height: 34, borderRadius: 8 }}
+            >
+              <option value="">全部状态</option>
+              <option value="enabled">启用</option>
+              <option value="pending">待激活</option>
+              <option value="disabled">停用</option>
+            </select>
+
+            {showRegions && (
+              <select
+                value={regionFilter}
+                onChange={e => setRegionFilter(e.target.value)}
+                style={{ ...inputStyle, width: 120, height: 34, borderRadius: 8 }}
+              >
+                <option value="">全部地区</option>
+                {REGION_PRESETS.map(p => (
+                  <option key={p.label} value={p.label}>{p.label}</option>
+                ))}
+              </select>
+            )}
+
+            {hasFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setKeyword('');
+                  setStatusFilter('');
+                  setRegionFilter('');
+                  setSelectedOrgId(tenantRootId);
+                }}
+              >
+                重置
+              </Button>
+            )}
+
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-12)', color: 'var(--color-text-2)' }}>
+              <span>{selectedOrgName}</span>
+              <span style={{ color: '#D1D5DB' }}>·</span>
+              <span>共 <strong style={{ color: 'var(--color-text-1)', fontWeight: 600 }}>{people.length}</strong> 人</span>
+            </div>
+          </div>
+
+          {/* 表格 */}
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            {people.length === 0 ? (
+              <EmptyState title="暂无符合条件的用户" description="可调整筛选条件或点击右上角新增用户。" />
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={headCellStyle}>成员</th>
+                    <th style={headCellStyle}>部门</th>
+                    <th style={headCellStyle}>手机号</th>
+                    {showRegions && <th style={headCellStyle}>负责地区</th>}
+                    <th style={headCellStyle}>角色</th>
+                    <th style={{ ...headCellStyle, width: 92 }}>状态</th>
+                    <th style={{ ...headCellStyle, width: 168, textAlign: 'right' }}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {people.map(u => {
+                    const enabled = isUserEnabled(u);
+                    const pending = isPendingActivation(u);
+                    const hovered = hoveredId === u.id;
+                    const tone = avatarTone(u.name);
+                    const rNames = userRoleNames(u.id);
+                    const rawRegions = memberRegions(u.id);
+                    const regSummary = summarizeRegions(rawRegions);
+                    return (
+                      <tr
+                        key={u.id}
+                        onMouseEnter={() => setHoveredId(u.id)}
+                        onMouseLeave={() => setHoveredId(null)}
+                        style={{
+                          background: hovered || regionPopoverFor === u.id ? '#F8FAFB' : '#FFFFFF',
+                          transition: 'background 120ms ease',
+                        }}
+                      >
+                        <td style={bodyCellStyle}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: '50%',
+                              background: tone.bg,
+                              color: tone.fg,
+                              fontSize: 'var(--fs-13)',
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}>
+                              {u.name.slice(0, 1)}
                             </span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 500, color: 'var(--color-text-1)', lineHeight: 1.35 }}>{u.name}</div>
+                              <div className="font-mono-nums" style={{ fontSize: 'var(--fs-12)', color: 'var(--color-text-3)', lineHeight: 1.3 }}>
+                                {u.account}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={bodyCellStyle}>
+                          {unassignedIds.has(u.id) ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 8px',
+                                borderRadius: 6,
+                                fontSize: 'var(--fs-12)',
+                                fontWeight: 500,
+                                background: 'var(--color-warning-bg)',
+                                color: 'var(--color-warning-fg)',
+                              }}
+                            >
+                              待分配
+                            </span>
+                          ) : (
+                            memberOrgName(u.id)
                           )}
-                        </div>
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <Button variant="ghost" size="sm" onClick={() => setSelectedUserId(u.id)}>查看详情</Button>
-                          {canEdit && isRemovedMember(u.id) && (
-                            <Button variant="outline" size="sm" onClick={() => setRejoinUser({ userId: u.id, orgId: membershipOf(u.id)?.orgUnitId ?? tenantRootId, error: '' })}>重新加入</Button>
-                          )}
-                          {canEdit && isLoginLocked(u.id) && !isRemovedMember(u.id) && (
-                            <Button variant="ghost" size="sm" onClick={() => setUnlockUserId(u.id)}>解锁登录</Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+                        </td>
+                        <td className="font-mono-nums" style={{ ...bodyCellStyle, color: 'var(--color-text-2)' }}>{u.phone}</td>
+                        {showRegions && (
+                          // 有折叠时改由「+N」浮框承载完整信息，避免原生 title 重复提示
+                          <td style={bodyCellStyle} title={regSummary.length > 2 ? undefined : rawRegions.join('、')}>
+                            {regSummary.length > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                                {regSummary.slice(0, 2).map(label => (
+                                  <span key={label} style={regionTagStyle(label)}>{label}</span>
+                                ))}
+                                {regSummary.length > 2 && (
+                                  <button
+                                    ref={regionPopoverFor === u.id ? moreBtnRef : undefined}
+                                    type="button"
+                                    title="查看全部负责地区"
+                                    aria-label={`查看全部负责地区，共 ${regSummary.length} 项`}
+                                    aria-haspopup="dialog"
+                                    aria-expanded={regionPopoverFor === u.id}
+                                    onClick={() => setRegionPopoverFor(regionPopoverFor === u.id ? null : u.id)}
+                                    onMouseEnter={e => {
+                                      if (regionPopoverFor === u.id) return;
+                                      e.currentTarget.style.background = '#E5E7EB';
+                                      e.currentTarget.style.color = 'var(--color-text-1)';
+                                    }}
+                                    onMouseLeave={e => {
+                                      if (regionPopoverFor === u.id) return;
+                                      e.currentTarget.style.background = 'var(--color-neutral-bg)';
+                                      e.currentTarget.style.color = 'var(--color-text-2)';
+                                    }}
+                                    style={{
+                                      padding: '2px 6px',
+                                      borderRadius: 6,
+                                      fontSize: 'var(--fs-12)',
+                                      fontFamily: 'inherit',
+                                      whiteSpace: 'nowrap',
+                                      border: 'none',
+                                      background: regionPopoverFor === u.id ? '#E5E7EB' : 'var(--color-neutral-bg)',
+                                      color: regionPopoverFor === u.id ? 'var(--color-text-1)' : 'var(--color-text-2)',
+                                      cursor: 'pointer',
+                                      transition: 'background 120ms ease, color 120ms ease',
+                                    }}
+                                  >
+                                    +{regSummary.length - 2}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {regionPopoverFor === u.id && (
+                              <RegionOverflowPopover
+                                labels={regSummary}
+                                anchorRef={moreBtnRef}
+                                onClose={() => setRegionPopoverFor(null)}
+                              />
+                            )}
+                          </td>
+                        )}
+                        <td style={{ ...bodyCellStyle, color: 'var(--color-text-2)' }}>
+                          {rNames.join('、')}
+                        </td>
+                        <td style={bodyCellStyle}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            fontSize: 'var(--fs-12)',
+                            fontWeight: 500,
+                            color: pending ? 'var(--color-warning-fg)' : enabled ? 'var(--color-success-fg)' : 'var(--color-text-3)',
+                          }}>
+                            <span style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: '50%',
+                              background: pending ? 'var(--color-warning-fg)' : enabled ? 'var(--color-success-fg)' : '#9CA3AF',
+                            }} />
+                            {pending ? '待激活' : enabled ? '启用' : '停用'}
+                          </span>
+                        </td>
+                        <td style={{ ...bodyCellStyle, textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            {canEdit && (
+                              <button type="button" style={actionBtnStyle} onClick={() => openEdit(u)}>修改</button>
+                            )}
+                            {canEdit && (
+                              <button
+                                type="button"
+                                style={{ ...actionBtnStyle, color: enabled ? 'var(--color-text-2)' : 'var(--color-brand)' }}
+                                onClick={() => (enabled ? setFreezing(u) : applyStatus(u, 'active'))}
+                              >
+                                {enabled ? '停用' : '启用'}
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                type="button"
+                                style={{ ...actionBtnStyle, color: 'var(--color-danger-fg)' }}
+                                onClick={() => setDeleting(u)}
+                              >
+                                删除
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 用户详情弹窗（账号维度；角色只读引导） */}
-      {selectedUser && (() => {
-        const detailMembership = membershipOf(selectedUser.id);
-        const detailRemoved = detailMembership?.status === 'removed';
-        const detailLocked = isLoginLocked(selectedUser.id);
-        const removeActiveCount = userAssignments(selectedUser.id).filter(a => a.status === 'active').length;
-        return (
-        <Modal open title={`用户详情 · ${selectedUser.name}`} onClose={() => setSelectedUserId(null)} width={620}
-          footer={
-            <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              {canEdit && detailLocked && !detailRemoved && (
-                <Button variant="ghost" onClick={() => setUnlockUserId(selectedUser.id)}>解锁登录</Button>
-              )}
-              {canEdit && detailRemoved && (
-                <Button variant="outline" onClick={() => {
-                  setRejoinUser({ userId: selectedUser.id, orgId: detailMembership?.orgUnitId ?? tenantRootId, error: '' });
-                  setSelectedUserId(null);
-                }}>重新加入</Button>
-              )}
-              {canEdit && !detailRemoved && selectedUser.accountStatus === 'enabled' && (
-                <Button variant="ghost" onClick={() => setDisableUser({ userId: selectedUser.id, revokeAll: false })}>停用账号</Button>
-              )}
-              {canEdit && !detailRemoved && selectedUser.accountStatus !== 'enabled' && (
-                <Button variant="outline" onClick={() => setEnableUserId(selectedUser.id)}>启用账号</Button>
-              )}
-              {canEdit && !detailRemoved && selectedUser.accountStatus === 'enabled' && (
-                <Button variant="outline" onClick={() => setMoveUser({ userId: selectedUser.id, targetId: '', error: '' })}>调整所属部门</Button>
-              )}
-              {canEdit && !detailRemoved && selectedUser.id !== principal.userId && (
-                <Button variant="danger" onClick={() => {
-                  setRemoveUser({ userId: selectedUser.id, kind: '离职', note: '', error: '' });
-                  setSelectedUserId(null);
-                }}>移除成员</Button>
-              )}
-              <Button variant="primary" onClick={() => setSelectedUserId(null)}>关闭</Button>
-            </div>
-          }
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="姓名">{selectedUser.name}</Field>
-            <Field label="用户名">{selectedUser.account}</Field>
-            <Field label="手机号">{selectedUser.phone}</Field>
-            <Field label="邮箱">{selectedUser.email || '—'}</Field>
-            <Field label="所属企业">{tenantRoot?.name ?? '—'}</Field>
-            <Field label="本企业所属部门">{memberOrgDangling(selectedUser.id) ? '未分配（原节点已不存在，请调整所属部门）' : orgPathLabel(orgs, memberOrgId(selectedUser.id))}</Field>
-            <Field label="创建时间">{selectedUser.createdAt ?? '—'}</Field>
-            <Field label="最近登录">{selectedUser.lastLoginAt ?? '—'}</Field>
-            {detailLocked && (
-              <Field label="登录状态">
-                <span style={{ color: '#C77A16', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Lock size={13} aria-hidden /> 密码连续输错已锁定（连错 5 次锁 15 分钟，可解锁或等自动解除）
-                </span>
-              </Field>
-            )}
-            {detailRemoved && (
-              <Field label="移除记录">
-                <span style={{ color: '#C73A3A' }}>
-                  {detailMembership?.removedKind ?? '—'}
-                  {detailMembership?.removedNote ? `：${detailMembership.removedNote}` : ''}
-                  {` · ${detailMembership?.removedAt ?? '—'} · ${detailMembership?.removedBy ?? '—'}`}
-                  {detailMembership?.rejoinedAt ? '' : '（可重新加入）'}
-                </span>
-              </Field>
-            )}
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#667085', marginBottom: 8 }}>
-              {isPharmaTenant ? '角色授权（只读；在「角色与数据范围」页对应角色的「已授权成员」页签调整）' : '角色与数据范围（只读；在「角色与数据范围」页对应角色的「已授权成员」页签调整）'}
-            </div>
-            {userAssignments(selectedUser.id).length === 0 ? (
-              <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>该成员尚无角色授权</div>
-            ) : (
-              <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
-                {userAssignments(selectedUser.id).map((a, i) => (
-                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', background: i % 2 === 0 ? '#fff' : '#FAFAFA', borderTop: i === 0 ? undefined : '1px solid #F3F4F6', fontSize: 'var(--fs-13)' }}>
-                    <span style={{ fontWeight: 600 }}>{a.roleName}</span>
-                    <span style={{ color: '#667085' }}>
-                      {isPharmaTenant
-                        ? `生效 ${a.effectiveFrom}${a.effectiveTo ? ` ~ ${a.effectiveTo}` : ' 起长期'} · 由 ${a.grantedBy} 授予`
-                        : `${a.scopeOrgName} · ${scopeLabel(a.scope)}${a.pharmaTenantIds && a.pharmaTenantIds.length > 0 ? ` · 可处理药厂 ${a.pharmaTenantIds.length} 家` : ''}${a.varietyNames && a.varietyNames.length > 0 ? ` · ${a.varietyNames.length} 个品种` : ''}`}
-                    </span>
-                    <StatusTag status={grantStatusLabel(a.status)} size="sm" />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {isPharmaTenant && (() => {
-            // 负责区域（2026-10-27 方向修订）：按成员配置、调岗不变；本页是唯一编辑入口
-            const isAdmin = memberIsAdmin(selectedUser.id);
-            const regions = memberRegionsOf(selectedUser.id);
-            return (
-              <div style={{ marginTop: 14, border: '1px solid var(--color-border)', borderRadius: 8, padding: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: '#667085' }}>负责区域（决定可查看哪些区域的业务数据）</span>
-                  {canEdit && !isAdmin && !detailRemoved && (
-                    <Button
-                      variant="outline" size="sm"
-                      onClick={() => setRegionEdit({
-                        userId: selectedUser.id,
-                        mode: regions.includes(REGION_NATIONWIDE) ? 'nationwide' : regions.length > 0 ? 'provinces' : 'unconfigured',
-                        selected: regions.includes(REGION_NATIONWIDE) ? [] : regions,
-                        error: '',
-                      })}
-                    >
-                      编辑负责区域
-                    </Button>
-                  )}
-                </div>
-                <div style={{ fontSize: 'var(--fs-13)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  {isAdmin ? (
-                    <>
-                      <span style={{ fontWeight: 600 }}>全国</span>
-                      <span style={{ color: '#9CA3AF', fontSize: 'var(--fs-12)' }}>企业管理员固定全量，不受负责区域影响</span>
-                    </>
-                  ) : regions.length === 0 ? (
-                    <span style={{ color: '#C77A16' }}>未配置——该成员暂无法查看区域受控的业务数据（角色不受影响）</span>
-                  ) : (
-                    regions.map(r => <span key={r} style={chipStyle}>{r}</span>)
-                  )}
-                </div>
-                {!isAdmin && (
-                  <div style={{ marginTop: 6, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
-                    区域按成员配置，调岗不改变；保存后该成员可查看的区域业务数据随即变化。
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-          {detailRemoved && removeActiveCount > 0 && (
-            <div style={{ marginTop: 10, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
-              该成员已移除：名下 {removeActiveCount} 条授权记录已同步回收（历史保留），重新加入后需重新授予角色。
-            </div>
-          )}
-        </Modal>
-        );
-      })()}
-
-      {/* 编辑负责区域（按成员配置，唯一编辑入口；区域重叠允许，不要求上下级部门） */}
-      {regionEdit && (() => {
-        const user = users.find(u => u.id === regionEdit.userId);
-        const before = memberRegionsOf(regionEdit.userId);
-        const nextRegions = regionEdit.mode === 'nationwide' ? [REGION_NATIONWIDE] : regionEdit.mode === 'provinces' ? regionEdit.selected : [];
-        const added = nextRegions.filter(r => !before.includes(r));
-        const removed = before.filter(r => !nextRegions.includes(r));
-        return (
-          <Modal
-            open title={`编辑负责区域 · ${user?.name ?? ''}`}
-            onClose={() => setRegionEdit(null)} width={640}
-            footer={
-              <>
-                <Button variant="outline" onClick={() => setRegionEdit(null)}>取消</Button>
-                <Button variant="primary" disabled={added.length === 0 && removed.length === 0} onClick={submitRegionEdit}>保存</Button>
-              </>
-            }
-          >
-            <div style={{ display: 'grid', gap: 12 }}>
-              <InfoBanner>
-                负责区域决定该成员可查看哪些区域的业务数据；按成员配置，调岗不改变，不同成员的区域允许重叠。
-                「全国」与具体省份互斥；未配置时该成员无法查看区域受控的业务数据，但不会影响其角色。
-              </InfoBanner>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                {([['nationwide', '全国'], ['provinces', '指定省份（可多选）'], ['unconfigured', '未配置']] as const).map(([value, label]) => (
-                  <label key={value} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-13)', cursor: 'pointer' }}>
-                    <input
-                      type="radio" name="region-mode"
-                      checked={regionEdit.mode === value}
-                      onChange={() => setRegionEdit({ ...regionEdit, mode: value, error: '' })}
-                      style={{ accentColor: 'var(--color-brand)' }}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-              {regionEdit.mode === 'provinces' && (
-                <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 10, display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 220, overflow: 'auto' }}>
-                  {PROVINCES.map(p => (
-                    <label key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-12)', padding: '2px 6px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      <input
-                        type="checkbox"
-                        checked={regionEdit.selected.includes(p)}
-                        onChange={e => setRegionEdit({
-                          ...regionEdit,
-                          selected: e.target.checked ? [...regionEdit.selected, p] : regionEdit.selected.filter(x => x !== p),
-                          error: '',
-                        })}
-                        style={{ accentColor: 'var(--color-brand)', width: 13, height: 13 }}
-                      />
-                      {p}
-                    </label>
-                  ))}
-                </div>
-              )}
-              {added.length > 0 || removed.length > 0 ? (
-                <div style={{ fontSize: 'var(--fs-12)', color: '#667085', border: '1px dashed var(--color-border)', borderRadius: 8, padding: 8 }}>
-                  {added.length > 0 && <div>新增：{added.join('、')}</div>}
-                  {removed.length > 0 && <div>移除：{removed.join('、')}</div>}
-                  <div style={{ color: '#C77A16', marginTop: 4 }}>保存后，该成员可查看的区域业务数据将发生变化。</div>
-                </div>
-              ) : (
-                <div style={{ fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>尚未选择任何变更。</div>
-              )}
-              {regionEdit.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{regionEdit.error}</div>}
-            </div>
-          </Modal>
-        );
-      })()}
-
-      {/* 新建用户（只建账号；备案留底档案在「服务人员备案」板块按业务需要另行处理） */}
-      {createUserOpen && (
-        <Modal open title="新建用户" onClose={() => setCreateUserOpen(null)} width={660}
+      {/* 新增 / 修改弹窗（宽敞单栏上下平铺，负责地区内联展开无浮层遮挡） */}
+      {form && (
+        <Modal
+          open
+          title={form.mode === 'create' ? '新增用户' : '修改用户'}
+          onClose={() => setForm(null)}
+          width={680}
+          maxHeight="86vh"
           footer={
             <>
-              <Button variant="outline" onClick={() => setCreateUserOpen(null)}>取消</Button>
-              <Button variant="primary" onClick={submitCreateUser}>创建账号</Button>
+              <Button variant="outline" onClick={() => setForm(null)}>取消</Button>
+              <Button variant="primary" onClick={submitForm}>保存</Button>
             </>
           }
         >
-          <div style={{ display: 'grid', gap: 12 }}>
-            <InfoBanner>创建的是「{tenantRoot?.name ?? '本企业'}」的成员账号（租户边界内）。角色与可处理药厂/品种在创建完成后于「角色与数据范围」页授予（本页不修改任何权限范围）。</InfoBanner>
-            {createUserOpen.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{createUserOpen.error}</div>}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="登录账号" required hint="用于账号密码登录，本企业内唯一">
-                <input
-                  value={createUserOpen.account}
-                  onChange={e => setCreateUserOpen({ ...createUserOpen, account: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''), error: '' })}
-                  style={inputStyle}
-                  maxLength={20}
-                  placeholder="例如：zhangsan"
-                />
-                {createUserOpen.account && ACCOUNT_PATTERN.test(createUserOpen.account.trim()) && isAccountTakenInWorkspace(createUserOpen.account, tenantRootId) && (
-                  <div style={{ color: '#C73A3A', fontSize: 'var(--fs-12)', marginTop: 4 }}>该账号在本企业已存在，请更换</div>
-                )}
-              </Field>
+          <div style={{ display: 'grid', gap: 18 }}>
+            {form.error && (
+              <div style={{
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: 'var(--color-danger-bg)',
+                color: 'var(--color-danger-fg)',
+                fontSize: 'var(--fs-13)',
+              }}>
+                {form.error}
+              </div>
+            )}
+
+            {/* 1. 基本信息 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <Field label="姓名" required>
-                <input value={createUserOpen.name} onChange={e => setCreateUserOpen({ ...createUserOpen, name: e.target.value, error: '' })} style={inputStyle} placeholder="真实姓名" />
+                <input
+                  value={form.name}
+                  onChange={e => setForm({ ...form, name: e.target.value, error: '' })}
+                  style={{ ...inputStyle, height: 38, borderRadius: 8 }}
+                  placeholder="请输入姓名"
+                  autoFocus
+                />
               </Field>
-              <Field label="手机号" required hint="11 位手机号（自然人登录身份）">
-                <input value={createUserOpen.phone} onChange={e => setCreateUserOpen({ ...createUserOpen, phone: e.target.value.replace(/\D/g, ''), error: '' })} style={inputStyle} maxLength={11} placeholder="例如：13901350000" />
+              <Field
+                label="手机号"
+                required
+                hint={
+                  form.phoneEditable
+                    ? '建号不收验证码：成员未激活前可直接改，本人首次短信验证码登录后自动激活。'
+                    : '已激活成员为个人登录凭证，企业管理员不可修改；需换号由本人登录后换绑，或移除该成员后重新建档。'
+                }
+              >
+                <input
+                  value={form.phone}
+                  disabled={!form.phoneEditable}
+                  maxLength={11}
+                  onChange={e => setForm({ ...form, phone: e.target.value.replace(/\D/g, ''), error: '' })}
+                  style={{
+                    ...inputStyle,
+                    height: 38,
+                    borderRadius: 8,
+                    background: form.phoneEditable ? '#fff' : '#F9FAFB',
+                    color: form.phoneEditable ? 'var(--color-text-1)' : 'var(--color-text-2)',
+                  }}
+                  placeholder="11 位手机号"
+                />
               </Field>
-              <Field label="邮箱" required>
-                <input value={createUserOpen.email} onChange={e => setCreateUserOpen({ ...createUserOpen, email: e.target.value })} style={inputStyle} placeholder="zhangsan@company.com" />
+              <Field
+                label="用户名"
+                required
+                hint="3-20 位，仅限小写字母、数字、下划线或连字符，以字母或数字开头"
+              >
+                <input
+                  value={form.account}
+                  disabled={form.mode === 'edit'}
+                  onChange={e => setForm({ ...form, account: e.target.value, error: '' })}
+                  style={{
+                    ...inputStyle,
+                    height: 38,
+                    borderRadius: 8,
+                    background: form.mode === 'edit' ? '#F9FAFB' : '#fff',
+                    color: form.mode === 'edit' ? 'var(--color-text-2)' : 'var(--color-text-1)',
+                  }}
+                  placeholder="请输入用户名"
+                />
+              </Field>
+              <Field label="邮箱">
+                <input
+                  value={form.email}
+                  onChange={e => setForm({ ...form, email: e.target.value, error: '' })}
+                  style={{ ...inputStyle, height: 38, borderRadius: 8 }}
+                  placeholder="选填"
+                />
+              </Field>
+              <Field
+                label="归属部门"
+                required
+                span
+                hint={form.mode === 'edit' && form.userId && unassignedIds.has(form.userId)
+                  ? '原部门已不存在，请重新选择有效的归属部门'
+                  : undefined}
+              >
+                <select
+                  value={form.orgId}
+                  onChange={e => setForm({ ...form, orgId: e.target.value, error: '' })}
+                  style={{ ...inputStyle, height: 38, borderRadius: 8 }}
+                >
+                  {orgOptions.map(o => <option key={o.id} value={o.id}>{orgPathLabel(scopedOrgs, o.id)}</option>)}
+                </select>
               </Field>
             </div>
-            <Field label="所属部门 / 团队" required>
-              <select value={createUserOpen.orgId} onChange={e => setCreateUserOpen({ ...createUserOpen, orgId: e.target.value })} style={inputStyle}>
-                {defaultOrgOptions().map(o => <option key={o.id} value={o.id}>{orgPathLabel(orgs, o.id)}</option>)}
-              </select>
-            </Field>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: '#9CA3AF' }}>
-              <Users size={13} /> 同一个手机号可在多家企业分别建档成员身份；此处仅创建当前企业的成员。初始密码统一 demo123（演示）
-            </div>
-          </div>
-        </Modal>
-      )}
 
-      {/* 调整所属部门 */}
-      {moveUser && (
-        <Modal open title="调整所属部门" onClose={() => setMoveUser(null)} width={520}
-          footer={
-            <>
-              <Button variant="outline" onClick={() => setMoveUser(null)}>取消</Button>
-              <Button variant="primary" disabled={!moveUser.targetId} onClick={submitMoveUser}>确认调整</Button>
-            </>
-          }
-        >
-          <div style={{ display: 'grid', gap: 12 }}>
-            {isPharmaTenant ? (
-              <InfoBanner>调整后，该成员的所属部门将变化；<b>角色和负责区域保持不变</b>。请根据新职责检查是否需要调整（角色在「角色与数据范围」、负责区域在本页成员详情）。跨企业调入会被拒绝。</InfoBanner>
-            ) : (
-              <InfoBanner>仅变更人员归属节点；<b>归属变化不自动调整角色与数据范围</b>（如需调整请前往「角色与数据范围」）。跨企业调入会被拒绝。</InfoBanner>
+            {/* 2. 分配角色 */}
+            {isTenant && grantableRoles.length > 0 && (
+              <div style={{ borderTop: '1px solid #F1F3F5', paddingTop: 16, display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--color-text-2)' }}>
+                    分配角色<span style={{ color: '#C73A3A', marginLeft: 2 }}>*</span>
+                  </span>
+                  <span style={{ fontSize: 'var(--fs-12)', color: 'var(--color-text-3)' }}>
+                    {form.roleIds.length > 0 ? `已选 ${form.roleIds.length} 项` : '必选 · 可多选'}
+                  </span>
+                </div>
+                <MultiSelect
+                  label="分配角色"
+                  options={roleOptions}
+                  value={form.roleIds}
+                  onChange={roleIds => setForm({ ...form, roleIds, error: '' })}
+                  placeholder="请选择角色（必选）"
+                />
+              </div>
             )}
-            {moveUser.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{moveUser.error}</div>}
-            <Field label="当前所属">{memberOrgName(moveUser.userId)}</Field>
-            <Field label="调整到" required>
-              <select value={moveUser.targetId} onChange={e => setMoveUser({ ...moveUser, targetId: e.target.value, error: '' })} style={inputStyle}>
-                <option value="">选择目标部门/团队</option>
-                {moveUserOptions.map(o => <option key={o.id} value={o.id}>{orgPathLabel(orgs, o.id)}</option>)}
-              </select>
-            </Field>
+
+            {/* 3. 负责地区（必选；常规区块，大区直选 + 按需展开省份微调，随弹窗自然滚动） */}
+            {showRegions && (
+              <div style={{ borderTop: '1px solid #F1F3F5', paddingTop: 16, display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--color-text-2)' }}>
+                      负责地区<span style={{ color: '#C73A3A', marginLeft: 2 }}>*</span>
+                    </span>
+                    <span style={{ fontSize: 'var(--fs-12)', color: 'var(--color-text-3)' }}>
+                      {form.regions.includes(REGION_NATIONWIDE)
+                        ? '全国不限'
+                        : form.regions.length > 0
+                          ? `已选 ${summarizeRegions(form.regions).join('、')}`
+                          : '必选 · 可多选'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowProvinceGrid(v => !v)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        fontSize: 'var(--fs-12)',
+                        fontWeight: 500,
+                        color: 'var(--color-brand)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {showProvinceGrid ? '收起省份' : '按省份微调'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 大区一键直选条 */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {REGION_PRESETS.map(preset => {
+                    const isNationwide = form.regions.includes(REGION_NATIONWIDE);
+                    const selected = preset.label === '全国'
+                      ? isNationwide
+                      : !isNationwide && preset.provinces.every(p => form.regions.includes(p));
+                    const partial = preset.label !== '全国'
+                      && !isNationwide
+                      && !selected
+                      && preset.provinces.some(p => form.regions.includes(p));
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => togglePreset(preset)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: 8,
+                          fontSize: 'var(--fs-12)',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          border: selected
+                            ? '1px solid var(--color-brand)'
+                            : partial
+                              ? '1px solid #99D5C6'
+                              : '1px solid var(--color-border)',
+                          background: selected
+                            ? 'var(--color-brand-subtle)'
+                            : partial
+                              ? '#F2FAF7'
+                              : '#FFFFFF',
+                          color: selected || partial ? 'var(--color-brand)' : 'var(--color-text-1)',
+                          transition: 'all 120ms ease',
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 按需原地展开的省份网格（内联流式，随弹窗滚动，不裁切） */}
+                {showProvinceGrid && (
+                  <div style={{
+                    background: '#FAFBFC',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 10,
+                    padding: 12,
+                    display: 'grid',
+                    gap: 10,
+                  }}>
+                    <div style={{ position: 'relative', width: 220 }}>
+                      <Search
+                        size={14}
+                        aria-hidden
+                        style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', pointerEvents: 'none' }}
+                      />
+                      <input
+                        value={regionSearch}
+                        onChange={e => setRegionSearch(e.target.value)}
+                        placeholder="搜索省份"
+                        style={{ ...inputStyle, height: 32, paddingLeft: 30, borderRadius: 8 }}
+                      />
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {REGION_PRESETS.slice(1).map(group => {
+                        const q = regionSearch.trim();
+                        const matchGroup = !q || group.label.includes(q);
+                        const visibleProvinces = matchGroup
+                          ? group.provinces
+                          : group.provinces.filter(p => p.includes(q));
+                        if (visibleProvinces.length === 0) return null;
+                        const isNationwide = form.regions.includes(REGION_NATIONWIDE);
+                        return (
+                          <div
+                            key={group.label}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '52px minmax(0, 1fr)',
+                              gap: 8,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span style={{ fontSize: 'var(--fs-12)', color: 'var(--color-text-3)', fontWeight: 500 }}>
+                              {group.label}
+                            </span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {visibleProvinces.map(province => {
+                                const checked = isNationwide || form.regions.includes(province);
+                                return (
+                                  <button
+                                    key={province}
+                                    type="button"
+                                    onClick={() => toggleProvince(province)}
+                                    style={{
+                                      padding: '3px 9px',
+                                      borderRadius: 6,
+                                      fontSize: 'var(--fs-12)',
+                                      fontWeight: checked ? 500 : 400,
+                                      cursor: 'pointer',
+                                      border: checked ? '1px solid var(--color-brand)' : '1px solid var(--color-border)',
+                                      background: checked ? 'var(--color-brand-subtle)' : '#FFFFFF',
+                                      color: checked ? 'var(--color-brand)' : 'var(--color-text-1)',
+                                      transition: 'all 120ms ease',
+                                    }}
+                                  >
+                                    {province}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </Modal>
       )}
 
-      {/* 停用账号 */}
-      {disableUser && (
-        <Modal open title="停用账号" onClose={() => setDisableUser(null)} width={520}
-          footer={
-            <>
-              <Button variant="outline" onClick={() => setDisableUser(null)}>取消</Button>
-              <Button variant="danger" onClick={submitDisableUser}>确认停用</Button>
-            </>
-          }
-        >
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 14, display: 'grid', gap: 8, fontSize: 'var(--fs-13)' }}>
-              <div><span style={{ color: '#9CA3AF' }}>用户 </span><strong>{disableTarget?.name} · {disableTarget?.account}</strong></div>
-              <div><span style={{ color: '#9CA3AF' }}>有效角色 </span>{disableActiveCount} 条</div>
-            </div>
-            <InfoBanner tone="warning">停用后该自然人禁止登录；全部有效角色不参与新会话计算。其当前活跃会话在下一次请求时失效。</InfoBanner>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 'var(--fs-13)', cursor: 'pointer' }}>
-              <input type="checkbox" checked={disableUser.revokeAll} disabled={disableActiveCount === 0} onChange={e => setDisableUser({ ...disableUser, revokeAll: e.target.checked })} style={{ accentColor: '#C73A3A', width: 15, height: 15, marginTop: 2 }} />
-              <span>同步回收全部 {disableActiveCount} 条有效角色分配<span style={{ display: 'block', fontSize: 'var(--fs-12)', color: '#9CA3AF', marginTop: 2 }}>不勾选则保留冻结记录，启用账号后角色恢复参与计算</span></span>
-            </label>
-          </div>
-        </Modal>
-      )}
-
-      {enableUserId && (
+      {freezing && (
         <ConfirmDialog
           open
-          title="启用账号"
-          description={`启用后 ${users.find(u => u.id === enableUserId)?.name ?? ''} 可重新登录，冻结的有效角色分配恢复参与权限计算。`}
-          confirmLabel="确认启用"
-          onConfirm={() => {
-            const result = store.setUserStatus(enableUserId, 'enabled', { reason: '管理员启用' });
-            if (!result.ok) addToast({ type: 'error', title: '启用失败', description: result.error });
-            else addToast({ type: 'success', title: '账号已启用' });
-            setEnableUserId(null);
-          }}
-          onCancel={() => setEnableUserId(null)}
+          title="停用账号"
+          description={`确定停用「${freezing.name}」吗？`}
+          impact={[
+            '停用后该成员将无法登录本企业；已分配的角色与负责地区会保留，可随时重新启用。',
+            freezingDepts.length > 0
+              ? `该成员担任「${freezingDepts.join('、')}」负责人，请提前安排好工作交接。`
+              : '',
+          ].filter(Boolean).join(' ')}
+          confirmLabel="确认停用"
+          variant="warning"
+          onConfirm={confirmFreeze}
+          onCancel={() => setFreezing(null)}
         />
       )}
 
-      {/* 移除成员（2026-09-18）：终止本企业成员身份，与「停用账号」并行存在 */}
-      {removeUser && (() => {
-        const target = users.find(u => u.id === removeUser.userId);
-        const rmActive = assignments.filter(a => a.userId === removeUser.userId && a.tenantId === tenantRootId && a.status === 'active').length;
-        return (
-          <Modal open title="移除成员" onClose={() => setRemoveUser(null)} width={520}
-            footer={
-              <>
-                <Button variant="outline" onClick={() => setRemoveUser(null)}>取消</Button>
-                <Button variant="danger" onClick={submitRemoveUser}>确认移除</Button>
-              </>
-            }
-          >
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 14, display: 'grid', gap: 8, fontSize: 'var(--fs-13)' }}>
-                <div><span style={{ color: '#9CA3AF' }}>成员 </span><strong>{target?.name} · {target?.account}</strong></div>
-                <div><span style={{ color: '#9CA3AF' }}>有效角色授权 </span>{rmActive} 条（移除时同步回收，历史保留可查）</div>
-              </div>
-              <InfoBanner tone="warning">
-                移除终止的是该成员在「{tenantRoot?.name ?? '本企业'}」的<b>成员身份</b>：立即无法登录本企业。其自然人账号、
-                其他企业的成员身份与历史记录<b>不受影响</b>。与「停用账号」不同：移除后成员从默认名单移除，
-                可在「已移除成员」筛选中「重新加入」恢复。
-              </InfoBanner>
-              {removeUser.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{removeUser.error}</div>}
-              <Field label="移除原因" required>
-                <select value={removeUser.kind} onChange={e => setRemoveUser({ ...removeUser, kind: e.target.value, error: '' })} style={inputStyle}>
-                  <option value="离职">离职</option>
-                  <option value="误建">误建</option>
-                  <option value="其他">其他</option>
-                </select>
-              </Field>
-              <Field label="补充说明" hint="选择「其他」时必填；随审计保留">
-                <textarea
-                  value={removeUser.note}
-                  onChange={e => setRemoveUser({ ...removeUser, note: e.target.value, error: '' })}
-                  style={{ ...inputStyle, height: 64, padding: 8 }}
-                  placeholder="补充说明（可选）"
-                />
-              </Field>
-            </div>
-          </Modal>
-        );
-      })()}
-
-      {/* 重新加入（移除后恢复）：恢复 active 成员身份并选择部门，移除留痕保留 */}
-      {rejoinUser && (() => {
-        const target = users.find(u => u.id === rejoinUser.userId);
-        const m = membershipOf(rejoinUser.userId);
-        return (
-          <Modal open title="重新加入" onClose={() => setRejoinUser(null)} width={520}
-            footer={
-              <>
-                <Button variant="outline" onClick={() => setRejoinUser(null)}>取消</Button>
-                <Button variant="primary" disabled={!rejoinUser.orgId} onClick={submitRejoinUser}>确认重新加入</Button>
-              </>
-            }
-          >
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 14, display: 'grid', gap: 6, fontSize: 'var(--fs-13)' }}>
-                <div><span style={{ color: '#9CA3AF' }}>成员 </span><strong>{target?.name} · {target?.account}</strong></div>
-                <div style={{ color: '#667085' }}>
-                  上次移除：{m?.removedKind ?? '—'} · {m?.removedAt ?? '—'} · {m?.removedBy ?? '—'}{m?.removedNote ? `：${m.removedNote}` : ''}
-                </div>
-              </div>
-              <InfoBanner>
-                重新加入恢复其在本企业的成员身份（历史移除记录保留可查）；此前的角色授权已随移除回收，
-                需在「角色与数据范围」重新授予。
-              </InfoBanner>
-              {rejoinUser.error && <div style={{ color: '#C73A3A', fontSize: 'var(--fs-13)' }}>{rejoinUser.error}</div>}
-              <Field label="所属部门 / 团队" required>
-                <select value={rejoinUser.orgId} onChange={e => setRejoinUser({ ...rejoinUser, orgId: e.target.value, error: '' })} style={inputStyle}>
-                  {defaultOrgOptions().map(o => <option key={o.id} value={o.id}>{orgPathLabel(orgs, o.id)}</option>)}
-                </select>
-              </Field>
-            </div>
-          </Modal>
-        );
-      })()}
-
-      {/* 批量导入成员（2026-09-18）：粘贴解析 → 逐行校验 → 有错全驳 → 确认导入 */}
-      {importOpen && (
-        <Modal open title="批量导入成员" onClose={() => setImportOpen(null)} width={720}
-          footer={
-            <>
-              <Button variant="outline" onClick={() => setImportOpen(null)}>取消</Button>
-              <Button variant="primary" disabled={!importValid} onClick={submitImport}>
-                {importValid ? `确认导入 ${importRows.length} 人` : '存在错误行，全部驳回'}
-              </Button>
-            </>
-          }
-        >
-          <div style={{ display: 'grid', gap: 12 }}>
-            <InfoBanner>
-              粘贴表格内容（CSV / Excel 复制均可），列顺序：<b>登录账号, 姓名, 手机号, 部门, 邮箱</b>；首行为表头时自动跳过。
-              <button
-                type="button"
-                onClick={downloadImportTemplate}
-                style={{ marginLeft: 6, border: 'none', background: 'none', color: 'var(--color-brand)', cursor: 'pointer', fontSize: 'var(--fs-12)', fontWeight: 600, textDecoration: 'underline', padding: 0 }}
-              >
-                下载模板（演示）
-              </button>
-            </InfoBanner>
-            <textarea
-              value={importOpen.raw}
-              onChange={e => setImportOpen({ raw: e.target.value })}
-              style={{ ...inputStyle, height: 92, padding: 10, fontFamily: "'JetBrains Mono', monospace", fontSize: 'var(--fs-12)', resize: 'vertical' }}
-              placeholder={'zhangsan, 张三, 13901350000, 销售部, zhangsan@company.com\nlisi, 李四, 13901350001, 市场部, lisi@company.com'}
-            />
-            {importRows.length === 0 ? (
-              <div style={{ fontSize: 'var(--fs-13)', color: '#9CA3AF' }}>
-                粘贴后自动解析并逐行校验：账号/手机号企业内唯一、部门须为本企业组织内节点、不超租户用户限额。
-              </div>
-            ) : (
-              <>
-                {quotaWarn && <InfoBanner tone="warning">{quotaWarn}</InfoBanner>}
-                <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto', maxHeight: 280 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>{['行', '账号', '姓名', '手机号', '部门', '校验结果'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {importRows.map(r => (
-                        <tr key={r.line} style={{ background: r.error ? '#FFF7F7' : undefined }}>
-                          <td style={tdStyle}>{r.line}</td>
-                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>{r.account}</td>
-                          <td style={tdStyle}>{r.name}</td>
-                          <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace" }}>{r.phone}</td>
-                          <td style={tdStyle}>{r.dept || '—'}</td>
-                          <td style={{ ...tdStyle, color: r.error ? '#C73A3A' : '#248A5A', fontSize: 'var(--fs-12)' }}>{r.error ?? '✓ 通过'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={{ fontSize: 'var(--fs-12)', color: '#667085' }}>
-                  校验通过 {importRows.filter(r => !r.error).length} 行 · 错误 {importRows.filter(r => r.error).length} 行；
-                  存在任何错误行时<b>全部驳回</b>（须修正后重新粘贴），避免半批导入。
-                </div>
-              </>
-            )}
-          </div>
-        </Modal>
-      )}
-
-      {/* 解锁登录（2026-09-18 账号安全）：清除密码连错锁定 */}
-      {unlockUserId && (
+      {deleting && (
         <ConfirmDialog
           open
-          title="解锁登录"
-          description={`解除 ${users.find(u => u.id === unlockUserId)?.name ?? ''}（${users.find(u => u.id === unlockUserId)?.account ?? ''}）的密码连错锁定；解锁后该成员可立即使用密码登录。`}
-          confirmLabel="确认解锁"
-          onConfirm={() => {
-            const target = users.find(u => u.id === unlockUserId);
-            void unlockLoginGuard(unlockUserId, principal.name).then(result => {
-              if (!result.ok) addToast({ type: 'error', title: '解锁失败', description: result.error });
-              else addToast({ type: 'success', title: '已解锁登录', description: `${target?.name ?? ''} 的登录锁定已解除，操作已记录审计。` });
-              setUnlockUserId(null);
-              bump(x => x + 1);
-            });
-          }}
-          onCancel={() => setUnlockUserId(null)}
+          title="删除用户"
+          description={`确定删除用户「${deleting.name}」吗？`}
+          confirmLabel="确认删除"
+          variant="danger"
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleting(null)}
         />
       )}
     </div>

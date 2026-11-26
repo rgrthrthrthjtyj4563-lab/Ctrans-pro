@@ -1,0 +1,22 @@
+/* 锚定浮层（AnchoredPopover）：定位由组件按触发元素实时写入，这里只管外观 */
+.ap-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: ap-popover-in 140ms ease-out;
+}
+@keyframes ap-popover-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ap-popover { animation: none; }
+}

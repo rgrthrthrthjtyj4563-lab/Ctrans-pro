@@ -17,8 +17,8 @@
 
 import type { BlockedKind, ServingPharma, TenantPrincipal, WarningKind } from "../auth/authTypes"
 import { PLATFORM_WORKSPACE_NAME } from "../auth/authTypes"
-import type { PermAuditEvent, PlatformRoleBinding, RoleAssignment, TenantKind, TenantMembership } from "./permissions"
-import { PLATFORM_BINDINGS, PRESET_ROLES, TENANT_MEMBERSHIPS, enterpriseRootOf, nextId, nowStamp, seedCustomRoles } from "./permissions"
+import type { BizScopeItem, PermAuditEvent, PlatformRoleBinding, RoleAssignment, TenantKind, TenantMembership } from "./permissions"
+import { PLATFORM_BINDINGS, PRESET_ROLES, TENANT_MEMBERSHIPS, bizScopeModeOf, enterpriseRootOf, nextId, nowStamp, resolveEffectiveBizScopes, seedCustomRoles } from "./permissions"
 import { allOrgs, allUsers, allAssignments, persistRuntimeMemberships, runtimeMemberships, tenantLoginAllowed } from "./tenantRegistry"
 
 // ─── 系统角色绑定（运行期内存态；登录网关与软件服务方账号页共享同一事实源） ─────────
@@ -246,37 +246,43 @@ export function membershipsOfTenant(tenantId: string): TenantMembership[] {
 }
 
 /**
- * 成员身份是否参与权限计算：冻结成员不得进入租户与选择合作药厂；
- * 待激活由登录激活流程单独拦截（激活后参与计算）；
- * 已移除成员（2026-09-18）身份终止，不再出现在名单与授权入口。
+ * 成员身份是否参与权限计算：冻结 / 离职 / 移除成员不得进入租户与选择合作药厂
+ * （只影响当前租户，绝不连坐自然人在其他企业的成员身份）；
+ * 待激活由登录激活流程单独拦截（激活后参与计算）。
  */
 export function membershipActive(m: TenantMembership | undefined): boolean {
-  return Boolean(m && m.status !== "frozen" && m.status !== "removed")
+  return Boolean(m && m.status !== "frozen" && m.status !== "removed" && m.status !== "left")
 }
 
 /**
- * 移除成员（2026-09-18 成员生命周期补全）：终止该用户在【本企业】的成员身份。
+ * 移除/离职成员（租户域唯一数据写入口）：终止该用户在【本企业】的成员身份。
  * 口径：只动 membership，不动 PermUser——自然人账号、其他企业身份、历史授权
- * 记录全部保留；登录链路经 memberStatusOf 感知 removed 拒绝进入本企业。
- * 运行时派生成员（如建租首位管理员）没有显式记录：补写一条显式 removed 记录，
- * 防止 getTenantMemberships 的派生逻辑把移除状态重新生成为 active。
+ * 记录全部保留；登录链路经 memberStatusOf 感知 removed/left 拒绝进入本企业。
+ * - status=removed（移除，如误建）或 left（办理离职）均为终止态，历史与审计保留；
+ * - 运行时派生成员（如建租首位管理员）没有显式记录：补写一条显式终止记录，
+ *   防止 getTenantMemberships 的派生逻辑把终止状态重新生成为 active。
  */
 export function removeMembership(input: {
   userId: string
   tenantId: string
   actor: string
-  /** 原因分类：离职 / 误建 / 其他 */
+  /** 终止态：removed=移除（误建等）/ left=办理离职；缺省 removed */
+  status?: "removed" | "left"
+  /** 原因分类：离职 / 误建 / 其他（+ 自由文本说明） */
   kind: string
   note?: string
 }): { ok: boolean; error?: string } {
+  const status = input.status ?? "removed"
   const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
   if (idx >= 0) {
-    if (tenantMembershipState[idx].status === "removed") return { ok: false, error: "该成员已处于移除状态" }
+    if (tenantMembershipState[idx].status === "removed" || tenantMembershipState[idx].status === "left") {
+      return { ok: false, error: "该成员已处于终止状态" }
+    }
     tenantMembershipState = tenantMembershipState.map((m, i) =>
       i === idx
         ? {
             ...m,
-            status: "removed" as const,
+            status,
             removedAt: nowStamp(),
             removedBy: input.actor,
             removedKind: input.kind,
@@ -293,7 +299,7 @@ export function removeMembership(input: {
         tenantId: input.tenantId,
         tenantName: root?.name ?? input.tenantId,
         orgUnitId: allUsers().find((u) => u.id === input.userId)?.orgId ?? input.tenantId,
-        status: "removed",
+        status,
         joinedAt: todayIso(),
         removedAt: nowStamp(),
         removedBy: input.actor,
@@ -308,8 +314,8 @@ export function removeMembership(input: {
 }
 
 /**
- * 重新加入（移除后恢复）：仅 removed 成员可恢复；恢复为 active 并更新部门，
- * 移除留痕字段保留（removedAt/By/Kind 供追溯），rejoinedAt 记录恢复时间。
+ * 重新加入（终止后恢复）：仅 removed / left 成员可恢复；恢复为 active 并更新部门，
+ * 终止留痕字段保留（removedAt/By/Kind 供追溯），rejoinedAt 记录恢复时间。
  */
 export function rejoinMembership(input: {
   userId: string
@@ -318,7 +324,8 @@ export function rejoinMembership(input: {
 }): { ok: boolean; error?: string; membership?: TenantMembership } {
   const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
   if (idx < 0) return { ok: false, error: "该用户在本企业没有可恢复的成员记录，请直接新建用户" }
-  if (tenantMembershipState[idx].status !== "removed") return { ok: false, error: "仅已移除的成员可重新加入" }
+  const status = tenantMembershipState[idx].status
+  if (status !== "removed" && status !== "left") return { ok: false, error: "仅已移除或已离职的成员可重新加入" }
   const next: TenantMembership = {
     ...tenantMembershipState[idx],
     orgUnitId: input.orgUnitId,
@@ -330,11 +337,61 @@ export function rejoinMembership(input: {
   return { ok: true, membership: next }
 }
 
-/** 新建成员（用户建档时写入当前租户的成员身份）或调整成员部门（调岗；不改动负责区域） */
-export function upsertMembership(input: { userId: string; tenantId: string; orgUnitId: string; tenantName?: string }): TenantMembership {
+/**
+ * 激活成员身份（2026-11-25 拍板 · 后台建号不收验证码）：
+ * 仅 pending_activation 可激活（首登短信验证码登录自动激活，或管理员建档未激活时同步
+ * 激活）；已激活/冻结/终止态不在此改。activatedAt 记录首次激活时间。
+ */
+export function activateMembership(input: {
+  userId: string
+  tenantId: string
+  /** 激活方式：sms_login=本人首登短信验证码激活；admin_edit=管理员修正手机号时同步激活 */
+  via?: "sms_login" | "admin_edit"
+}): { ok: boolean; error?: string; membership?: TenantMembership } {
+  const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
+  if (idx < 0) return { ok: false, error: "该用户在本企业没有成员记录" }
+  const cur = tenantMembershipState[idx]
+  if (cur.status !== "pending_activation") return { ok: false, error: "该成员不处于待激活状态" }
+  const next: TenantMembership = {
+    ...cur,
+    status: "active",
+    activatedAt: nowStamp(),
+    ...(input.via ? { activatedVia: input.via } : {}),
+  }
+  tenantMembershipState = tenantMembershipState.map((m, i) => (i === idx ? next : m))
+  notifyMembershipChange()
+  return { ok: true, membership: next }
+}
+
+/**
+ * 新建成员 / 调岗 / 兼职部门与资料维护的统一写入口（TenantMembership 唯一 UPSERT）。
+ * 存在成员身份 → 按 input 更新传入的字段（未传入的字段保持不变；orgUnitId 传 null
+ * 表示不动主部门）；不存在 → 以当前租户新建成员身份（跨企业建档场景：同一手机号
+ * 自然人在另一企业的成员身份不受任何影响）。
+ */
+export function upsertMembership(input: {
+  userId: string
+  tenantId: string
+  /** 主属部门；缺省 = 保持现状（仅更新资料/状态时使用） */
+  orgUnitId?: string
+  tenantName?: string
+  jobTitle?: string
+  employeeNo?: string
+  secondaryOrgUnitIds?: string[]
+  status?: TenantMembership["status"]
+}): TenantMembership {
   const idx = tenantMembershipState.findIndex((m) => m.userId === input.userId && m.tenantId === input.tenantId)
   if (idx >= 0) {
-    const next = { ...tenantMembershipState[idx], orgUnitId: input.orgUnitId }
+    const cur = tenantMembershipState[idx]
+    const next: TenantMembership = {
+      ...cur,
+      ...(input.orgUnitId ? { orgUnitId: input.orgUnitId } : {}),
+      ...(input.tenantName ? { tenantName: input.tenantName } : {}),
+      ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle } : {}),
+      ...(input.employeeNo !== undefined ? { employeeNo: input.employeeNo } : {}),
+      ...(input.secondaryOrgUnitIds !== undefined ? { secondaryOrgUnitIds: [...input.secondaryOrgUnitIds] } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+    }
     tenantMembershipState = tenantMembershipState.map((m, i) => (i === idx ? next : m))
     notifyMembershipChange()
     return next
@@ -345,13 +402,47 @@ export function upsertMembership(input: { userId: string; tenantId: string; orgU
     userId: input.userId,
     tenantId: input.tenantId,
     tenantName: input.tenantName ?? org?.name ?? input.tenantId,
-    orgUnitId: input.orgUnitId,
-    status: "active",
+    orgUnitId: input.orgUnitId ?? input.tenantId,
+    status: input.status ?? "active",
     joinedAt: todayIso(),
+    ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle } : {}),
+    ...(input.employeeNo !== undefined ? { employeeNo: input.employeeNo } : {}),
+    ...(input.secondaryOrgUnitIds !== undefined ? { secondaryOrgUnitIds: [...input.secondaryOrgUnitIds] } : {}),
   }
   tenantMembershipState = [created, ...tenantMembershipState]
   notifyMembershipChange()
   return created
+}
+
+/**
+ * 部门迁移批量落库（组织架构「停用部门 → 成员迁移」唯一写入口）：
+ * 把主属部门 / 兼职部门命中 fromOrgIds 的成员一次性迁入 toOrgId（兼职去重），
+ * 同步持久化快照。绝不触碰 PermUser.orgId 主档与其他租户成员身份。
+ */
+export function moveMembershipsBulk(input: { fromOrgIds: string[]; toOrgId: string }): number {
+  const from = new Set(input.fromOrgIds)
+  let moved = 0
+  tenantMembershipState = tenantMembershipState.map((m) => {
+    let changed = false
+    let next = m
+    if (from.has(m.orgUnitId) && m.orgUnitId !== input.toOrgId) {
+      next = { ...next, orgUnitId: input.toOrgId }
+      changed = true
+    }
+    if (next.secondaryOrgUnitIds?.some((id) => from.has(id))) {
+      const merged = [...new Set(next.secondaryOrgUnitIds.map((id) => (from.has(id) ? input.toOrgId : id)))]
+        .filter((id) => id !== next.orgUnitId)
+      next = { ...next, secondaryOrgUnitIds: merged }
+      changed = true
+    }
+    if (changed) {
+      moved += 1
+      return next
+    }
+    return m
+  })
+  if (moved > 0) notifyMembershipChange()
+  return moved
 }
 
 /**
@@ -369,6 +460,38 @@ export function setMembershipRegions(input: {
   tenantMembershipState = tenantMembershipState.map((m, i) => (i === idx ? next : m))
   notifyMembershipChange()
   return { ok: true, membership: next }
+}
+
+// ─── 新建成员 · 手机号智能识别（一手机号多企业建档，2026-11 拍板） ─────────────
+
+export type PhoneIdentityResolution =
+  | { kind: "new" }
+  | { kind: "exists_elsewhere"; user: { id: string; name: string; account: string; phone: string }; memberships: TenantMembership[] }
+  | { kind: "already_member"; user: { id: string; name: string; account: string; phone: string }; membership: TenantMembership }
+  | { kind: "reactivatable"; user: { id: string; name: string; account: string; phone: string }; membership: TenantMembership }
+
+/**
+ * 新建成员弹窗的手机号先行查重（情况 A/B/C/重新加入）：
+ * - new：平台新自然人（建 PermUser + 本租户成员身份）；
+ * - exists_elsewhere：手机号已注册平台账号但不在本企业 → 免重复注册，直接建本租户
+ *   TenantMembership（红线条 3：绝不允许「该手机号已绑定其他账号」阻断）；
+ * - already_member：已在本企业且成员身份有效 → 阻断；
+ * - reactivatable：曾在本企业但已移除/离职 → 引导「重新加入」。
+ */
+export function resolvePhoneIdentity(phone: string, tenantId: string): PhoneIdentityResolution {
+  const trimmed = phone.trim()
+  if (!/^1\d{10}$/.test(trimmed)) return { kind: "new" }
+  const user = allUsers().find((u) => u.phone === trimmed)
+  if (!user) return { kind: "new" }
+  const brief = { id: user.id, name: user.name, account: user.account, phone: user.phone }
+  const membership = membershipOfUserInTenant(user.id, tenantId)
+  if (!membership) {
+    return { kind: "exists_elsewhere", user: brief, memberships: membershipsOfUser(user.id) }
+  }
+  if (membership.status === "removed" || membership.status === "left") {
+    return { kind: "reactivatable", user: brief, membership }
+  }
+  return { kind: "already_member", user: brief, membership }
 }
 
 // ─── 合作关系（药厂控制） ─────────────────────────────────────────────────────
@@ -710,6 +833,14 @@ export function grantedPharmasForUser(
     if (a.effectiveFrom > today) continue
     if (a.effectiveTo && a.effectiveTo < today) continue
     if (!groups.includes(a.scopeOrgName)) groups.push(a.scopeOrgName)
+    if (a.bizScopeMode === "inherit_org" || a.bizScopeMode === "custom") {
+      // 结构化业务范围（2026-11）：药厂集合来自 部门继承 / 个人自定义 的有效条目，
+      // 与上游有效授权的逐厂交集在 servingBizScopeOfAssignment 统一完成
+      for (const scope of resolveEffectiveBizScopes(a, membership, allOrgs()) ?? []) {
+        pharmaIds.add(scope.pharmaTenantId)
+      }
+      continue
+    }
     if (a.pharmaTenantIds) {
       for (const id of a.pharmaTenantIds) pharmaIds.add(id)
     } else {
@@ -1223,19 +1354,51 @@ export function derivedRegionCodesOfScope(
 
 /**
  * 服务商成员在当前服务药厂下的可用业务范围（任务/拜访/结算/绩效/导出统一过滤口径）：
- * 当前服务商租户 → 药厂品种授权（有效）→ 成员授权收窄（pharmaTenantIds / varietyNames）。
+ * 当前服务商租户 → 药厂品种授权（有效）→ 成员授权收窄。
+ * 收窄口径（2026-11 结构化业务范围）：
+ * - bizScopeMode=inherit_org：部门默认承接范围（向上回溯最近配置节点）；
+ * - bizScopeMode=custom：个人 药厂×品种×收窄区域；
+ * - 两者运行时都与「该药厂有效合作 ∧ 有效品种授权 ∧ 品种授权区域」逐厂实时取交集
+ *   （默认拒绝；上游暂停/撤销即刻失效）；
+ * - 兼容口径：旧快照授权（无 bizScopeMode）继续按 pharmaTenantIds/varietyNames 收窄。
  * 返回 null 表示该成员在该药厂无可用业务范围。
  */
 export function servingBizScopeOfAssignment(
   assignment: RoleAssignment,
   pharmaTenantId: string,
+  ctx?: { membership?: TenantMembership },
 ): { varietyNames: string[]; regions: string[] } | null {
-  // PROVIDER 档（服务商管理员）不配置 pharmaTenantIds：与门页 grantedPharmasForUser
+  // PROVIDER 档（服务商管理员）不配置业务范围：与门页 grantedPharmasForUser
   // 同口径——名下药厂 = 本服务商全部有效授权药厂，范围 = 当前药厂的全部有效品种
-  // 授权（品种级收窄 varietyNames 仍生效；授权失效时下方 lines 为空自然拒绝）。
+  // 授权（授权失效时下方 lines 为空自然拒绝）。
   const providerAdminScope =
     (!assignment.pharmaTenantIds || assignment.pharmaTenantIds.length === 0) &&
+    assignment.bizScopeMode === undefined &&
     ([...PRESET_ROLES, ...seedCustomRoles].find((r) => r.id === assignment.roleId)?.defaultScope === "PROVIDER")
+  const today = todayIso()
+  const inWindow = assignment.effectiveFrom <= today && (!assignment.effectiveTo || assignment.effectiveTo >= today)
+  if (!inWindow) return null
+  if (assignment.bizScopeMode === "inherit_org" || assignment.bizScopeMode === "custom") {
+    const scopes = resolveEffectiveBizScopes(assignment, ctx?.membership, allOrgs()) ?? []
+    const scope = scopes.find((s) => s.pharmaTenantId === pharmaTenantId)
+    if (!scope) return null
+    const lines = authorizedVarietyLinesOfPharma(assignment.tenantId, pharmaTenantId)
+    if (lines.length === 0) return null
+    const varietyLimit = scope.varietyNames.length > 0 ? scope.varietyNames : undefined
+    let scoped = varietyLimit ? lines.filter((l) => varietyLimit.includes(l.varietyName)) : lines
+    if (scoped.length === 0) return null
+    // 区域收窄：个人/部门已收窄区域 ∩ 品种授权区域上限（空 = 继承授权全量区域）
+    if (scope.regionCodes.length > 0) {
+      scoped = scoped
+        .map((l) => ({ ...l, regions: l.regions.filter((r) => scope.regionCodes.includes(r)) }))
+        .filter((l) => l.regions.length > 0)
+    }
+    if (scoped.length === 0) return null
+    return {
+      varietyNames: [...new Set(scoped.map((l) => l.varietyName))],
+      regions: [...new Set(scoped.flatMap((l) => l.regions))],
+    }
+  }
   if (!providerAdminScope) {
     if (!assignment.pharmaTenantIds || assignment.pharmaTenantIds.length === 0) return null
     if (!assignment.pharmaTenantIds.includes(pharmaTenantId)) return null
@@ -1272,12 +1435,14 @@ export function servingScopeOfPrincipal(
   assignments: RoleAssignment[],
 ): ServingBizScope | null {
   if (principal.tenantKind !== "provider" || !principal.currentPharmaTenantId) return null
+  // 部门业务范围 / 调岗对已登录会话即时生效：成员身份与组织树实时读取
+  const membership = membershipOfUserInTenant(principal.userId, principal.tenantId)
   const varieties = new Set<string>()
   const regions = new Set<string>()
   for (const id of principal.effectiveAssignmentIds) {
     const assignment = assignments.find((a) => a.id === id)
     if (!assignment) continue
-    const scope = servingBizScopeOfAssignment(assignment, principal.currentPharmaTenantId)
+    const scope = servingBizScopeOfAssignment(assignment, principal.currentPharmaTenantId, { membership })
     if (!scope) continue
     scope.varietyNames.forEach((v) => varieties.add(v))
     scope.regions.forEach((r) => regions.add(r))
@@ -1289,6 +1454,87 @@ export function servingScopeOfPrincipal(
     varietyNames: [...varieties],
     regions: [...regions],
   }
+}
+
+// ─── BizScopeEditor 公共校验与联动清洗（组织部门 / 成员授权 / 新建成员三处复用） ──
+
+/**
+ * 取消/勾选某药厂后的联动清洗（红线条 7）：
+ * - 取消勾选：彻底清除该药厂下已选品种与区域（绝不残留半截配置）；
+ * - 勾选：新增一条显式「全部」条目——勾选本身即显式选择全部已授权品种×全部授权区域
+ *   （2026-11 拍板：「全部」必须显式选择，不得依赖空数组隐式语义）。
+ */
+export function cleanBizScopesOnPharmaToggle(
+  prevScopes: BizScopeItem[],
+  pharmaId: string,
+  checked: boolean,
+  _providerTenantId: string,
+): BizScopeItem[] {
+  if (checked) {
+    if (prevScopes.some((s) => s.pharmaTenantId === pharmaId)) return prevScopes
+    return [...prevScopes, { pharmaTenantId: pharmaId, varietyNames: [], regionCodes: [], varietyMode: 'all', regionMode: 'all' }]
+  }
+  return prevScopes.filter((s) => s.pharmaTenantId !== pharmaId)
+}
+
+/**
+ * 结构化业务范围提交校验：逐条核对 药厂可授权 ∧ 品种在授权内 ∧ 区域不超品种授权上限
+ * （只收窄、不扩大）。返回错误清单；空数组 = 校验通过。
+ *
+ * 2026-11 拍板（§4 空选语义）：「指定」模式下取消最后一项后保持空选、提示至少选一项，
+ * 不能保存——pick 口径 + 空清单直接判错；「全部」口径继续受上游实时交集约束。
+ */
+export function validateBizScopes(scopes: BizScopeItem[], providerTenantId: string): string[] {
+  const errors: string[] = []
+  const grantable = new Set(grantablePharmasForProvider(providerTenantId))
+  for (const scope of scopes) {
+    const pharmaName = tenantNameOf(scope.pharmaTenantId)
+    if (!grantable.has(scope.pharmaTenantId)) {
+      errors.push(`「${pharmaName}」当前合作未生效或品种授权已失效，不可配置承接范围`)
+      continue
+    }
+    const lines = authorizedVarietyLinesOfPharma(providerTenantId, scope.pharmaTenantId)
+    if (lines.length === 0) {
+      errors.push(`「${pharmaName}」无有效品种授权，不可配置承接范围`)
+      continue
+    }
+    if (bizScopeModeOf(scope.varietyNames, scope.varietyMode) === 'pick' && scope.varietyNames.length === 0) {
+      errors.push(`「${pharmaName}」指定品种模式至少选择一个品种；若为全部品种请切换为「全部已授权品种」，或移除该药厂`)
+    }
+    if (bizScopeModeOf(scope.regionCodes, scope.regionMode) === 'pick' && scope.regionCodes.length === 0) {
+      errors.push(`「${pharmaName}」指定区域模式至少选择一个区域；若不限区域请切换为「全部授权区域」`)
+    }
+    const allVarieties = [...new Set(lines.map((l) => l.varietyName))]
+    const bad = scope.varietyNames.filter((v) => !allVarieties.includes(v))
+    if (bad.length > 0) errors.push(`「${pharmaName}」品种 ${bad.join("、")} 不在该药厂授权范围内`)
+    for (const line of lines) {
+      if (scope.varietyNames.length > 0 && !scope.varietyNames.includes(line.varietyName)) continue
+      const overRegion = scope.regionCodes.filter((r) => !line.regions.includes(r))
+      if (overRegion.length > 0) {
+        errors.push(`「${pharmaName} · ${line.varietyName}」区域 ${overRegion.join("、")} 超出药厂授权上限（${line.regions.join("、")}），只能收窄不可扩大`)
+      }
+    }
+  }
+  return errors
+}
+
+/**
+ * 结构化业务范围 → 兼容回填字段（pharmaTenantIds / varietyNames / regionCodes）：
+ * 供既有门页与业务页（读旧字段）平滑读取派生区域。
+ */
+export function derivedRegionCodesOfBizScopes(scopes: BizScopeItem[], providerTenantId: string): string[] {
+  const out = new Set<string>()
+  for (const scope of scopes) {
+    for (const line of authorizedVarietyLinesOfPharma(providerTenantId, scope.pharmaTenantId)) {
+      if (scope.varietyNames.length > 0 && !scope.varietyNames.includes(line.varietyName)) continue
+      if (scope.regionCodes.length > 0) {
+        scope.regionCodes.forEach((r) => out.add(r))
+      } else {
+        line.regions.forEach((r) => out.add(r))
+      }
+    }
+  }
+  return [...out]
 }
 
 /** 区域名归一化（去掉省市后缀），用于任务/拜访区域与服务范围的宽松匹配 */

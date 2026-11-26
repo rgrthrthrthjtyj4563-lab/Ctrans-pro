@@ -36,7 +36,7 @@ interface Message { id: string; role: 'user' | 'ai'; kind: 'text' | 'process' | 
 
 const PHARMA = '百益制药有限公司';
 const PERIOD = '统计周期 2026-08-01 至 2026-08-26';
-const RANGE = `数据范围：${PHARMA}（含下属服务商 / 工作组 / 服务专员）`;
+const RANGE = `数据范围：${PHARMA}（含下属服务商 / 部门 / 服务专员）`;
 const SHORTCUTS = [
   ['查询本月预算异常', '本月百益制药预算执行情况如何？'],
   ['分析审批积压原因', '为什么本周合规审批积压？'],
@@ -46,7 +46,7 @@ const SHORTCUTS = [
 ] as const;
 const STEPS: Step[] = [
   { title: '已识别需求', summary: '启用限时拜访，每日 09:00–18:00，覆盖三类拜访。', rows: [{ k: '当前药厂', v: PHARMA }, { k: '操作类型', v: '启用业务开关' }, { k: '规则', v: '每日 09:00–18:00 限时拜访' }, { k: '覆盖业务', v: '医院拜访、商业拜访、药房拜访' }] },
-  { title: '已读取当前配置', summary: '当前未启用，拜访可全天提交。', rows: [{ k: '当前状态', v: '限时拜访未启用' }, { k: '当前拜访记录', v: '1,286 条（演示库存）' }, { k: '当前可提交时段', v: '全天' }, { k: '规则作用范围', v: '百益制药下属全部服务商、工作组与服务专员' }] },
+  { title: '已读取当前配置', summary: '当前未启用，拜访可全天提交。', rows: [{ k: '当前状态', v: '限时拜访未启用' }, { k: '当前拜访记录', v: '1,286 条（演示库存）' }, { k: '当前可提交时段', v: '全天' }, { k: '规则作用范围', v: '百益制药下属全部服务商、部门与服务专员' }] },
   { title: '沙箱模拟完成', summary: '非工作时段将阻止三类拜访的新建、编辑和提交。', sandbox: true, rows: [{ k: '模拟规则', v: '18:00–次日 09:00 阻止医院 / 商业 / 药房拜访的新建、编辑、提交' }, { k: '今日待提交记录', v: '37 条' }, { k: '近 7 日非工作时段提交', v: '64 条' }, { k: '涉及服务商', v: '4 家（智联科技、东方恒业、康晟云服、永泰汇通）' }], notes: ['沙箱模拟不会写入生产数据，不改变真实拜访记录。'] },
   { title: '风险检查完成', summary: '范围与时间规则有效，无跨药厂影响。', rows: [{ k: '范围校验', v: '有效 · 仅当前药厂' }, { k: '时间规则', v: '有效 · 每日 09:00–18:00' }, { k: '跨药厂影响', v: '无' }], notes: ['当前有 12 条待提交拜访记录；若启用时不在允许时段，这些记录将无法提交。', '该规则影响当前药厂下全部三类拜访业务，不影响其他药厂。'] },
   { title: '等待人工确认', summary: '校验已通过，确认后才会启用。', rows: [{ k: '待确认动作', v: '启用限时拜访' }, { k: '生效方式', v: '仅切换本页演示状态，不写真实业务库' }] },
@@ -509,7 +509,7 @@ export function BaiyeeAI({ navigate }: { navigate: NavigateFn }) {
   };
 
   const send = (raw: string, atts: Attachment[] = []) => { const text = raw.trim(); if ((!text && !atts.length) || busy) return; setInput(''); if (atts.length) setPending([]); push({ id: id(), role: 'user', kind: 'text', text, ...(atts.length ? { attachments: atts } : {}) }); const intent = intentOf(text); if (intent === 'script') { startScriptFlow(parseScriptPreset(text)); return; } if (intent === 'timed') { if (enabled) { push({ id: id(), role: 'ai', kind: 'result', result: { tone: 'neutral', title: '限时拜访当前已启用', fields: [{ k: '启用时间', v: enabledAt ?? '—' }, { k: '作用范围', v: `${PHARMA} · 医院 / 商业 / 药房拜访` }, { k: '规则摘要', v: '每日仅 09:00–18:00 允许创建、编辑或提交拜访记录' }], canUndo: true } }); return; } setPhase('running'); setRevealed(1); setBusy(true); push({ id: id(), role: 'ai', kind: 'process' }); return; } const query = queryFor(intent); if (query) push({ id: id(), role: 'ai', kind: 'query', query }); else { const ack = atts.length ? `已收到 ${atts.length} 个附件（${atts.slice(0, 3).map(a => a.name).join('、')}${atts.length > 3 ? ' 等' : ''}）。` : ''; push({ id: id(), role: 'ai', kind: 'text', text: `${ack}我可以查询预算执行、分析审批积压、查看服务商逾期任务，或配置限时拜访业务开关。请直接描述需要处理的业务范围或规则。` }); } };
-  const confirm = () => { const at = stamp(); setEnabled(true); setEnabledAt(at); setPhase('done'); push({ id: id(), role: 'ai', kind: 'result', result: { tone: 'success', title: '限时拜访已启用', fields: [{ k: '启用时间', v: at }, { k: '作用范围', v: `${PHARMA} 下属全部服务商、工作组、服务专员` }, { k: '规则摘要', v: '每日 09:00–18:00 允许医院 / 商业 / 药房拜访的创建、编辑与提交；其余时段业务端提示并禁止提交' }, { k: '模拟影响', v: '近 7 日 64 条非工作时段提交将被拦截；今日 37 条待提交记录在非允许时段无法提交' }], canUndo: true } }); };
+  const confirm = () => { const at = stamp(); setEnabled(true); setEnabledAt(at); setPhase('done'); push({ id: id(), role: 'ai', kind: 'result', result: { tone: 'success', title: '限时拜访已启用', fields: [{ k: '启用时间', v: at }, { k: '作用范围', v: `${PHARMA} 下属全部服务商、部门、服务专员` }, { k: '规则摘要', v: '每日 09:00–18:00 允许医院 / 商业 / 药房拜访的创建、编辑与提交；其余时段业务端提示并禁止提交' }, { k: '模拟影响', v: '近 7 日 64 条非工作时段提交将被拦截；今日 37 条待提交记录在非允许时段无法提交' }], canUndo: true } }); };
   const cancel = () => { setPhase('cancelled'); push({ id: id(), role: 'ai', kind: 'text', text: '已取消。限时拜访仍为未启用，拜访记录可全天提交。' }); };
   const undo = () => { setEnabled(false); setEnabledAt(null); setPhase('done'); push({ id: id(), role: 'ai', kind: 'result', result: { tone: 'neutral', title: '已撤销本次变更', fields: [{ k: '当前状态', v: '限时拜访未启用' }, { k: '可提交时段', v: '全天' }, { k: '说明', v: '仅恢复本页演示状态，未改真实拜访数据' }] } }); };
   const newChat = () => { pending.forEach(a => revokeUrl(a.url)); setPending([]); setPreviewAtt(null); setMessages([]); setInput(''); setPhase('done'); setBusy(false); setRevealed(0); if (narrow) setRailOpen(false); window.setTimeout(() => inputRef.current?.focus(), 0); };
@@ -804,7 +804,7 @@ function Confirm({ confirm, cancel }: { confirm: () => void; cancel: () => void 
   return (
     <div style={S.confirm}>
       <b style={{ fontSize: 'var(--fs-14)' }}>限时拜访</b>
-      <p style={{ ...S.aitext, marginTop: 7 }}>每日 09:00–18:00<br />覆盖医院、商业、药房拜访<br />影响百益制药下属全部服务商、工作组和服务专员</p>
+      <p style={{ ...S.aitext, marginTop: 7 }}>每日 09:00–18:00<br />覆盖医院、商业、药房拜访<br />影响百益制药下属全部服务商、部门和服务专员</p>
       <div style={S.confirmactions}>
         <button type="button" onClick={cancel} style={S.cancel}>取消</button>
         <button type="button" onClick={confirm} style={S.confirmbutton}>确认启用</button>

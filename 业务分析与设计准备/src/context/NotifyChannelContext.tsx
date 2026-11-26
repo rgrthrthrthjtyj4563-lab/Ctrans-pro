@@ -122,8 +122,8 @@ const DEMO_EVENTS: Record<string, DemoEvent> = {
     deadline: "2 天内确认，逾期可被撤销", level: "before1", target: { page: "task-dispatch" },
   },
   [ORG_PROVIDER_SMART]: {
-    tab: "待办", type: "任务", title: "新任务待分派至工作组（演示事件）",
-    desc: "承接确认完成，待分派到具体工作组", status: "pending", target: { page: "task-dispatch" },
+    tab: "待办", type: "任务", title: "新任务待分配专员（演示事件）",
+    desc: "承接确认完成，待分配服务专员", status: "pending", target: { page: "task-dispatch" },
   },
   [ORG_PLATFORM]: {
     tab: "通知", type: "租户", title: "新租户开通申请待处理（演示事件）",

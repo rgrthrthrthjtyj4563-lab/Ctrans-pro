@@ -20,20 +20,29 @@ export type AccessRealm = "PLATFORM" | "TENANT"
 /** 租户企业类型（软件服务方不算一种企业租户） */
 export type TenantKind = "pharma" | "provider"
 
-/** 租户角色的数据范围档位（软件服务方侧不使用本枚举，系统职责范围见 PlatformRoleBinding.dutyScope） */
+/**
+ * 租户角色的数据范围档位（软件服务方侧不使用本枚举，系统职责范围见 PlatformRoleBinding.dutyScope）。
+ * 2026-11 企业管理重构拍板：彻底删除「本工作组 GROUP」与退役的「MOBILE」档——
+ * 药厂可用 PHARMA/DEPT_AND_CHILD/DEPT/SELF/CUSTOM；服务商可用 PROVIDER/DEPT_AND_CHILD/DEPT/SELF/CUSTOM。
+ */
 export type ScopeType =
   | "PHARMA"
   | "PROVIDER"
-  | "GROUP"
   | "DEPT"
   | "DEPT_AND_CHILD"
   | "SELF"
-  | "MOBILE"
   | "CUSTOM"
 export type SysRoleKind = "preset" | "custom"
 export type SysRoleStatus = "enabled" | "disabled" | "draft"
 export type FieldPolicyKind = "visible" | "mask" | "hidden"
+/**
+ * GrantStatus 保留 "pending_review" 仅为历史持久化数据的读取兼容（2026-11 拍板
+ * 彻底移除无审批入口的「高危待复核」死锁态）：全链路不再产生该状态赋值，
+ * 授权提交后直接 active 并记高危审计日志。
+ */
 export type GrantStatus = "active" | "expired" | "revoked" | "pending_review"
+/** 结合起止日期计算出的运行时授权展示状态（统一列表展示、登录与权限判断口径） */
+export type ResolvedGrantStatus = "active" | "pending" | "expired" | "revoked"
 export type PageAction = "view" | "create" | "edit" | "delete" | "submit" | "approve" | "export"
 export type AuditDecision = "允许" | "拒绝"
 
@@ -51,44 +60,83 @@ export const PAGE_ACTION_META: {
   { key: "export", label: "导出", risk: true },
 ]
 
+/**
+ * 页面级业务化动作名（2026-11 拍板）：权限矩阵不再展示模糊的通用动词，
+ * 每个页面的动作展示贴合业务的名称（底层 action key 不变，仅展示层覆盖）。
+ */
+const PAGE_ACTION_LABEL_OVERRIDES: Record<string, Partial<Record<PageAction, string>>> = {
+  "task-dispatch": { create: "新建任务", edit: "编辑/拆解", submit: "下派/提交", export: "导出" },
+  "user-manage": { create: "新建成员", edit: "编辑/调岗/启停", delete: "办理离职" },
+  "org-structure": { create: "新建部门", edit: "编辑/负责人/业务范围", delete: "停用/删除部门" },
+  roles: { create: "新建/复制角色", edit: "编辑权限与范围", delete: "删除角色", export: "导出权限矩阵" },
+  "role-preview": { view: "预览权效" },
+  "budget-plan": { create: "新建预算", edit: "调整预算", export: "导出预算" },
+  "visit-audit-hospital": { approve: "审核通过与驳回", export: "批量导出" },
+  "visit-audit-commercial": { approve: "审核通过与驳回", export: "批量导出" },
+  "visit-audit-pharmacy": { approve: "审核通过与驳回", export: "批量导出" },
+  "rep-filing": { create: "登记备案", edit: "同步备案状态", export: "导出台账" },
+  "vendor-access": { create: "发起准入任务", edit: "审核/续期", submit: "提交准入材料", approve: "准入审核" },
+  "variety-auth": { create: "授予品种", edit: "调整授权", delete: "撤销授权", approve: "授权确认" },
+  "pharma-cooperation": { edit: "暂停/恢复/终止合作", approve: "导入合作确认" },
+  "contract-management": { create: "上传归档", delete: "删除归档" },
+  "provider-partners": { view: "查看授权" },
+  varieties: { create: "品种建档", edit: "品种维护" },
+  doctors: { export: "导出档案" },
+  "questionnaire-config": { create: "新建问卷", edit: "题目版本替换/启停" },
+  "price-config": { edit: "维护价目矩阵" },
+  "execution-chain": { edit: "切换执行链路" },
+  "business-switch": { edit: "维护合规规则" },
+  "performance-team": { submit: "打绩效", export: "导出" },
+  "performance-specialist": { submit: "打绩效", export: "下载结算单" },
+  "performance-settings": { edit: "维护评级与系数" },
+  "biz-detail-export": { create: "生成报告", export: "导出 PDF" },
+  "talk-script-variety": { create: "新增话术", edit: "编辑/启停", delete: "删除", export: "CSV 导入导出" },
+  "scenario-center": { create: "新建场景", edit: "搭建配置" },
+  "audit-log": { view: "查看审计" },
+  "vendor-access-records": { view: "查看记录" },
+  "hospital-visits": { approve: "初审", export: "导出" },
+  dashboard: { view: "进入工作台" },
+  "baiyee-ai": { submit: "智能查询" },
+}
+
 export const SCOPE_OPTIONS: { value: ScopeType; label: string; hint: string }[] =
   [
-    { value: "PHARMA", label: "本药厂", hint: "仅本药厂及下属执行数据" },
+    { value: "PHARMA", label: "本药厂全部", hint: "本药厂全部业务数据（授权挂企业根）" },
     {
       value: "PROVIDER",
-      label: "本服务商",
-      hint: "仅本服务商承接范围内的数据",
+      label: "本服务商全部",
+      hint: "本服务商承接范围内的全部数据",
     },
-    { value: "GROUP", label: "本工作组", hint: "仅本工作组辖区数据" },
     {
       value: "DEPT",
-      label: "本部门",
-      hint: "仅授权生效组织这一节点，不含下级部门",
+      label: "仅本部门",
+      hint: "动态跟随成员当前所属部门（主+兼职），调岗自动切换，不含下级",
     },
     {
       value: "DEPT_AND_CHILD",
       label: "本部门及以下",
-      hint: "授权生效组织及其全部下级部门",
+      hint: "动态跟随成员当前所属部门及全部下级部门，调岗自动切换",
     },
-    { value: "SELF", label: "仅本人", hint: "仅本人填报与本人结算" },
+    { value: "SELF", label: "仅本人", hint: "仅本人创建/负责的业务数据" },
     {
       value: "CUSTOM",
-      label: "指定组织范围",
-      hint: "仅本企业内部组织节点；业务范围（药厂/品种）在「已授权成员」按人授予",
+      label: "指定部门范围",
+      hint: "角色预选固定部门，或由成员授权时按人指定例外部门（extraOrgIds）",
     },
   ]
 
-/**
- * 「移动端」不是数据范围（2026-09-15 拍板）：限制登录终端只能作为角色/账号的
- * 演示登录策略，不得混入数据范围选项。ScopeType 保留 "MOBILE" 仅为兼容历史
- * 数据读取（scopeLabel 给出兼容文案），选择器一律不再提供该档位。
- */
-const SCOPE_LABEL_COMPAT: Partial<Record<ScopeType, string>> = {
-  MOBILE: "仅本人（移动端策略）",
+export function scopeLabel(scope: ScopeType): string {
+  return SCOPE_OPTIONS.find((s) => s.value === scope)?.label ?? scope
 }
 
-export function scopeLabel(scope: ScopeType): string {
-  return SCOPE_OPTIONS.find((s) => s.value === scope)?.label ?? SCOPE_LABEL_COMPAT[scope] ?? scope
+/**
+ * 按租户类型收敛的范围档位（角色编辑与授权页统一调用）：
+ * 药厂不含 PROVIDER、服务商不含 PHARMA；两类都绝不再有「本工作组」。
+ */
+export function scopeOptionsForTenantKind(kind: TenantKind): typeof SCOPE_OPTIONS {
+  return SCOPE_OPTIONS.filter((o) =>
+    kind === "pharma" ? o.value !== "PROVIDER" : o.value !== "PHARMA",
+  )
 }
 
 export interface PageActionDef {
@@ -175,17 +223,66 @@ export interface PermUser {
   lastLoginAt?: string
 }
 
-/** OrgUnit：组织节点；type=platform/pharma 为企业根，group 为服务商内部业务团队 */
+/**
+ * BizScopeItem：服务商结构化业务范围条目（药厂 × 品种 × 收窄区域）。
+ * 解决同名品种串药厂 & 区域只能继承不能收窄两个 P1 缺陷：
+ * - varietyNames 空 = 该药厂全部已授权品种；
+ * - regionCodes 空 = 继承所选品种的全部授权区域；非空 = 在药厂授权区域上限内收窄（绝不可超出）；
+ * - 运行时永远与「药厂有效合作 ∧ 有效品种授权 ∧ 授权区域」实时取交集（默认拒绝）。
+ *
+ * 2026-11 拍板（§4 空选语义）：「全部」与「指定」必须显式区分，空选不得自动变全选——
+ * - varietyMode/regionMode 为该条目的显式口径：'all'=全部已授权（显式选择），
+ *   'pick'=指定清单；指定清单取消最后一项时保持空选并提示，校验拒绝保存；
+ * - 缺省（旧数据）按数组推断：非空=pick，空=all（旧空数组原意即「全部」，展示口径
+ *   明确标注「全部已授权」，运行时继续受上游约束）。
+ */
+export interface BizScopeItem {
+  pharmaTenantId: string
+  varietyNames: string[]
+  regionCodes: string[]
+  varietyMode?: "all" | "pick"
+  regionMode?: "all" | "pick"
+}
+
+/** BizScopeItem 口径推断：显式声明优先，旧数据按数组内容回推（空=全部）。 */
+export function bizScopeModeOf(
+  names: string[],
+  mode: BizScopeItem["varietyMode"] | BizScopeItem["regionMode"] | undefined,
+): "all" | "pick" {
+  if (mode) return mode
+  return names.length > 0 ? "pick" : "all"
+}
+
+/**
+ * OrgUnit：组织节点。2026-11 企业管理重构：type 移除 'group'——药厂与服务商
+ * 统一采用多级部门树（department）+ 部门负责人（managerUserId）模型，
+ * 服务商根节点下可直接建部门（取消「只能平铺工作组」限制）。
+ */
 export interface PermOrg {
   id: string
   name: string
-  type: "platform" | "pharma" | "provider" | "group" | "department"
+  type: "platform" | "pharma" | "provider" | "department"
   parentId?: string
+  /** 部门类型标签（选填）：药厂如 事业部/大区/办事处/职能部；服务商如 职能部/大区/推广团队 */
+  deptTag?: string
+  /** 部门负责人（须为本租户在职/正常成员；企业根节点可空） */
+  managerUserId?: string
+  /** 节点状态：支持停用归档（默认 active）；停用节点在组织树默认隐藏 */
+  status?: "active" | "disabled"
+  /** 仅服务商部门可选：该部门默认承接的业务范围（成员授权选「继承部门」时使用） */
+  bizScope?: BizScopeItem[]
 }
+
+/** 企业成员状态：本租户级，绝不连坐自然人在其他企业的身份。
+ * left（离职）与 removed（移除）同为终止态：历史数据与审计保留、不再占有效名额，
+ * 均可通过重新加入恢复；frozen（冻结/停用）可随时解冻恢复。
+ */
+export type MembershipStatus = "active" | "frozen" | "pending_activation" | "removed" | "left"
 
 /**
  * TenantMembership：用户加入某租户企业后形成的企业成员身份。
  * 登录身份 = 自然人 × 成员身份 × 生效授权角色；不通过组织名/角色名反推租户。
+ * 企业管理「用户管理」管理的就是本实体——调岗/冻结/离职只改它，绝不碰 PermUser.accountStatus。
  */
 export interface TenantMembership {
   id: string
@@ -193,10 +290,14 @@ export interface TenantMembership {
   /** 租户企业根 orgId（药厂或服务商） */
   tenantId: string
   tenantName: string
-  /** 成员在该租户内的组织归属节点（部门/工作组） */
+  /** 成员在该租户内的主属组织节点（部门/企业根） */
   orgUnitId: string
+  /** 兼职/协管部门节点列表（动态组织范围与业务范围继承同样覆盖兼职部门） */
+  secondaryOrgUnitIds?: string[]
   /** 岗位（纯展示，不参与权限判定；权限只来自角色授权） */
   jobTitle?: string
+  /** 本企业工号（选填，搜索与展示用） */
+  employeeNo?: string
   /**
    * 负责区域（2026-10-27 方向修订：区域按成员配置，与部门无关）：
    * 省级短名（constants.PROVINCES 词表）多项，或单独一项「全国」。
@@ -212,7 +313,7 @@ export interface TenantMembership {
    * 终止的是「本企业的成员身份」，自然人账号与其他企业身份不受影响；
    * 历史授权保留占位记录，可重新加入（rejoin 恢复 active）。
    */
-  status: "active" | "frozen" | "pending_activation" | "removed"
+  status: MembershipStatus
   joinedAt: string
   /** 移除留痕（status=removed 时有值；重新加入后保留供追溯） */
   removedAt?: string
@@ -222,6 +323,12 @@ export interface TenantMembership {
   removedNote?: string
   /** 最近一次移除→重新加入的恢复时间（重新加入后有值） */
   rejoinedAt?: string
+  /**
+   * 首次激活时间（2026-11-25 拍板）：pending_activation → active 时记录，
+   * via = 本人首登短信验证码激活 / 管理员修正手机号同步激活
+   */
+  activatedAt?: string
+  activatedVia?: "sms_login" | "admin_edit"
 }
 
 /**
@@ -246,10 +353,13 @@ export interface PlatformRoleBinding {
 /**
  * UserRoleAssignment（RoleAssignment）：租户企业内，成员获得某角色及其数据范围的记录。
  * - tenantId 为稳定租户边界（不随组织树变化）；
- * - scopeOrgId 是组织数据权限覆盖根节点，与用户所属 orgId 两种语义：调岗不改写 scopeOrgId；
- * - pharmaTenantIds / varietyNames 是「服务商成员可处理哪些合作药厂、哪些品种」的唯一
- *   数据源（仅服务商租户使用），由「角色与数据范围」页的「已授权成员」页签授予，
- *   不得超过药厂授予服务商的合作与业务授权范围；区域由品种授权自动派生，不单独配置。
+ * - scopeMode=dynamic 时组织范围动态跟随成员当前所属部门（调岗自动重锚定，
+ *   scopeOrgId 仅作运行时快照缓存）；scopeMode=custom 为例外指定组织范围；
+ * - extraOrgIds 是成员例外跨部门管辖节点（区域总监同时分管多个平行大区，
+ *   不再逼用户为跨区经理新建碎片化角色）；
+ * - pharmaVarietyScope（药厂）为管辖品种白名单（空=全部品种）；
+ * - bizScopeMode/bizScopes（服务商）为「继承部门业务范围 / 个人自定义收窄」二级继承；
+ *   兼容回填 pharmaTenantIds / varietyNames / regionCodes 供现有门页与业务页平滑读取。
  */
 export interface RoleAssignment {
   id: string
@@ -257,15 +367,25 @@ export interface RoleAssignment {
   tenantId: string
   userId: string
   roleId: string
-  /** 权限覆盖根节点（组织数据权限计算用），不随人员调岗变化 */
+  /** 权限覆盖根节点（组织数据权限计算用）；scopeMode=dynamic 时调岗自动重锚定 */
   scopeOrgId: string
   scopeOrgName: string
   scope: ScopeType
-  /** 服务商员工可访问的合作药厂（药厂租户 id 集合；缺省=不适用） */
+  /** dynamic=动态跟随成员当前部门（调岗自动切换）；custom=例外指定组织范围；缺省=按旧快照口径 */
+  scopeMode?: "dynamic" | "custom"
+  /** 例外跨部门管辖节点列表（scopeMode=custom 或动态档的例外扩展） */
+  extraOrgIds?: string[]
+  /** 【药厂】管辖品种/产品线白名单（空/缺省=全部品种） */
+  pharmaVarietyScope?: string[]
+  /** 【服务商】业务范围模式：inherit_org=继承所属部门；custom=个人自定义收窄；缺省=旧快照口径 */
+  bizScopeMode?: "inherit_org" | "custom"
+  /** 【服务商 custom】个人级 药厂 × 品种 × 收窄区域（运行时与上游有效授权取交集） */
+  bizScopes?: BizScopeItem[]
+  /** 服务商员工可访问的合作药厂（药厂租户 id 集合；缺省=不适用；兼容回填字段） */
   pharmaTenantIds?: string[]
-  /** 服务商员工可处理的品种（在药厂已授权给本服务商的品种内收窄；缺省=全部已授权品种） */
+  /** 服务商员工可处理的品种（在药厂已授权给本服务商的品种内收窄；缺省=全部已授权品种；兼容回填字段） */
   varietyNames?: string[]
-  /** 区域数据范围（由品种授权派生的只读展示，不作为配置入口） */
+  /** 区域数据范围（由品种授权派生的只读展示，不作为配置入口；兼容回填字段） */
   regionCodes?: string[]
   /** 项目数据范围（展示与提示用） */
   projectNames?: string[]
@@ -312,6 +432,7 @@ export interface PermAuditEvent {
 }
 
 function acts(pageId: string, keys: PageAction[]): PageActionDef[] {
+  const overrides = PAGE_ACTION_LABEL_OVERRIDES[pageId] ?? {}
   return keys.map((key) => {
     const meta = PAGE_ACTION_META.find((m) => m.key === key)!
     const risk =
@@ -320,7 +441,7 @@ function acts(pageId: string, keys: PageAction[]): PageActionDef[] {
       key === "approve"
     return {
       key,
-      label: meta.label,
+      label: overrides[key] ?? meta.label,
       code: `${pageId}.${key}`,
       risk: Boolean(risk || meta.risk),
     }
@@ -341,6 +462,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "预算计划",
     description: "查看与维护企业计划预算",
     actions: acts("budget-plan", ["view", "create", "edit", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "task-dispatch",
@@ -361,6 +484,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "医院拜访",
     description: "医院拜访记录填报、审核与查看（备案异常时学术拜访类动作被阻断）",
     actions: acts("hospital-visits", ["view", "approve", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["provider"],
   },
   {
     id: "visit-audit-hospital",
@@ -425,6 +550,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "医生主数据",
     description: "医生档案查询",
     actions: acts("doctors", ["view", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "varieties",
@@ -432,6 +559,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "品种管理",
     description: "品种建档与维护",
     actions: acts("varieties", ["view", "create", "edit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "variety-auth",
@@ -477,6 +606,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "问卷配置",
     description: "药厂维护问卷库：新建问卷与题目导入、题目版本替换、停用/启用，并按品种维护计价方案归属（只选方案、回显价格；金额在价目表维护）；版本与单价在任务创建时锁定",
     actions: acts("questionnaire-config", ["view", "create", "edit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "price-config",
@@ -484,6 +615,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "价目表配置",
     description: "药厂按品种维护价目：价目类别（含问卷计价方案）与对公/对私价格矩阵、发包标准价；方案被哪些问卷选用在问卷配置侧维护",
     actions: acts("price-config", ["view", "edit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "roles",
@@ -513,7 +646,7 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     id: "org-structure",
     module: "企业管理",
     name: "组织架构",
-    description: "本企业部门结构的维护（新建/重命名/调整上级）；组织只回答「这个人属于哪里」，不承载角色与权限",
+    description: "本企业多级部门树：部门维护、负责人设置、服务商部门业务承接范围与成员归属（组织只回答「这个人属于哪里」，不承载角色与权限）",
     actions: acts("org-structure", ["view", "create", "edit", "delete"]),
     realms: ["TENANT"],
   },
@@ -521,18 +654,9 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     id: "user-manage",
     module: "企业管理",
     name: "用户管理",
-    description: "本企业成员账号：建档、启停、调岗与已分配角色只读查看；角色与数据范围在「角色与数据范围」页配置",
+    description: "本企业成员管理（TenantMembership）：一站式建档赋权、调岗、冻结/离职与角色数据范围直接维护；所有操作仅作用于本企业，不影响自然人在其他企业的身份",
     actions: acts("user-manage", ["view", "create", "edit", "delete"]),
     realms: ["TENANT"],
-  },
-  {
-    id: "workgroup-manage",
-    module: "企业管理",
-    name: "工作组管理",
-    description: "服务商工作组的组长指定/变更与任务承接状态（工作组节点与成员归属在「组织架构」维护）",
-    actions: acts("workgroup-manage", ["view", "edit"]),
-    realms: ["TENANT"],
-    tenantTypes: ["provider"],
   },
   {
     id: "audit-log",
@@ -556,13 +680,17 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "baiyee-AI",
     description: "药厂运营智能查询、分析与受控业务开关",
     actions: acts("baiyee-ai", ["view", "submit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "execution-chain",
     module: "系统管理",
     name: "执行链路配置",
-    description: "配置任务执行链是否经过工作组",
+    description: "配置任务执行链是否经过部门承接层",
     actions: acts("execution-chain", ["view", "edit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "business-switch",
@@ -570,14 +698,18 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "药厂配置开关",
     description: "维护药厂业务合规模式、拜访留痕、定位与轨迹校验规则",
     actions: acts("business-switch", ["view", "edit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "performance-team",
     module: "绩效管理",
     name: "团队工作质量评价",
     description:
-      "服务商给工作组打绩效（阶段一，质量系数校验）；直达批次服务商一对一给专员打；药厂不可见",
+      "服务商给承接团队打绩效（阶段一，质量系数校验）；直达批次服务商一对一给专员打；药厂不可见",
     actions: acts("performance-team", ["view", "submit", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["provider"],
   },
   {
     id: "performance-specialist",
@@ -586,6 +718,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     description:
       "一专员一条记录；阶段二/直达一对一打绩效（工作量上限 X% + 四维评定）、查看详情与下载结算单",
     actions: acts("performance-specialist", ["view", "submit", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["provider"],
   },
   {
     id: "performance-settings",
@@ -593,6 +727,8 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     name: "绩效设置",
     description: "打绩效业务开关、评级模式与系数/权重/上限配置",
     actions: acts("performance-settings", ["view", "edit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["provider"],
   },
   {
     id: "biz-detail-export",
@@ -609,14 +745,18 @@ export const RESOURCE_PAGES: ResourcePage[] = [
     description:
       "通用话术（系统内置）查看与启停；品种话术按拜访场景/业务类别/类别细分维护：新增、编辑、启停、批量停用、CSV 导入与导出",
     actions: acts("talk-script-variety", ["view", "create", "edit", "delete", "export"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "scenario-center",
     module: "扩展能力",
     name: "业务搭建中心",
     description:
-      "低代码搭建自定义业务场景：表单字段、审批流程、权限与接口联动配置，发布成可用的业务模块（药厂管理员/合规/软件服务方可用，服务商不可见）",
+      "低代码搭建自定义业务场景：表单字段、审批流程、权限与接口联动配置，发布成可用的业务模块（药厂管理员/合规可用，服务商不可见）",
     actions: acts("scenario-center", ["view", "create", "edit"]),
+    realms: ["TENANT"],
+    tenantTypes: ["pharma"],
   },
   {
     id: "tenant-management",
@@ -841,7 +981,6 @@ export const TENANT_ROLES: SysRole[] = [
       ["biz-detail-export", ["view", "create", "export"]],
       ["org-structure", ["view", "create", "edit", "delete"]],
       ["user-manage", ["view", "create", "edit", "delete"]],
-      ["workgroup-manage", ["view", "edit"]],
       ["roles", ["view", "create", "edit", "delete"]],
       ["role-preview", ["view"]],
       ["audit-log", ["view"]],
@@ -853,29 +992,9 @@ export const TENANT_ROLES: SysRole[] = [
       "user.idNo": "mask",
     },
   }),
-  role({
-    id: "role-group-lead",
-    name: "工作组组长",
-    description: "承接本工作组管理任务并向组员分派；查看本组合作药厂与绩效（不是服务商管理员，不获得全服务商权限）",
-    kind: "preset",
-    status: "enabled",
-    realm: "TENANT",
-    appliesTo: ["provider"],
-    defaultScope: "GROUP",
-    updatedBy: "陈伟",
-    updatedAt: "2026-08-15 11:12",
-    pagePerms: perms([
-      ["dashboard", ["view"]],
-      ["task-dispatch", ["view", "edit", "submit", "approve"]],
-      ["provider-partners", ["view"]],
-      ["performance-team", ["view"]],
-      ["performance-specialist", ["view", "submit"]],
-    ]),
-    fieldPolicies: {
-      ...ALL_VISIBLE,
-      "doctor.name": "mask",
-    },
-  }),
+  // 2026-11 企业管理重构拍板：预置「工作组组长（role-group-lead）」彻底删除。
+  // 服务商预置角色收敛为 服务商管理员 + 服务专员 两类；业务主管/区域经理/片区
+  // 负责人由服务商按需通过「自定义角色」配置（种子见 seedCustomRoles.role-custom-biz-lead）。
   role({
     id: "role-specialist",
     name: "服务专员",
@@ -931,13 +1050,41 @@ export const seedCustomRoles: SysRole[] = [
       ...TENANT_ROLES.find((r) => r.id === "role-pharma-admin")!.pagePerms,
     },
   }),
+  role({
+    // 2026-11 工作组下线迁移：原「工作组组长」刘洋（智联科技）改持本自定义角色——
+    // 服务商按需以自定义角色承接业务主管/区域经理等岗位，不再有预置组长角色。
+    id: "role-custom-biz-lead",
+    name: "业务主管",
+    description: "本部门及以下任务的承接与分派、团队绩效查看（服务商自定义角色示例，可复制后按需调整）",
+    kind: "custom",
+    status: "enabled",
+    realm: "TENANT",
+    tenantId: "org-provider-smart",
+    appliesTo: ["provider"],
+    defaultScope: "DEPT_AND_CHILD",
+    customScope: emptyCustomScope(),
+    version: 1,
+    updatedBy: "陈伟",
+    updatedAt: "2026-11-10 09:30",
+    pagePerms: perms([
+      ["dashboard", ["view"]],
+      ["task-dispatch", ["view", "edit", "submit"]],
+      ["provider-partners", ["view"]],
+      ["performance-team", ["view"]],
+      ["performance-specialist", ["view", "submit"]],
+    ]),
+    fieldPolicies: {
+      ...ALL_VISIBLE,
+      "doctor.name": "mask",
+    },
+  }),
 ]
 
 export const PERM_ORGS: PermOrg[] = [
   // 系统管理后台根：仅表达软件服务方内部组织（软件服务方不是企业租户；登录/权限一律按 realm 判定）
   { id: "org-platform", name: "贝医信息科技", type: "platform" },
-  { id: "org-dept-platform-ops", name: "系统服务部", type: "department", parentId: "org-platform" },
-  { id: "org-dept-platform-account", name: "客户成功部", type: "department", parentId: "org-platform" },
+  { id: "org-dept-platform-ops", name: "系统服务部", type: "department", parentId: "org-platform", deptTag: "职能部", status: "active" },
+  { id: "org-dept-platform-account", name: "客户成功部", type: "department", parentId: "org-platform", deptTag: "职能部", status: "active" },
   // 药厂租户根：与其他药厂/服务商互为独立租户（合作关系不在组织树中表达）
   {
     id: "org-pharma",
@@ -964,42 +1111,60 @@ export const PERM_ORGS: PermOrg[] = [
     name: "信息技术部",
     type: "department",
     parentId: "org-pharma",
+    deptTag: "职能部",
+    status: "active",
   },
   {
     id: "org-dept-sales",
     name: "销售部",
     type: "department",
     parentId: "org-pharma",
+    deptTag: "事业部",
+    status: "active",
+    managerUserId: "u-zhengnan",
   },
   {
     id: "org-dept-northwest",
     name: "西北大区",
     type: "department",
     parentId: "org-dept-sales",
+    deptTag: "大区",
+    status: "active",
+    managerUserId: "u-lihang",
   },
   {
     id: "org-dept-shaanxi",
     name: "陕西办事处",
     type: "department",
     parentId: "org-dept-northwest",
+    deptTag: "办事处",
+    status: "active",
+    managerUserId: "u-zhoukai",
   },
   {
     id: "org-dept-sichuan",
     name: "四川办事处",
     type: "department",
     parentId: "org-dept-northwest",
+    deptTag: "办事处",
+    status: "active",
   },
   {
     id: "org-dept-east",
     name: "华东大区",
     type: "department",
     parentId: "org-dept-sales",
+    deptTag: "大区",
+    status: "active",
   },
   {
     id: "org-dept-compliance",
     name: "合规部",
     type: "department",
     parentId: "org-pharma",
+    deptTag: "职能部",
+    status: "active",
+    managerUserId: "u-zhaoning",
   },
   // 服务商与药厂是合作关系而非上下级：服务商作为独立企业根节点呈现（§2.3）
   {
@@ -1028,38 +1193,60 @@ export const PERM_ORGS: PermOrg[] = [
     name: "远山康达推广有限公司",
     type: "provider",
   },
+  // ── 服务商多级部门树（2026-11 工作组下线迁移）：原 org-group-* 节点 id 保留、
+  //    type 从 'group' 改为 'department'，名称调整为真实 CSO 部门名；成员身份
+  //    （TenantMembership.orgUnitId）与历史授权（scopeOrgId）因 id 不变而自动平移。
   {
-    id: "org-group-3",
-    name: "工作组三",
-    type: "group",
-    parentId: "org-provider-east",
-  },
-  {
-    // 东方恒业工作组一：尚未指定组长 → 「待指定组长」下派拦截演示
+    // 东方恒业 · 市场推广部（承接层）：下辖省级推广团队
     id: "org-group-east-1",
-    name: "工作组一",
-    type: "group",
+    name: "市场推广部",
+    type: "department",
     parentId: "org-provider-east",
+    deptTag: "推广团队",
+    status: "active",
+    managerUserId: "u-sunli",
+    bizScope: [{ pharmaTenantId: "org-pharma", varietyNames: [], regionCodes: [] }],
   },
   {
-    // 东方恒业工作组二：尚未指定组长 → 「待指定组长」下派拦截演示
+    // 东方恒业 · 合规运营部（职能部门）：无业务承接范围
     id: "org-group-east-2",
-    name: "工作组二",
-    type: "group",
+    name: "合规运营部",
+    type: "department",
     parentId: "org-provider-east",
+    deptTag: "职能部",
+    status: "active",
   },
   {
+    // 东方恒业 · 华东推广部：何静任负责人；部门默认承接 华康·奥美拉唑·仅陕西省
+    //（药厂授 陕西省+甘肃省 两省，部门收窄至陕西省 → 继承成员的区域收窄演示样本）
+    id: "org-group-3",
+    name: "华东推广部",
+    type: "department",
+    parentId: "org-provider-east",
+    deptTag: "推广团队",
+    status: "active",
+    managerUserId: "u-hejing",
+    bizScope: [{ pharmaTenantId: "org-pharma-huakang", varietyNames: ["奥美拉唑肠溶胶囊"], regionCodes: ["陕西省"] }],
+  },
+  {
+    // 智联科技 · 西北推广一部：刘洋任负责人（原「工作组组长」迁移为部门负责人 + 业务主管自定义角色）
     id: "org-group-1",
-    name: "工作组一",
-    type: "group",
+    name: "西北推广一部",
+    type: "department",
     parentId: "org-provider-smart",
+    deptTag: "推广团队",
+    status: "active",
+    managerUserId: "u-liuyang",
+    bizScope: [{ pharmaTenantId: "org-pharma", varietyNames: [], regionCodes: [] }],
   },
   {
-    // 空组演示：尚未指定组长 → 「待指定组长」，不得接收新的管理任务
+    // 智联科技 · 西北推广二部：负责人待指定（部门负责人可空的演示样本）
     id: "org-group-2",
-    name: "工作组二",
-    type: "group",
+    name: "西北推广二部",
+    type: "department",
     parentId: "org-provider-smart",
+    deptTag: "推广团队",
+    status: "active",
   },
 ]
 
@@ -1089,15 +1276,15 @@ export function resolveGrantAnchor(
   const current = orgs.find((o) => o.id === userOrgId)
   let hit: PermOrg | undefined
   if (role.appliesTo?.includes("pharma")) {
-    // 药厂侧范围档位已退役（2026-10-27 D1/D2）：授权统一挂租户根，负责区域按成员配置（调岗不变）
+    // 药厂侧范围档位已退役（2026-10-27 D1/D2）：授权统一挂租户根，负责区域按成员配置
     hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
   } else if (scope === "PHARMA") {
     hit = nearestAncestorOfType(orgs, userOrgId, "pharma")
   } else if (scope === "PROVIDER") {
     hit = nearestAncestorOfType(orgs, userOrgId, "provider")
-  } else if (scope === "GROUP" || scope === "SELF" || scope === "MOBILE") {
-    hit = nearestAncestorOfType(orgs, userOrgId, "group")
   } else {
+    // DEPT / DEPT_AND_CHILD / SELF / CUSTOM：锚定成员当前所属节点；
+    // scopeMode=dynamic 的授权在调岗时由 PermissionContext 重锚定（动态组织范围）
     hit = current
   }
   const org = hit ?? current
@@ -1165,7 +1352,7 @@ export const PERM_USERS: PermUser[] = [
     phone: "13809120105",
     email: "liuyang@smartlink.cn",
     orgId: "org-group-1",
-    orgName: "工作组一",
+    orgName: "西北推广一部",
     accountStatus: "enabled",
     createdAt: "2026-05-06 15:10",
     lastLoginAt: "2026-09-02 08:55",
@@ -1177,7 +1364,7 @@ export const PERM_USERS: PermUser[] = [
     phone: "13809120106",
     email: "yangming@eastpromo.cn",
     orgId: "org-group-3",
-    orgName: "工作组三",
+    orgName: "华东推广部",
     accountStatus: "enabled",
     createdAt: "2026-05-28 11:00",
     lastLoginAt: "2026-09-01 19:22",
@@ -1189,7 +1376,7 @@ export const PERM_USERS: PermUser[] = [
     phone: "13809120107",
     email: "huangfeng@eastpromo.cn",
     orgId: "org-group-3",
-    orgName: "工作组三",
+    orgName: "华东推广部",
     accountStatus: "enabled",
     createdAt: "2026-05-28 11:02",
     lastLoginAt: "2026-08-30 09:10",
@@ -1201,7 +1388,7 @@ export const PERM_USERS: PermUser[] = [
     phone: "13809120108",
     email: "wuchao@eastpromo.cn",
     orgId: "org-group-3",
-    orgName: "工作组三",
+    orgName: "华东推广部",
     accountStatus: "disabled",
     createdAt: "2026-05-28 11:05",
     lastLoginAt: "2026-08-01 16:48",
@@ -1324,7 +1511,7 @@ export const PERM_USERS: PermUser[] = [
     phone: "13809120113",
     email: "hejing@eastpromo.cn",
     orgId: "org-group-3",
-    orgName: "工作组三",
+    orgName: "华东推广部",
     accountStatus: "enabled",
     createdAt: "2026-09-10 09:00",
   },
@@ -1349,7 +1536,7 @@ export const PERM_USERS: PermUser[] = [
     phone: "13809120115",
     email: "sunqi@eastpromo.cn",
     orgId: "org-group-3",
-    orgName: "工作组三",
+    orgName: "华东推广部",
     accountStatus: "enabled",
     createdAt: "2026-09-08 14:00",
   },
@@ -1381,18 +1568,18 @@ export const TENANT_MEMBERSHIPS: TenantMembership[] = [
   { id: "mb-01", userId: "u-lihang", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", jobTitle: "大区经理", status: "active", joinedAt: "2026-03-01", responsibleRegions: ["陕西", "甘肃", "青海", "宁夏"] },
   { id: "mb-02", userId: "u-zhaoning", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规主管", status: "active", joinedAt: "2026-03-01", responsibleRegions: ["全国"] },
   { id: "mb-03", userId: "u-zhoukai", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-shaanxi", jobTitle: "地区销售经理", status: "active", joinedAt: "2026-03-12", responsibleRegions: ["陕西", "宁夏"] },
-  { id: "mb-04", userId: "u-shenyue", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-it", jobTitle: "信息化经理", status: "active", joinedAt: "2026-04-01" },
+  { id: "mb-04", userId: "u-shenyue", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-it", jobTitle: "信息化经理", status: "active", joinedAt: "2026-04-01", responsibleRegions: ["全国"] },
   { id: "mb-05", userId: "u-chenwei", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", jobTitle: "总经理", status: "active", joinedAt: "2026-04-12" },
-  { id: "mb-06", userId: "u-chenwei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规顾问", status: "active", joinedAt: "2026-06-01" },
-  { id: "mb-07", userId: "u-liuyang", tenantId: "org-provider-smart", tenantName: "智联科技有限公司", orgUnitId: "org-group-1", jobTitle: "工作组组长", status: "active", joinedAt: "2026-05-08" },
-  { id: "mb-08", userId: "u-yangming", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-06-01" },
-  { id: "mb-09", userId: "u-huangfeng", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-06-01" },
-  { id: "mb-10", userId: "u-wuchao", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-05-28" },
-  { id: "mb-11", userId: "u-sunli", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", jobTitle: "运营主管", status: "active", joinedAt: "2026-07-14" },
+  { id: "mb-06", userId: "u-chenwei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-compliance", jobTitle: "合规顾问", status: "active", joinedAt: "2026-06-01", responsibleRegions: ["全国"] },
+  { id: "mb-07", userId: "u-liuyang", tenantId: "org-provider-smart", tenantName: "智联科技有限公司", orgUnitId: "org-group-1", jobTitle: "业务主管", employeeNo: "ZN-008", status: "active", joinedAt: "2026-05-08" },
+  { id: "mb-08", userId: "u-yangming", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", employeeNo: "DF-021", status: "active", joinedAt: "2026-06-01" },
+  { id: "mb-09", userId: "u-huangfeng", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", employeeNo: "DF-022", status: "active", joinedAt: "2026-06-01" },
+  { id: "mb-10", userId: "u-wuchao", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", employeeNo: "DF-023", status: "active", joinedAt: "2026-05-28" },
+  { id: "mb-11", userId: "u-sunli", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", secondaryOrgUnitIds: ["org-group-east-1"], jobTitle: "运营主管", employeeNo: "DF-011", status: "active", joinedAt: "2026-07-14" },
   { id: "mb-12", userId: "u-lichen", tenantId: "org-provider-smart", tenantName: "智联科技有限公司", orgUnitId: "org-provider-smart", jobTitle: "服务专员", status: "active", joinedAt: "2026-07-30" },
-  { id: "mb-13", userId: "u-hejing", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "工作组组长", status: "pending_activation", joinedAt: "2026-09-10" },
+  { id: "mb-13", userId: "u-hejing", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", employeeNo: "DF-031", status: "pending_activation", joinedAt: "2026-09-10" },
   { id: "mb-14", userId: "u-hanlei", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-provider-east", jobTitle: "副总经理", status: "frozen", joinedAt: "2026-05-12" },
-  { id: "mb-15", userId: "u-hanlei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", jobTitle: "销售支持专员", status: "active", joinedAt: "2026-06-15" },
+  { id: "mb-15", userId: "u-hanlei", tenantId: "org-pharma", tenantName: "百益制药", orgUnitId: "org-dept-northwest", jobTitle: "销售支持专员", status: "active", joinedAt: "2026-06-15", responsibleRegions: ["全国"] },
   { id: "mb-16", userId: "u-sunqi", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-09-08" },
   // 双服务商演示：李晨同属智联（mb-12）与东方恒业——两边的角色、药厂范围互不串台
   { id: "mb-17", userId: "u-lichen", tenantId: "org-provider-east", tenantName: "东方恒业推广有限公司", orgUnitId: "org-group-3", jobTitle: "服务专员", status: "active", joinedAt: "2026-09-12" },
@@ -1469,29 +1656,36 @@ export const seedAssignments: RoleAssignment[] = [
     status: "active",
   },
   {
+    // 2026-11 工作组下线迁移：原 role-group-lead/GROUP 授权 → 自定义「业务主管」× 本部门及以下
+    //（动态组织范围：刘洋调岗后数据范围自动跟随新部门）
     id: "g-06",
     tenantId: "org-provider-smart",
     userId: "u-liuyang",
-    roleId: "role-group-lead",
+    roleId: "role-custom-biz-lead",
     scopeOrgId: "org-group-1",
-    scopeOrgName: "工作组一",
-    scope: "GROUP",
+    scopeOrgName: "西北推广一部",
+    scope: "DEPT_AND_CHILD",
+    scopeMode: "dynamic",
     pharmaTenantIds: ["org-pharma"],
     effectiveFrom: "2026-05-08",
     grantedBy: "陈伟",
     grantedAt: "2026-05-08 09:30",
     status: "active",
+    reason: "工作组下线迁移：原组长授权转为业务主管 · 本部门及以下",
   },
   {
     // 杨明：可处理百益/华康/康宁/泽康——药厂侧合作暂停与业务授权撤销会实时
-    // 反映为不可进入（员工范围不扩大原则的演示样本）
+    // 反映为不可进入（员工范围不扩大原则的演示样本）；
+    // extraOrgIds 演示：例外兼管市场推广部（调岗时可勾选同步清空）
     id: "g-07",
     tenantId: "org-provider-east",
     userId: "u-yangming",
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
-    scopeOrgName: "工作组三",
+    scopeOrgName: "华东推广部",
     scope: "SELF",
+    scopeMode: "dynamic",
+    extraOrgIds: ["org-group-east-1"],
     pharmaTenantIds: ["org-pharma", "org-pharma-huakang", "org-pharma-kangning", "org-pharma-zekang"],
     regionCodes: ["陕西省", "甘肃省"],
     projectNames: ["百益陕西推广项目", "华康甘肃试点项目"],
@@ -1507,7 +1701,7 @@ export const seedAssignments: RoleAssignment[] = [
     userId: "u-huangfeng",
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
-    scopeOrgName: "工作组三",
+    scopeOrgName: "华东推广部",
     scope: "SELF",
     pharmaTenantIds: ["org-pharma"],
     regionCodes: ["陕西省"],
@@ -1522,7 +1716,7 @@ export const seedAssignments: RoleAssignment[] = [
     userId: "u-wuchao",
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
-    scopeOrgName: "工作组三",
+    scopeOrgName: "华东推广部",
     scope: "SELF",
     pharmaTenantIds: ["org-pharma"],
     effectiveFrom: "2026-06-01",
@@ -1584,10 +1778,13 @@ export const seedAssignments: RoleAssignment[] = [
     id: "g-14",
     tenantId: "org-provider-east",
     userId: "u-hejing",
-    roleId: "role-group-lead",
+    // 2026-11 工作组下线迁移：原组长授权 → 服务专员（业务范围=继承部门，华东推广部已收窄至陕西省）
+    roleId: "role-specialist",
     scopeOrgId: "org-group-3",
-    scopeOrgName: "工作组三",
-    scope: "GROUP",
+    scopeOrgName: "华东推广部",
+    scope: "SELF",
+    scopeMode: "dynamic",
+    bizScopeMode: "inherit_org",
     pharmaTenantIds: ["org-pharma", "org-pharma-huakang"],
     effectiveFrom: "2026-09-10",
     grantedBy: "陈伟",
@@ -1629,7 +1826,7 @@ export const seedAssignments: RoleAssignment[] = [
     userId: "u-lichen",
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
-    scopeOrgName: "工作组三",
+    scopeOrgName: "华东推广部",
     scope: "SELF",
     pharmaTenantIds: ["org-pharma-huakang"],
     regionCodes: ["甘肃省"],
@@ -1646,7 +1843,7 @@ export const seedAssignments: RoleAssignment[] = [
     userId: "u-lichen",
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
-    scopeOrgName: "工作组三",
+    scopeOrgName: "华东推广部",
     scope: "SELF",
     pharmaTenantIds: ["org-pharma"],
     regionCodes: ["陕西省"],
@@ -1663,7 +1860,7 @@ export const seedAssignments: RoleAssignment[] = [
     userId: "u-sunqi",
     roleId: "role-specialist",
     scopeOrgId: "org-group-3",
-    scopeOrgName: "工作组三",
+    scopeOrgName: "华东推广部",
     scope: "SELF",
     pharmaTenantIds: ["org-pharma-kangning", "org-pharma-zekang"],
     effectiveFrom: "2026-09-08",
@@ -1713,6 +1910,49 @@ export const seedAssignments: RoleAssignment[] = [
     grantedAt: "2026-10-27 09:30",
     status: "active",
     reason: "销售总监 · 负责区域全国（配置值，非管理员例外）",
+  },
+  // 角色改为必选（2026-11-25）：补齐此前未持有任何角色的区域成员，列表不再出现「—」
+  {
+    id: "g-23",
+    tenantId: "org-pharma",
+    userId: "u-zhoukai",
+    roleId: "role-custom-region-sales",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
+    effectiveFrom: "2026-03-12",
+    grantedBy: "沈悦",
+    grantedAt: "2026-03-12 10:05",
+    status: "active",
+    reason: "地区销售经理 · 陕西、宁夏",
+  },
+  {
+    id: "g-24",
+    tenantId: "org-pharma",
+    userId: "u-suhang",
+    roleId: "role-pharma-region-view",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
+    effectiveFrom: "2026-03-20",
+    grantedBy: "沈悦",
+    grantedAt: "2026-03-20 11:20",
+    status: "active",
+    reason: "区域进度查看 · 上海、浙江",
+  },
+  {
+    id: "g-25",
+    tenantId: "org-pharma",
+    userId: "u-linyiming",
+    roleId: "role-pharma-region-view",
+    scopeOrgId: "org-pharma",
+    scopeOrgName: "百益制药",
+    scope: "PHARMA",
+    effectiveFrom: "2026-05-09",
+    grantedBy: "沈悦",
+    grantedAt: "2026-05-09 14:30",
+    status: "active",
+    reason: "区域进度查看 · 辽宁、吉林",
   },
 ]
 
@@ -1953,7 +2193,6 @@ export const PERSPECTIVE_BY_ROLE_ID: Record<string, Role> = {
   "role-custom-region-sales": "药厂销售部门",
   "role-pharma-admin": "药厂销售部门",
   "role-provider-admin": "服务提供商",
-  "role-group-lead": "服务提供商",
   "role-specialist": "服务提供商",
 }
 
@@ -1966,7 +2205,7 @@ export function perspectiveRoleOf(role: SysRole): Role | null {
   if (role.realm === "PLATFORM") return null
   const mapped = PERSPECTIVE_BY_ROLE_ID[role.id]
   if (mapped) return mapped
-  if (role.defaultScope === "PROVIDER" || role.defaultScope === "GROUP" || role.defaultScope === "SELF" || role.defaultScope === "MOBILE")
+  if (role.defaultScope === "PROVIDER" || role.defaultScope === "SELF")
     return "服务提供商"
   if (pageHasAction(role, "vendor-access", "approve") || role.name.includes("合规"))
     return "药厂合规部门"
@@ -1979,16 +2218,21 @@ export function rolesOfRealm(roles: SysRole[], realm: AccessRealm): SysRole[] {
 }
 
 /**
- * 租户可见角色（自定义角色租户隔离）：预置角色（无 tenantId，按租户类型复用）
- * + 本租户创建的自定义角色。服务商 A 的自定义角色对服务商 B 与药厂租户不可见。
+ * 租户可见角色（2026-11 拍板三重隔离）：realm + tenantKind(appliesTo) + tenantId。
+ * 药厂只看到药厂预置角色 + 本药厂自定义角色；服务商只看到服务商预置角色 +
+ * 本服务商自定义角色；自定义角色跨租户互相不可见。
  */
 export function rolesOfTenant(
   roles: SysRole[],
   realm: AccessRealm,
   tenantId: string | null,
+  tenantKind?: TenantKind | null,
 ): SysRole[] {
   return roles.filter(
-    (r) => r.realm === realm && (r.tenantId == null || (tenantId != null && r.tenantId === tenantId)),
+    (r) =>
+      r.realm === realm &&
+      (r.tenantId == null || (tenantId != null && r.tenantId === tenantId)) &&
+      (!tenantKind || !r.appliesTo || r.appliesTo.includes(tenantKind)),
   )
 }
 
@@ -2016,17 +2260,53 @@ export const VARIETY_OPTIONS = [
 ]
 export const REGION_SCOPE_OPTIONS = REGION_OPTIONS.slice(0, 12)
 
-export function grantStatusLabel(status: GrantStatus): string {
+/** 本地时区当天日期（YYYY-MM-DD），统一登录网关、权限校验与页面默认日期口径 */
+export function localTodayIso(now: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0")
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
+}
+
+/**
+ * 授权状态判定（精简口径：授予即生效，移除即失效；不再按生效期/到期日切分）。
+ */
+export function resolveGrantStatus(
+  a: Pick<RoleAssignment, "status" | "effectiveFrom" | "effectiveTo">,
+  _today: string = localTodayIso(),
+): ResolvedGrantStatus {
+  if (a.status === "revoked") return "revoked"
+  if (a.status === "expired") return "expired"
+  return "active"
+}
+
+/** 当前日期是否已实际授予权限（仅 active 且在起止日期窗口内为 true；未来生效不提前授权限） */
+export function isGrantEffective(
+  a: Pick<RoleAssignment, "status" | "effectiveFrom" | "effectiveTo">,
+  today: string = localTodayIso(),
+): boolean {
+  return resolveGrantStatus(a, today) === "active"
+}
+
+/** 授权是否仍处于有效或待生效状态（允许调整/回收，且视为占用该角色名额） */
+export function isGrantActiveOrPending(
+  a: Pick<RoleAssignment, "status" | "effectiveFrom" | "effectiveTo">,
+  today: string = localTodayIso(),
+): boolean {
+  const st = resolveGrantStatus(a, today)
+  return st === "active" || st === "pending"
+}
+
+export function grantStatusLabel(status: GrantStatus | ResolvedGrantStatus): string {
   return {
     active: "生效",
+    pending: "未生效",
     expired: "已过期",
-    revoked: "已回收",
+    revoked: "已移除",
     pending_review: "待复核",
   }[status]
 }
 
 export function roleStatusLabel(status: SysRoleStatus): string {
-  return { enabled: "启用", disabled: "停用", draft: "草稿" }[status]
+  return { enabled: "启用", disabled: "停用", draft: "停用" }[status]
 }
 
 export function fieldPolicyLabel(policy: FieldPolicyKind): string {
@@ -2036,10 +2316,11 @@ export function fieldPolicyLabel(policy: FieldPolicyKind): string {
 export function countGrantedUsers(
   roleId: string,
   assignments: RoleAssignment[],
+  today: string = localTodayIso(),
 ): number {
   return new Set(
     assignments
-      .filter((a) => a.roleId === roleId && a.status === "active")
+      .filter((a) => a.roleId === roleId && isGrantEffective(a, today))
       .map((a) => a.userId),
   ).size
 }
@@ -2157,77 +2438,101 @@ export const ORG_TYPE_LABEL: Record<PermOrg["type"], string> = {
   platform: "软件服务方",
   pharma: "药厂",
   provider: "服务商",
-  group: "工作组",
   department: "部门",
 }
 
-/** 工作组组长的指定记录（工作组管理页维护；有效性实时派生，不静态存储） */
-export interface GroupLeaderRecord {
-  userId: string
-  appointedAt: string
-  appointedBy: string
-  reason?: string
+/** 企业成员状态展示标签（租户级成员状态，绝不连坐其他企业） */
+export function membershipStatusLabel(status: MembershipStatus | undefined): string {
+  return {
+    active: "正常",
+    frozen: "已冻结",
+    pending_activation: "待激活",
+    removed: "已移除",
+    left: "已离职",
+  }[status ?? "active"]
 }
 
-/** 组长变更审计行（工作组管理页「变更记录」展示） */
-export interface GroupLeaderChange {
-  id: string
-  groupId: string
-  groupName: string
-  at: string
-  actor: string
-  summary: string
+/** 成员状态是否占用有效名额/参与权限计算（frozen/removed/left 均不参与） */
+export function membershipStatusEffective(status: MembershipStatus | undefined): boolean {
+  return status === "active" || status === "pending_activation"
 }
 
-/** 组长种子（组织节点 id → 指定记录）；工作组二故意不设组长（待指定演示） */
-export const SEED_GROUP_LEADERS: Record<string, GroupLeaderRecord> = {
-  "org-group-1": { userId: "u-liuyang", appointedAt: "2026-05-08 09:35", appointedBy: "陈伟", reason: "组建工作组时指定" },
-  "org-group-3": { userId: "u-hejing", appointedAt: "2026-09-10 09:25", appointedBy: "陈伟", reason: "新任组长" },
-}
-
-export const SEED_GROUP_LEADER_CHANGES: GroupLeaderChange[] = [
-  { id: "glc-01", groupId: "org-group-1", groupName: "工作组一", at: "2026-05-08 09:35", actor: "陈伟", summary: "指定 刘洋 为工作组组长（工作组组长 · 工作组一）" },
-  { id: "glc-02", groupId: "org-group-3", groupName: "工作组三", at: "2026-09-10 09:25", actor: "陈伟", summary: "指定 何静 为工作组组长（新任组长）" },
-]
-
-export type GroupLeaderResolution =
-  | { status: "valid"; userId: string; userName: string }
-  | { status: "none" }
-  | { status: "invalid"; userId: string; userName: string; reason: string }
+// ─── 服务商业务范围纯函数（登录门页 / 业务页过滤 / 成员页预览三处统一调用） ───
 
 /**
- * 工作组组长有效性（2026-09-18 修订：岗位与角色分离）：组长是「岗位」而非「角色」——
- * 有效性只看指定记录与人：① 存在指定记录 ② 属于该工作组（成员身份 orgUnit = 本组）
- * ③ 账号启用。组长的操作权限仍来自角色授权（role-group-lead），未持角色不影响
- * 「他是不是组长」的判定，只影响页面上权限按钮的可用性；指定入口会在缺角色时自动补授。
- * 任一不满足 → 该组「待指定组长」，不得接收新的管理任务；历史任务与审计保留。
+ * 成员授权的有效业务范围（药厂 → 品种 → 收窄区域）：
+ * - bizScopeMode === 'custom'：直接取个人 bizScopes（可能为空 = 未配置，默认拒绝）；
+ * - bizScopeMode === 'inherit_org'：按成员主+兼职部门向上回溯「最近配置了 bizScope
+ *   的部门节点」，多部门继承取并集（宽集合），运行时再与上游药厂有效授权取交集收窄；
+ * - 其余（旧快照口径 / 未配置）：返回 null，调用方走兼容路径。
+ * 本函数为纯函数：只看授权 + 成员身份 + 组织树，不读合作与授权 store——
+ * 上游有效授权交集由 cooperationModel.servingBizScopeOfAssignment 统一完成，
+ * 保证登录门页、业务页过滤、成员页预览三处结果 100% 一致。
  */
-export function resolveGroupLeader(
-  groupId: string,
-  appointed: GroupLeaderRecord | undefined,
-  ctx: {
-    users: PermUser[]
-    assignments: RoleAssignment[]
-    memberships: TenantMembership[]
-    tenantId: string
-  },
-): GroupLeaderResolution {
-  if (!appointed) return { status: "none" }
-  const user = ctx.users.find((u) => u.id === appointed.userId)
-  if (!user) return { status: "invalid", userId: appointed.userId, userName: appointed.userId, reason: "组长账号不存在" }
-  if (user.accountStatus !== "enabled") return { status: "invalid", userId: user.id, userName: user.name, reason: "组长账号已停用" }
-  const membership = ctx.memberships.find(
-    (m) => m.userId === user.id && m.tenantId === ctx.tenantId && m.status !== "frozen",
-  )
-  if (!membership || membership.orgUnitId !== groupId) {
-    return { status: "invalid", userId: user.id, userName: user.name, reason: "组长已调离本工作组" }
+export function resolveEffectiveBizScopes(
+  assignment: Pick<RoleAssignment, "bizScopeMode" | "bizScopes">,
+  membership: Pick<TenantMembership, "orgUnitId" | "secondaryOrgUnitIds"> | undefined,
+  orgs: PermOrg[],
+): BizScopeItem[] | null {
+  if (assignment.bizScopeMode === "custom") {
+    return assignment.bizScopes ? assignment.bizScopes.map((s) => ({ ...s, varietyNames: [...s.varietyNames], regionCodes: [...s.regionCodes] })) : []
   }
-  return { status: "valid", userId: user.id, userName: user.name }
+  if (assignment.bizScopeMode !== "inherit_org" || !membership) return null
+  const merged = new Map<string, BizScopeItem>()
+  const orgIds = [membership.orgUnitId, ...(membership.secondaryOrgUnitIds ?? [])]
+  for (const orgId of orgIds) {
+    for (const scope of nearestBizScopeOfOrg(orgs, orgId)) {
+      const cur = merged.get(scope.pharmaTenantId)
+      if (!cur) {
+        merged.set(scope.pharmaTenantId, { ...scope, varietyNames: [...scope.varietyNames], regionCodes: [...scope.regionCodes] })
+        continue
+      }
+      // 多部门继承取并集（空数组 = 不收窄 = 全量，并集后仍为全量）
+      merged.set(scope.pharmaTenantId, {
+        pharmaTenantId: scope.pharmaTenantId,
+        varietyNames: cur.varietyNames.length === 0 || scope.varietyNames.length === 0
+          ? []
+          : [...new Set([...cur.varietyNames, ...scope.varietyNames])],
+        regionCodes: cur.regionCodes.length === 0 || scope.regionCodes.length === 0
+          ? []
+          : [...new Set([...cur.regionCodes, ...scope.regionCodes])],
+      })
+    }
+  }
+  return [...merged.values()]
+}
+
+/** 部门节点向上回溯最近一层配置了 bizScope 的祖先（含自身）；企业根缺省无 bizScope */
+function nearestBizScopeOfOrg(orgs: PermOrg[], orgId: string): BizScopeItem[] {
+  let current = orgs.find((o) => o.id === orgId)
+  const guard = new Set<string>()
+  while (current && !guard.has(current.id)) {
+    guard.add(current.id)
+    if (current.bizScope && current.bizScope.length > 0) return current.bizScope
+    current = current.parentId ? orgs.find((o) => o.id === current!.parentId) : undefined
+  }
+  return []
 }
 
 /**
- * 身份展示统一格式（2026-09-15 拍板）：`角色名称 · 所属部门或工作组`，
- * 例如「企业管理员 · 销售部」「工作组组长 · 西北推广一组」。
+ * 租户权限矩阵过滤（角色详情页面矩阵与「全选全部页面」唯一口径）：
+ * 只返回当前权限域 + 当前租户类型可配置的页面——药厂/服务商绝不可见软件服务方
+ * 平台页（租户管理、菜单管理、合作关系监管、系统审计日志）及对方租户专属页面。
+ */
+export function filterResourcePagesForTenant(
+  realm: AccessRealm,
+  tenantKind: TenantKind | null,
+): ResourcePage[] {
+  return RESOURCE_PAGES.filter((p) => {
+    if (p.realms && !p.realms.includes(realm)) return false
+    if (tenantKind && p.tenantTypes && !p.tenantTypes.includes(tenantKind)) return false
+    return true
+  })
+}
+
+/**
+ * 身份展示统一格式（2026-09-15 拍板）：`角色名称 · 所属部门`，
+ * 例如「企业管理员 · 销售部」「业务主管 · 西北推广一部」。
  * 中点是展示分隔符，不是角色名称的一部分；顶部身份区、用户详情、
  * 组织直属人员、任务承接人等所有身份位置统一使用。
  */
@@ -2275,8 +2580,9 @@ export function usersInSubtree(
   return users.filter((u) => ids.has(u.orgId))
 }
 
+/** 可挂部门的企业节点类型：药厂根、服务商根、部门（2026-11 起服务商根下可建多级部门） */
 export function isDeptParentType(type: PermOrg["type"]): boolean {
-  return type === "pharma" || type === "department"
+  return type === "pharma" || type === "provider" || type === "department"
 }
 
 /** 节点直属人员（不含下级部门） */
@@ -2318,6 +2624,19 @@ export function enterpriseRootOf(
   return undefined
 }
 
+/**
+ * 成员的主属部门是否已不在本企业组织树内（原部门被删除/裁撤）——
+ * 用户管理据此显示「待分配」，组织架构企业根人数据此把待分配成员算进来。
+ */
+export function isMembershipUnassigned(
+  orgs: PermOrg[],
+  membership: TenantMembership | undefined,
+  tenantRootId: string,
+): boolean {
+  if (!membership) return false
+  return !orgDescendantIds(orgs, tenantRootId).includes(membership.orgUnitId)
+}
+
 /** 同一上级下是否已存在同名部门（新建/改名实时校验） */
 export function sameLevelDeptNameExists(
   orgs: PermOrg[],
@@ -2343,10 +2662,10 @@ export function validateDeptParent(
 ): { ok: boolean; error?: string } {
   const parent = orgs.find((o) => o.id === parentId)
   if (!parent) return { ok: false, error: "父节点不存在" }
-  // 系统管理后台根也可挂部门（软件服务方内部组织）；服务商/工作组不挂部门（用工作组团队）
+  // 药厂/服务商企业根与部门均可挂下级部门（服务商多级部门树）；系统管理后台根也可挂
   const parentOk = isDeptParentType(parent.type) || parent.type === "platform"
   if (!parentOk) {
-    return { ok: false, error: "部门只能挂在药厂、软件服务方或部门下，不能挂到服务商或工作组" }
+    return { ok: false, error: "部门只能挂在药厂、服务商或部门下（跨企业不可移动）" }
   }
   if (movingId) {
     const moving = orgs.find((o) => o.id === movingId)
@@ -2360,6 +2679,14 @@ export function validateDeptParent(
     }
   }
   return { ok: true }
+}
+
+/**
+ * 被当前生效验收配置按名引用的部门：禁止改名/删除，并指明处理入口。
+ * 组织架构改名与删除共用同一句文案，避免两处口径漂移。
+ */
+export function acceptanceDeptRefBlocker(orgName: string): string {
+  return `「${orgName}」正被验收配置引用，请先到「执行链路配置」调整并发布`
 }
 
 /**
@@ -2384,12 +2711,13 @@ export function deptDeleteBlockers(input: {
   const org = input.orgs.find((o) => o.id === input.orgId)
   if (!org) return [{ kind: "root", message: "部门不存在或已被删除，请刷新后重试" }]
   if (org.type !== "department") {
-    return [{ kind: "root", message: "企业根节点与工作组不在此删除（工作组删除见工作组维护入口）" }]
+    return [{ kind: "root", message: "企业根节点不可删除（如需调整企业信息请联系软件服务方）" }]
   }
   const blockers: DeptDeleteBlocker[] = []
   const subtreeIds = new Set(orgDescendantIds(input.orgs, org.id))
+  // 已离职 / 已移除同为终止态：不计入现有人数、也不阻止删除；冻结或停用账号仍计入
   const memberCount = input.memberships.filter(
-    (m) => m.status !== "removed" && subtreeIds.has(m.orgUnitId),
+    (m) => m.status !== "removed" && m.status !== "left" && subtreeIds.has(m.orgUnitId),
   ).length
   if (memberCount > 0) {
     blockers.push({
@@ -2406,7 +2734,7 @@ export function deptDeleteBlockers(input: {
   if (input.businessRefDeptNames.includes(org.name)) {
     blockers.push({
       kind: "business-ref",
-      message: `「${org.name}」正在被业务配置引用，请先调整相关配置`,
+      message: acceptanceDeptRefBlocker(org.name),
       refs: [`执行链路配置 · 验收部门「${org.name}」`],
     })
   }
@@ -2417,6 +2745,23 @@ let idSeq = 100
 export function nextId(prefix: string): string {
   idSeq += 1
   return `${prefix}-${idSeq}`
+}
+
+/**
+ * 部门 id 生成（2026-11 组织架构整改）：取现有组织树（含运行时持久化节点）中
+ * 同前缀的最大序号 +1，不依赖进程内自增计数器——刷新/重新登录后计数器归零也
+ * 不会与已持久化部门撞 id，已存在部门及其关联数据不会被覆盖。
+ */
+export function nextOrgId(orgs: PermOrg[], prefix = "org-dept"): string {
+  const pattern = new RegExp(`^${prefix}-(\\d+)$`)
+  let max = 100
+  for (const org of orgs) {
+    const hit = pattern.exec(org.id)
+    if (!hit) continue
+    const seq = Number(hit[1])
+    if (Number.isFinite(seq) && seq > max) max = seq
+  }
+  return `${prefix}-${max + 1}`
 }
 
 export function nowStamp(): string {

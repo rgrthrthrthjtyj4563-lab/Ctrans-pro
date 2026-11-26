@@ -103,7 +103,7 @@ function buildSeeds(): McMessage[] {
       // 结算明细独立页已移除：结算确认统一在「任务执行」内操作
       target: { page: "task-dispatch" } },
     { id: "mc-lihang-3", recipientUserId: "u-lihang", workspaceKey: ORG_PHARMA, tab: "待办", type: "验收",
-      title: "9 月成果批次待审核", desc: "拜访记录 24 条 · 工作组一", minutesAgo: 4320,
+      title: "9 月成果批次待审核", desc: "拜访记录 24 条 · 东方恒业（历史批次）", minutesAgo: 4320,
       unread: false, status: "pending", deadline: "10-29 18:00 截止", level: "before3",
       // 药厂侧拜访入口统一走业务数据管理的审核工作台（hospital-visits 药厂侧已下线）
       target: { page: "visit-audit-hospital", focus: { serviceMonth: "2026-09", provider: "东方恒业推广有限公司" } } },
@@ -146,13 +146,13 @@ function buildSeeds(): McMessage[] {
 
     // 杨明（东方恒业 · 服务专员·工作组三）：执行视角 + 授权撤销 + 兜底种子
     { id: "mc-yangming-1", recipientUserId: "u-yangming", workspaceKey: ORG_PROVIDER_EAST, tab: "待办", type: "任务",
-      title: "新任务已分派至工作组三", desc: "氨氯地平 · 江苏 · 本周内提交拜访计划", minutesAgo: 120,
+      title: "新任务已分派给你", desc: "氨氯地平 · 江苏 · 本周内提交拜访计划", minutesAgo: 120,
       unread: true, status: "pending", target: { page: "task-dispatch" } },
     { id: "mc-yangming-2", recipientUserId: "u-yangming", workspaceKey: ORG_PROVIDER_EAST, tab: "通知", type: "授权",
       title: "泽康药业已撤销对你的业务授权", desc: "涉及 3 个品种，相关任务已停用", minutesAgo: 60,
       unread: true, jump: false, body: "如需恢复业务范围，请联系药厂管理员重新发起业务授权。撤销原因可在授权记录中查看。" },
     { id: "mc-yangming-3", recipientUserId: "u-yangming", workspaceKey: ORG_PROVIDER_EAST, tab: "待办", type: "备案",
-      title: "异常拜访待补充说明", desc: "该事项已被组长处理，点击可定位最新列表", minutesAgo: 1440,
+      title: "异常拜访待补充说明", desc: "该事项已被初审人员处理，点击可定位最新列表", minutesAgo: 1440,
       unread: true, status: "pending", stale: true, target: { page: "hospital-visits" } },
 
     // 王敏（系统管理后台）：跨租户监管视角（口径对齐审计日志：系统视角可见跨租户）

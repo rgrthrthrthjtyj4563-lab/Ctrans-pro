@@ -34,6 +34,8 @@ export default defineConfig(({ mode }) => {
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
+      // 允许用主机名 / 隧道域名访问，否则 Vite 对未知 Host 返回 403
+      allowedHosts: true,
     },
     preview: {
       host: '0.0.0.0',

@@ -24,7 +24,10 @@ import type {
 import {
   PERM_USERS,
   PRESET_ROLES,
+  isGrantEffective,
+  localTodayIso,
   perspectiveRoleOf,
+  resolveGrantStatus,
   seedCustomRoles,
   nextId,
   nowStamp,
@@ -45,6 +48,7 @@ import {
   tenantLoginAllowed,
 } from "../data/tenantRegistry"
 import {
+  activateMembership,
   getPlatformBindings,
   grantedPharmasForUser,
   membershipOfUserInTenant,
@@ -95,11 +99,7 @@ function tick(ms = 160): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-function todayIso(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
+const todayIso = localTodayIso
 
 /** 未认证成功阶段的手机号脱敏（审计与提示统一口径） */
 function maskPhone(phone: string): string {
@@ -146,15 +146,22 @@ function decideAssignments(userId: string, tenantId?: string): AssignmentDecisio
     if (!tenantId) return true
     return a.tenantId === tenantId
   })
-  const today = todayIso()
-  const active = mine.filter(
-    (a) => a.status === "active" && (!a.effectiveTo || a.effectiveTo >= today),
-  )
+  const today = localTodayIso()
+  // 与角色成员列表使用同一日期口径：effectiveFrom <= today 且 (!effectiveTo || effectiveTo >= today)
+  const active = mine.filter((a) => isGrantEffective(a, today))
   if (active.length > 0) return { active }
-  const dateExpired = mine.find(
-    (a) => a.status === "active" && a.effectiveTo && a.effectiveTo < today,
-  )
-  if (dateExpired) {
+  const pending = mine.find((a) => resolveGrantStatus(a, today) === "pending")
+  if (pending) {
+    return {
+      active: [],
+      blocker: {
+        code: "no-active-assignment",
+        message: `角色授权尚未到生效日期（${pending.effectiveFrom} 起生效），到日后即可登录使用`,
+      },
+    }
+  }
+  const expired = mine.find((a) => resolveGrantStatus(a, today) === "expired")
+  if (expired) {
     return {
       active: [],
       blocker: {
@@ -163,19 +170,7 @@ function decideAssignments(userId: string, tenantId?: string): AssignmentDecisio
       },
     }
   }
-  if (mine.some((a) => a.status === "pending_review")) {
-    return {
-      active: [],
-      blocker: {
-        code: "assignment-pending-review",
-        message: "角色授权正在复核中，通过后才能登录",
-      },
-    }
-  }
-  if (mine.some((a) => a.status === "expired")) {
-    return { active: [], blocker: { code: "assignment-expired", message: "当前角色授权已失效，请重新登录或联系管理员" } }
-  }
-  if (mine.some((a) => a.status === "revoked")) {
+  if (mine.some((a) => resolveGrantStatus(a, today) === "revoked")) {
     return { active: [], blocker: { code: "assignment-revoked", message: "当前角色授权已失效，请重新登录或联系管理员" } }
   }
   return {
@@ -187,9 +182,12 @@ function decideAssignments(userId: string, tenantId?: string): AssignmentDecisio
 /** 系统角色绑定判定（软件服务方域；与租户授权完全分离） */
 function decideBindings(userId: string): { active: PlatformRoleBinding[]; blocker?: LoginFailure } {
   const mine = getPlatformBindings().filter((b) => b.userId === userId)
-  const today = todayIso()
+  const today = localTodayIso()
   const active = mine.filter(
-    (b) => b.status === "active" && (!b.effectiveTo || b.effectiveTo >= today),
+    (b) =>
+      b.status === "active" &&
+      (!b.effectiveFrom || b.effectiveFrom <= today) &&
+      (!b.effectiveTo || b.effectiveTo >= today),
   )
   if (active.length > 0) return { active }
   if (mine.length === 0) {
@@ -406,7 +404,7 @@ function resolvePrincipal(
     return { ok: false, failure: { code: "no-active-assignment", message: "当前账号在该工作空间没有可用角色，请联系管理员" } }
   }
 
-  // 服务商业务角色（服务专员/工作组组长）需有名下的服务药厂记录；
+  // 服务商业务角色（服务专员/业务主管）需有名下的服务药厂记录；
   // 仅当【全部】身份都是业务角色且药厂范围为空才拦截（服务商管理员默认覆盖全部有效授权药厂）
   if (realm === "TENANT" && identityOptions[0].tenantKind === "provider") {
     const anyNonBusiness = identityOptions.some((o) => {
@@ -470,8 +468,9 @@ function memberStatusOf(
   userId: string,
   enterpriseId: string,
 ): "pending_activation" | "frozen" | "removed" | undefined {
-  // 成员身份已被移除：最高优先级（终止态，覆盖种子冻结/待激活口径）
-  if (membershipOfUserInTenant(userId, enterpriseId)?.status === "removed") return "removed"
+  // 成员身份已被移除/离职：最高优先级（终止态，覆盖种子冻结/待激活口径）
+  const memberStatus = membershipOfUserInTenant(userId, enterpriseId)?.status
+  if (memberStatus === "removed" || memberStatus === "left") return "removed"
   if (activatedMemberKeys.has(`${userId}:${enterpriseId}`)) return undefined
   const seedStatus = AUTH_PROFILES[userId]?.memberStatusByEnterprise?.[enterpriseId]
   if (seedStatus) return seedStatus
@@ -1313,6 +1312,7 @@ export const authGateway: AuthGateway = {
     let activationNotice: string | undefined
     if (memberStatus === "pending_activation") {
       activatedMemberKeys.add(`${user.id}:${ws.workspaceId}`)
+      activateMembership({ userId: user.id, tenantId: ws.workspaceId, via: "sms_login" })
       activationNotice = "账号已激活，欢迎加入"
       pushAuthAudit({
         action: "首次登录激活",
@@ -1514,6 +1514,7 @@ export const authGateway: AuthGateway = {
     let activationNotice: string | undefined
     if (memberStatus === "pending_activation") {
       activatedMemberKeys.add(`${user.id}:${enterpriseId}`)
+      activateMembership({ userId: user.id, tenantId: enterpriseId, via: "sms_login" })
       activationNotice = "账号已激活，欢迎加入"
       pushAuthAudit({
         action: "首次登录激活",

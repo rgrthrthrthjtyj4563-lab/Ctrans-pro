@@ -65,6 +65,20 @@ export function persistAcceptanceConfig(config: AcceptanceChainConfig) {
   localStorage.setItem(ACCEPTANCE_CONFIG_KEY, JSON.stringify(config))
 }
 
+/**
+ * 当前生效的验收部门名（组织架构改名/删除的引用保护口径）：
+ * 只取已启用级别（departments 前 levels 项）——未启用级别的默认占位值、
+ * 以及药厂配置开关里未发布的草稿都不参与拦截。
+ */
+export function activeAcceptanceDepartments(config: AcceptanceChainConfig): string[] {
+  const enabled = Math.max(0, Math.min(config.levels, config.departments.length))
+  const names = config.departments
+    .slice(0, enabled)
+    .map((name) => name.trim())
+    .filter(Boolean)
+  return Array.from(new Set(names))
+}
+
 // ===== 纯派生：条目/包状态 =====
 
 export function itemAcceptanceLabel(

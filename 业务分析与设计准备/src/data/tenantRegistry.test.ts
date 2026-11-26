@@ -2,12 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   RETIRED_AUDIT_REASONS,
   TENANT_STATUS_LABEL,
+  allOrgs,
+  changeTenantOpening,
   createTenant,
   getTenantRegistrySnapshot,
   resetTenantRegistry,
   resumeTenant,
   suspendTenant,
+  tenantExpired,
   tenantLoginAllowed,
+  todayStr,
+  updateTenantProfile,
   type TenantRecord,
 } from "./tenantRegistry"
 
@@ -17,7 +22,7 @@ import {
 
 const ACTOR = "王敏"
 
-function newTenant(index: number) {
+function newTenant(index: number, expireAt?: string) {
   const r = createTenant({
     type: "pharma",
     profile: {
@@ -29,6 +34,7 @@ function newTenant(index: number) {
       contactPhone: "13901350100",
     },
     admin: { name: "管理员", phone: `139013501${String(index).padStart(2, "0")}`, roleLabel: "企业管理员" },
+    expireAt,
     actor: ACTOR,
   })
   if (!r.ok || !r.tenant) throw new Error(r.error ?? "建租失败")
@@ -99,6 +105,174 @@ describe("租户状态收敛与开户即生效", () => {
     const codes = getTenantRegistrySnapshot().activityLog.map((l) => l.reasonCode)
     expect(codes.length).toBeGreaterThan(0)
     expect(codes.some((c) => RETIRED_AUDIT_REASONS.has(c))).toBe(false)
+  })
+})
+
+describe("主体资料创建后可编辑（2026-11-25）", () => {
+  beforeEach(() => resetTenantRegistry())
+
+  it("更新字段落库、企业名同步到企业根组织与运行时成员，并写更新流水", () => {
+    const t = newTenant(6).tenant!
+    const next = {
+      ...t.profile,
+      legalName: "改名测试药厂有限公司",
+      uscc: "91320100MA0EDIT06",
+      address: "江苏省南京市江北新区新地址 8 号",
+      contactName: "新联系人",
+      contactPhone: "13901350166",
+      remark: "创建后修改主体资料",
+    }
+    const r = updateTenantProfile(t.id, next, ACTOR)
+    expect(r.ok).toBe(true)
+    expect(r.audits[0].reasonCode).toBe("TENANT_PROFILE_UPDATED")
+    expect(r.audits[0].detail).toContain("企业法定名称")
+
+    const rec = tenantOf(t.id)
+    expect(rec.legalName).toBe("改名测试药厂有限公司")
+    // 建租时简称与法定名称不同（测试数据显式给了短名），简称保留、不被名称变更覆盖
+    expect(rec.shortName).toBe("测试药厂6")
+    expect(rec.uscc).toBe("91320100MA0EDIT06")
+    expect(rec.profile.address).toContain("新地址")
+    expect(rec.profile.remark).toBe("创建后修改主体资料")
+    expect(rec.status).toBe("active")
+
+    // 企业根组织名（登录解析与组织树共用）同步，管理员 / 授权里的企业名同步
+    expect(allOrgs().find((o) => o.id === rec.enterpriseOrgId)?.name).toBe("改名测试药厂有限公司")
+    expect(getTenantRegistrySnapshot().users.find((u) => u.id === rec.initialAdmin.userId)?.orgName).toBe("改名测试药厂有限公司")
+    expect(getTenantRegistrySnapshot().assignments.find((a) => a.tenantId === rec.enterpriseOrgId)?.scopeOrgName).toBe("改名测试药厂有限公司")
+    expect(getTenantRegistrySnapshot().activityLog[0].reasonCode).toBe("TENANT_PROFILE_UPDATED")
+  })
+
+  it("编辑种子租户时保留表单未暴露的历史字段，并为企业根追加运行时覆盖副本", () => {
+    const seed = getTenantRegistrySnapshot().tenants.find((t) => t.id === "tenant-baiyi")!
+    const nextLegal = "百益制药（改名）有限公司"
+    const r = updateTenantProfile(seed.id, { ...seed.profile, legalName: nextLegal }, ACTOR)
+    expect(r.ok).toBe(true)
+    const rec = tenantOf(seed.id)
+    expect(rec.profile.licenseNo).toBe(seed.profile.licenseNo)
+    expect(rec.profile.licenseValidTo).toBe(seed.profile.licenseValidTo)
+    // 种子企业根不在运行时表：追加覆盖副本，allOrgs 读到新名称
+    expect(getTenantRegistrySnapshot().orgs.find((o) => o.id === seed.enterpriseOrgId)?.name).toBe(nextLegal)
+    expect(allOrgs().find((o) => o.id === seed.enterpriseOrgId)?.name).toBe(nextLegal)
+  })
+
+  it("信用代码修改仍全局查重（排除自身），无变更时拒绝保存", () => {
+    const a = newTenant(7).tenant!
+    const b = newTenant(8).tenant!
+    const dup = updateTenantProfile(b.id, { ...b.profile, uscc: a.uscc }, ACTOR)
+    expect(dup.ok).toBe(false)
+    expect(dup.error).toContain("已存在租户")
+
+    // 自身信用代码不变时允许修改其他字段
+    const self = updateTenantProfile(b.id, { ...b.profile, address: "新地址" }, ACTOR)
+    expect(self.ok).toBe(true)
+
+    // 无任何字段变化时不做无效落盘
+    const noop = updateTenantProfile(b.id, { ...tenantOf(b.id).profile }, ACTOR)
+    expect(noop.ok).toBe(false)
+    expect(noop.error).toContain("未发生变化")
+  })
+
+  it("企业资料全部选填：信用代码为空时建租不互相判重", () => {
+    const blank = {
+      legalName: "",
+      shortName: "",
+      uscc: "",
+      address: "",
+      contactName: "",
+      contactPhone: "",
+    }
+    const first = createTenant({
+      type: "provider",
+      profile: blank,
+      admin: { name: "管理员甲", phone: "13901350177", roleLabel: "服务商管理员" },
+      actor: ACTOR,
+    })
+    const second = createTenant({
+      type: "provider",
+      profile: blank,
+      admin: { name: "管理员乙", phone: "13901350188", roleLabel: "服务商管理员" },
+      actor: ACTOR,
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+  })
+})
+
+describe("套餐与有效期创建后可调整（2026-11-25）", () => {
+  beforeEach(() => resetTenantRegistry())
+
+  /** 相对今天的日期串（YYYY-MM-DD）：按日历日差，避免夏令时与跨月影响 */
+  function dayOffset(offset: number): string {
+    const [y, m, d] = todayStr().split("-").map(Number)
+    return new Date(Date.UTC(y, m - 1, d + offset)).toISOString().slice(0, 10)
+  }
+
+  const RENEW = { reasonCode: "RENEWAL", note: "续签一年" }
+
+  it("只换套餐：落库并写换绑流水，不要求原因", () => {
+    const { id } = newTenant(1).tenant!
+    const r = changeTenantOpening(id, { package: { id: "pkg-test", label: "测试套餐" } }, ACTOR)
+    expect(r.ok).toBe(true)
+    expect(tenantOf(id).packageId).toBe("pkg-test")
+    expect(r.audits.map((l) => l.reasonCode)).toEqual(["TENANT_PACKAGE_CHANGED"])
+  })
+
+  it("调整有效期：原因码与说明必填；流水带前后值与原因", () => {
+    const { id } = newTenant(2).tenant!
+    expect(changeTenantOpening(id, { expire: { ...RENEW, reasonCode: "", to: dayOffset(30) } }, ACTOR).ok).toBe(false)
+    expect(changeTenantOpening(id, { expire: { ...RENEW, note: "  ", to: dayOffset(30) } }, ACTOR).ok).toBe(false)
+    expect(tenantOf(id).expireAt).toBeUndefined()
+
+    const r = changeTenantOpening(id, { expire: { ...RENEW, to: dayOffset(30) } }, ACTOR)
+    expect(r.ok).toBe(true)
+    expect(tenantOf(id).expireAt).toBe(dayOffset(30))
+    expect(r.audits.map((l) => l.reasonCode)).toEqual(["TENANT_EXPIRE_CHANGED"])
+    expect(r.audits[0].detail).toContain(`永久有效 → 至 ${dayOffset(30)}`)
+    expect(r.audits[0].detail).toContain("合同续签：续签一年")
+  })
+
+  it("过期租户延长后恢复：调到今天及以后（或永久）即不再过期", () => {
+    const { id } = newTenant(3, dayOffset(-1)).tenant!
+    expect(tenantExpired(tenantOf(id))).toBe(true)
+
+    // 截止日当天仍有效
+    expect(changeTenantOpening(id, { expire: { ...RENEW, to: dayOffset(0) } }, ACTOR).ok).toBe(true)
+    expect(tenantExpired(tenantOf(id))).toBe(false)
+
+    expect(changeTenantOpening(id, { expire: { ...RENEW, to: null } }, ACTOR).ok).toBe(true)
+    expect(tenantOf(id).expireAt).toBeUndefined()
+    expect(tenantExpired(tenantOf(id))).toBe(false)
+  })
+
+  it("有效期不得早于今天（立即停用走暂停租户）；两项均未变更时拒绝", () => {
+    const { id } = newTenant(4).tenant!
+    const tooEarly = changeTenantOpening(id, { expire: { ...RENEW, to: dayOffset(-1) } }, ACTOR)
+    expect(tooEarly.ok).toBe(false)
+    expect(tooEarly.error).toContain("暂停租户")
+    expect(tenantOf(id).expireAt).toBeUndefined()
+
+    const noop = changeTenantOpening(id, { expire: { ...RENEW, to: null } }, ACTOR)
+    expect(noop.ok).toBe(false)
+    expect(noop.error).toContain("均未变更")
+  })
+
+  it("同时换套餐与有效期：同一次提交写两条流水", () => {
+    const { id } = newTenant(5).tenant!
+    const r = changeTenantOpening(
+      id,
+      { package: { id: "pkg-test", label: "测试套餐" }, expire: { ...RENEW, to: dayOffset(365) } },
+      ACTOR,
+    )
+    expect(r.ok).toBe(true)
+    expect(tenantOf(id).packageId).toBe("pkg-test")
+    expect(tenantOf(id).expireAt).toBe(dayOffset(365))
+    expect(r.audits.map((l) => l.reasonCode)).toEqual(["TENANT_PACKAGE_CHANGED", "TENANT_EXPIRE_CHANGED"])
+    // 流水倒序存放：两条同批写入，后发的有效期调整在前
+    expect(getTenantRegistrySnapshot().activityLog.map((l) => l.reasonCode).slice(0, 2)).toEqual([
+      "TENANT_EXPIRE_CHANGED",
+      "TENANT_PACKAGE_CHANGED",
+    ])
   })
 })
 

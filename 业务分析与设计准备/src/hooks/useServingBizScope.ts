@@ -13,9 +13,11 @@
 import { useMemo, useSyncExternalStore } from "react";
 import {
   cooperationRevision,
+  membershipRevision,
   normalizeRegionName,
   servingScopeOfPrincipal,
   subscribeCooperation,
+  subscribeTenantMemberships,
   varietyInScope,
   type ServingBizScope,
 } from "../data/cooperationModel";
@@ -25,6 +27,11 @@ import type { TenantPrincipal } from "../auth/authTypes";
 /** 合作数据修订号：cooperationModel 每次 commit/重置/跨 tab 同步自增 */
 export function useCooperationRevision(): number {
   return useSyncExternalStore(subscribeCooperation, cooperationRevision, cooperationRevision);
+}
+
+/** 成员身份修订号：调岗/兼职/冻结/建档变化时自增（业务范围继承跟随成员所属部门） */
+export function useMembershipRevision(): number {
+  return useSyncExternalStore(subscribeTenantMemberships, membershipRevision, membershipRevision);
 }
 
 /** 业务行的范围判定输入（各页按自身数据结构映射到该形状） */
@@ -68,8 +75,11 @@ export interface ServingScopeView {
 }
 
 export function useServingScope(): ServingScopeView {
-  const { principal, assignments } = usePermission();
+  const { principal, assignments, orgs } = usePermission();
   const revision = useCooperationRevision();
+  // 成员身份与组织树变化接入范围重算：部门业务范围调整（orgs）或成员调岗/兼职
+  // （membershipRevision）对已登录会话即时生效（继承部门范围的成员立即切换）
+  const memberRev = useMembershipRevision();
 
   return useMemo<ServingScopeView>(() => {
     const tenant = principal.realm === "TENANT" ? (principal as TenantPrincipal) : null;
@@ -105,9 +115,10 @@ export function useServingScope(): ServingScopeView {
       matchesProviderRow,
       matchesPharmaRow,
     };
-    // revision：合作数据变化（暂停/撤销/跨tab）时强制重算范围
+    // revision：合作数据变化（暂停/撤销/跨tab）；memberRev：调岗/成员身份变化；
+    // orgs：部门业务范围配置变化——三者任一变化都强制重算范围
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [principal, assignments, revision]);
+  }, [principal, assignments, revision, memberRev, orgs]);
 }
 
 /** 服务商业务页统一无权限空态文案（默认拒绝口径） */

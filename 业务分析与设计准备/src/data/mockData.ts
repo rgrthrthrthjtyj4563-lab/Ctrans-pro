@@ -90,9 +90,9 @@ export const workGroupMembers: Record<string, number> = {
   工作组四: 3,
   工作组五: 4,
 }
-// ===== 执行链配置种子：默认四级链 + 初始变更记录 =====
+// ===== 执行链配置种子：2026-11 工作组体系下线，固定三级直达（不可切回四级） =====
 export const seedExecutionChain: ExecutionChain = {
-  nodes: chainNodesOf(true),
+  nodes: chainNodesOf(false),
   changeRecords: [
     {
       id: "CHAIN-CR-0",
@@ -101,9 +101,16 @@ export const seedExecutionChain: ExecutionChain = {
       action: "初始化",
       impact: "系统预置默认执行链：药厂 → 服务提供商 → 工作组 → 服务专员",
     },
+    {
+      id: "CHAIN-CR-1",
+      time: "2026-11-01 10:00",
+      operator: "系统",
+      action: "停用工作组",
+      impact: "工作组体系下线：新任务统一三级直达（服务商直接分配服务专员）；已创建任务按创建时链路执行，旧单支持接手。",
+    },
   ],
-  updatedAt: "2026-01-05 09:30",
-  updatedBy: "李航",
+  updatedAt: "2026-11-01 10:00",
+  updatedBy: "系统",
 }
 /** 一名服务专员每日正常工作量基准：服务项目 → 单人日可完成次数 */
 export const SERVICE_DAILY_CAPACITY: Record<string, number> = {
@@ -1695,7 +1702,7 @@ function v4Task(task: SeedTask, priceBookId: string): Task {
     ...task,
     priceBookId,
     priceBookSnapshot: task.priceBookSnapshot ?? bookById(priceBookId),
-    chainSnapshot: task.chainSnapshot ?? chainSnapshotOf(true),
+    chainSnapshot: task.chainSnapshot ?? chainSnapshotOf(false),
     recommendedAmount: task.recommendedAmount ?? task.planAmount,
     recommendedConfigured: task.recommendedConfigured ?? true,
     planLocked:
@@ -1823,6 +1830,8 @@ export const seedTasks: Task[] = [
       taskName: `${V_OME}_百益制药`,
       varieties: [V_OME],
       provider: "东方恒业推广有限公司",
+      // 2026-11 工作组下线前的旧四级单（A11 样本）：按创建时链路读取，支持接手/改派
+      chainSnapshot: chainSnapshotOf(true),
       regions: ["广东"],
       startDate: "2026-08-01",
       endDate: "2026-09-30",
@@ -2487,6 +2496,8 @@ export const seedTasks: Task[] = [
       taskName: `${V_ROSU}_百益制药`,
       varieties: [V_ROSU],
       provider: "永泰汇通推广有限公司",
+      // 2026-11 工作组下线前的旧四级单（A12 样本）：历史列表/详情/导出按原组名展示
+      chainSnapshot: chainSnapshotOf(true),
       regions: ["四川"],
       startDate: "2026-06-01",
       endDate: "2026-06-30",
@@ -4195,35 +4206,6 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         },
       ],
     },
-    ranking: {
-      title: "组别排名",
-      items: [
-        {
-          id: "pm-rank-1",
-          label: "TOP1 工作组一",
-          value: "91%",
-          hint: "拜访有效率",
-          tone: "success",
-          progress: 91,
-        },
-        {
-          id: "pm-rank-2",
-          label: "TOP2 工作组三",
-          value: "87%",
-          hint: "任务兑现率",
-          tone: "brand",
-          progress: 87,
-        },
-        {
-          id: "pm-rank-3",
-          label: "垫底 工作组四",
-          value: "64%",
-          hint: "3 个任务落后",
-          tone: "danger",
-          progress: 64,
-        },
-      ],
-    },
     comparisonTable: {
       title: "双队伍执行对比",
       columns: ["任务完成率", "证据链通过率", "超期率"],
@@ -5019,7 +5001,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         basis: "命中规则：证据链图片模糊度评分 < 阈值。",
         dataRange: "今日待初审数据 27 条",
         confidence: "高",
-        suggestion: "优先分配给经验较高的工作组长复核，避免反复驳回。",
+        suggestion: "优先分配给经验较高的部门负责人复核，避免反复驳回。",
         actionLabel: "查看初审池",
         target: "hospital-visits",
         confirmationNote: "AI 仅做预审分流，不自动判定通过或驳回。",
@@ -5027,12 +5009,12 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
       },
       {
         id: "sp-ai-2",
-        title: "工作组负荷失衡",
+        title: "团队负荷失衡",
         conclusion: "工作组二工作量占比 38%，明显高于其他组，存在超期风险。",
         basis: "命中规则：单组负荷占比 > 平均值 1.5 倍。",
         dataRange: "本周任务与专员排班数据",
         confidence: "中",
-        suggestion: "调整待分配工作量，优先向工作组三和工作组五倾斜。",
+        suggestion: "调整待分配工作量，优先向承接团队三和承接团队五倾斜。",
         actionLabel: "查看任务分配",
         target: "task-dispatch",
         confirmationNote: "是否调整排班需管理者人工确认。",
@@ -5046,7 +5028,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         basis: "命中规则：超期未填报导致工作量暂缓结算。",
         dataRange: "2026-08 当前结算池",
         confidence: "高",
-        suggestion: "今天优先催办超期专员，并安排工作组长跟踪。",
+        suggestion: "今天优先催办超期专员，并安排部门负责人跟踪。",
         actionLabel: "查看结算池",
         target: "task-dispatch",
         confirmationNote: "预测金额仅供参考，最终结算以人工审核结果为准。",
@@ -5071,7 +5053,7 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         type: "任务提醒",
         deadline: "2026-08-22 18:00",
         risk: "risk",
-        assignee: "工作组长",
+        assignee: "部门负责人",
         lastAction: "1 小时前 · 已催办一次",
         actionLabel: "查看名单",
         target: "hospital-visits",
@@ -5210,35 +5192,6 @@ export const roleDashboardData: Record<Role, DashboardRoleData> = {
         { id: "sp-s-1", label: "承接任务", value: "3 个", tone: "brand" },
         { id: "sp-s-2", label: "待初审", value: "27 条", tone: "warning" },
         { id: "sp-s-3", label: "超期未填报", value: "5 人", tone: "danger" },
-      ],
-    },
-    ranking: {
-      title: "工作组排名",
-      items: [
-        {
-          id: "sp-rank-1",
-          label: "TOP1 工作组三",
-          value: "94%",
-          hint: "任务完成率",
-          tone: "success",
-          progress: 94,
-        },
-        {
-          id: "sp-rank-2",
-          label: "TOP2 工作组五",
-          value: "89%",
-          hint: "证据链通过率",
-          tone: "brand",
-          progress: 89,
-        },
-        {
-          id: "sp-rank-3",
-          label: "关注 工作组二",
-          value: "68%",
-          hint: "负荷偏高",
-          tone: "warning",
-          progress: 68,
-        },
       ],
     },
     spotlight: {

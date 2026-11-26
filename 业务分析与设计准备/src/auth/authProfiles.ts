@@ -124,10 +124,10 @@ export const DEMO_ACCOUNT_HINTS: DemoAccountHint[] = [
   { userId: "u-zhaoning", account: "zhaoning", name: "赵宁", roleName: "企业管理员", orgName: "合规部", group: "pharma", tags: ["备案留底/准入审核"], enterpriseCode: "E9K4P7X2", phone: "13901350103", scene: "「企业管理员 · 合规部」：备案留底台账与国家平台状态同步、考核培训留底、服务商准入审核（通过即创建合作关系）与合作关系暂停" },
   // ── 服务商侧 ──
   { userId: "u-chenwei", account: "chenwei", name: "陈伟", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", group: "provider", tags: ["双企业身份", "配药厂范围"], enterpriseCode: "W6HK2T9V", phone: "13809120104", scene: "双企业身份：东方恒业编码登录=服务商管理员（可演示给员工配不同药厂范围）；百益制药编码（E9K4P7X2）登录=企业管理员 · 合规部" },
-  { userId: "u-liuyang", account: "liuyang", name: "刘洋", roleName: "工作组组长", orgName: "工作组一", group: "provider", tags: ["任务分派与初审"], enterpriseCode: "F3JN7QX4", phone: "13809120105", scene: "工作组分派与初审（智联科技成员；用百益编码登录可演示非成员防枚举）" },
-  { userId: "u-yangming", account: "yangming", name: "杨明", roleName: "服务专员", orgName: "工作组三", group: "provider", tags: ["选药厂门页·四状态", "专员执行"], enterpriseCode: "W6HK2T9V", phone: "13809120106", scene: "四卡门页：百益服务中 / 华康备案待审核（可进入+警告）/ 康宁合作暂停（禁用）/ 泽康业务授权已撤销（禁用）；专员名下仅一家可用药厂时不出选择列表、自动直达" },
+  { userId: "u-liuyang", account: "liuyang", name: "刘洋", roleName: "业务主管", orgName: "西北推广一部", group: "provider", tags: ["部门负责人", "动态范围"], enterpriseCode: "F3JN7QX4", phone: "13809120105", scene: "原工作组组长迁移样本：自定义「业务主管」× 本部门及以下（动态跟随部门，调岗自动切换）；智联科技成员，用百益编码登录可演示非成员防枚举" },
+  { userId: "u-yangming", account: "yangming", name: "杨明", roleName: "服务专员", orgName: "华东推广部", group: "provider", tags: ["选药厂门页·四状态", "专员执行"], enterpriseCode: "W6HK2T9V", phone: "13809120106", scene: "四卡门页：百益服务中 / 华康备案待审核（可进入+警告）/ 康宁合作暂停（禁用）/ 泽康业务授权已撤销（禁用）；专员名下仅一家可用药厂时不出选择列表、自动直达" },
   // ── 登录状态与拦截演示 ──
-  { userId: "u-hejing", account: "hejing", name: "何静", roleName: "工作组组长", orgName: "工作组三", group: "status", tags: ["待激活·首登放行"], enterpriseCode: "W6HK2T9V", phone: "13809120113", scene: "待激活新成员：验证码校验成功后自动激活并提示「账号已激活，欢迎加入」" },
+  { userId: "u-hejing", account: "hejing", name: "何静", roleName: "服务专员", orgName: "华东推广部", group: "status", tags: ["待激活·首登放行", "继承部门范围"], enterpriseCode: "W6HK2T9V", phone: "13809120113", scene: "待激活新成员（华东推广部负责人）：验证码校验成功后自动激活并提示「账号已激活，欢迎加入」；业务范围=继承部门（华康·奥美拉唑·仅陕西省）" },
   { userId: "u-hanlei", account: "hanlei", name: "韩磊", roleName: "服务商管理员", orgName: "东方恒业推广有限公司", group: "status", tags: ["冻结拦截", "双企业对照"], enterpriseCode: "W6HK2T9V", phone: "13809120114", scene: "企业级成员身份冻结：东方恒业编码登录被拒（成员身份已冻结）；百益编码（E9K4P7X2）登录=企业管理员，不受影响" },
 ]
 
