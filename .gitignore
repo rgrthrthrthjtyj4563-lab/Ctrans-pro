@@ -68,3 +68,7 @@ __pycache__/
 会议申请与审批功能/
 会议申请与审批功能.zip
 美罗需求设计稿.html
+
+# Local tool artifacts (cloned skill repo, generated document drafts)
+/modern-web-guidance/
+业务分析与设计准备/draft_*_folder/
