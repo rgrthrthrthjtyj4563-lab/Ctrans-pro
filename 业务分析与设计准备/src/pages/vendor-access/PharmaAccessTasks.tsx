@@ -225,7 +225,7 @@ export function PharmaAccessTasks({ addToast, navigate }: Props) {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
                 <thead>
-                  <tr>{['服务商', '材料模板', '状态', '创建时间', '操作'].map((h) => (
+                  <tr>{['服务商', '材料模板', '状态', '任务发起时间', '提交审核时间', '操作'].map((h) => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}</tr>
                 </thead>
@@ -241,11 +241,11 @@ export function PharmaAccessTasks({ addToast, navigate }: Props) {
                         >
                           {displayName || <span style={{ color: '#98A2B3', fontWeight: 500 }}>— 待领取（未绑定服务商）</span>}
                         </button>
-                        <div style={{ fontSize: 'var(--fs-11)', color: 'var(--color-text-3)', marginTop: 2, fontFamily: mono }}>
-                          {t.status === '待领取'
-                            ? `任务 ${t.id} · 准入码 ${t.admissionCode ?? '—'}`
-                            : `${t.id}${t.creditCode ? ` · ${t.creditCode}` : ''}`}
-                        </div>
+                        {t.status !== '待领取' && (
+                          <div style={{ fontSize: 'var(--fs-11)', color: 'var(--color-text-3)', marginTop: 2, fontFamily: mono }}>
+                            {`${t.id}${t.creditCode ? ` · ${t.creditCode}` : ''}`}
+                          </div>
+                        )}
                       </td>
                       <td style={tdStyle}>
                         <div style={{ fontSize: 'var(--fs-13)' }}>{t.requirementSnapshot.templateName}</div>
@@ -253,6 +253,7 @@ export function PharmaAccessTasks({ addToast, navigate }: Props) {
                       </td>
                       <td style={tdStyle}><StatusTag status={t.status} size="sm" /></td>
                       <td style={{ ...tdStyle, fontFamily: mono, whiteSpace: 'nowrap' }}>{t.createdAt || '—'}</td>
+                      <td style={{ ...tdStyle, fontFamily: mono, whiteSpace: 'nowrap' }}>{t.submittedAt || '—'}</td>
                       <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>{rowOps(t)}</div>
                       </td>
