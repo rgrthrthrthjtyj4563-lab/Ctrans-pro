@@ -8,12 +8,14 @@ import type { PageId } from "../types"
  * 2026-10-14：取消手动标记完成——完成态由 useStartupGuide 按各板块是否存在
  * 本厂数据现查现算（创建即完成、不追数据结局），抽屉不再提供「完成」按钮。
  * 文案对齐设计稿；步骤跳转走 AppShell navigate（自带越权拦截）。
+ * 2026-11-26：合同与品种/价目解耦后可稍后归档——副标题不再把合同列为基础配置前置，
+ * 合同步骤改述为药厂上传归档；步骤 ID、顺序、完成态判定与「合同管理」跳转均不变。
  */
 
 /** 引导主标题（欢迎卡、抽屉、顶栏胶囊共用） */
 export const STARTUP_GUIDE_TITLE = "合作启动步骤"
 /** 引导副标题（欢迎卡、抽屉共用） */
-export const STARTUP_GUIDE_SUBTITLE = "完成准入、合同、品种与价目的基础配置后，即可安心开展后续业务。"
+export const STARTUP_GUIDE_SUBTITLE = "完成服务商准入、品种和价目的基础配置后，即可开展后续业务。合作合同可另行归档。"
 
 /** 合作启动步骤配置（顺序即推荐路径） */
 export interface StartupGuideStep {
@@ -34,8 +36,8 @@ export const STARTUP_GUIDE_STEPS: StartupGuideStep[] = [
   },
   {
     id: "contract-upload",
-    title: "服务商上传合作合同",
-    description: "准入通过后，提醒服务商上传双方线下签署的合作合同，核对无误后归档存证。",
+    title: "归档合作合同（可稍后处理）",
+    description: "准入通过后，由药厂上传双方线下已签署的合作合同。尚未归档时，仍可先配置品种授权。",
     targetPage: "contract-management",
     targetLabel: "合同管理",
   },
